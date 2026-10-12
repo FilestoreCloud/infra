@@ -57,7 +57,7 @@ elif [ -x "$HOME/.local/bin/pre-commit" ]; then
   PRE_COMMIT_BIN="$HOME/.local/bin/pre-commit"
 fi
 
-if [ -n "$PRE_COMMIT_BIN" ]; then
+if [ -n "$PRE_COMMIT_BIN" ] && [ -f ".pre-commit-config.yaml" ]; then
   log_step "Running pre-commit hooks (.pre-commit-config.yaml)..."
   if ! "$PRE_COMMIT_BIN" run --hook-stage pre-commit; then
     log_error "pre-commit hooks reported issues. Please fix them before committing."

@@ -1,0 +1,22 @@
+name: Branch Protection Guard
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  validate-pr-source:
+    name: Validate PR into Main Originates from Dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Source Branch
+        run: |
+          echo "Target branch: ${{ github.base_ref }}"
+          echo "Source branch: ${{ github.head_ref }}"
+          if [ "${{ github.head_ref }}" != "dev" ]; then
+            echo "❌ ERROR: Merging directly into 'main' is only allowed from the 'dev' branch!"
+            echo "Source branch '${{ github.head_ref }}' is not allowed."
+            exit 1
+          fi
+          echo "✅ Validated: Pull Request to 'main' originates from 'dev'."

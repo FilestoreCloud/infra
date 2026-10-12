@@ -1,0 +1,97 @@
+repos:
+  # ============================================================================
+  # BASIC CODE QUALITY (NON-FORMATTING)
+  # ============================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=102400"] # 100MB = 102400KB
+      - id: check-json
+        exclude: '(package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|cdk\.context\.json$|\.vscode/|\.idea/|\.terraform/)'
+      - id: check-yaml
+        args: ["--unsafe", "--allow-multiple-documents"]
+      - id: debug-statements
+      - id: detect-private-key
+        exclude: '(\.terraform/|node_modules/|\.venv/|venv/|\.virtualenv/|vendor/|Pods/)'
+      - id: name-tests-test
+      - id: no-commit-to-branch
+        args: ["--branch", "main", "--branch", "master"]
+
+  # ============================================================================
+  # PYTHON SECURITY
+  # ============================================================================
+  - repo: https://github.com/pypa/pip-audit
+    rev: v2.10.1
+    hooks:
+      - id: pip-audit
+        args: ["-r", "requirements.txt"]
+        files: requirements\.txt$
+
+  # ============================================================================
+  # SECURITY SCANNING
+  # ============================================================================
+  - repo: https://github.com/awslabs/automated-security-helper
+    rev: v3.5.9
+    hooks:
+      - id: ash-simple-scan
+
+  - repo: https://github.com/awslabs/ferret-scan
+    rev: v2.3.2
+    hooks:
+      - id: ferret-scan
+        name: Ferret Scan Security Check
+        args:
+          [
+            "--pre-commit-mode",
+            "--confidence",
+            "medium,high",
+            "--checks",
+            "CLOUD_RESOURCES,EMAIL,INTELLECTUAL_PROPERTY,IP_ADDRESS,OTP,SECRETS,SOCIAL_MEDIA",
+            "--disable-ip-types",
+            "trademark,copyright,trade_secret",
+            "--config",
+            ".devsecops/ferret-scan.yaml",
+          ]
+        files: '\.(go|java|json|kt|kts|md|py|sh|sql|swift|txt|xml|yaml|yml)$'
+        exclude: '(^\.git/|\.ash/|\.cache/|\.devsecops/|\.dsr/|\.idea/|\.kiro/|\.venv/|\.virtualenv/|__pycache__/|\.pytest_cache/|\.mypy_cache/|\.ruff_cache/|\.tox/|\.terraform/|\.next/|\.nuxt/|\.svelte-kit/|\.turbo/|\.docusaurus/|_build/|site/|bin/|cdk\.out/|dist/|node_modules/|\.pnpm-store/|\.yarn/|bower_components/|\.vscode/|out/|\.output/|\.nyc_output/|test-results/|reports/|tmp/|temp/|logs/|setup\.sh|vendor/|Pods/|venv/|test_|_test\.|^README\.md$|\.DS_Store$|Thumbs\.db$|.*\.pyc$|.*\.pyo$|.*\.swp$|.*\.swo$|.*\.log$|package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|poetry\.lock$|Pipfile\.lock$|Gemfile\.lock$|\.terraform\.lock\.hcl$|terraform\.tfstate$|cdk\.context\.json$)'
+        pass_filenames: true
+
+  # ============================================================================
+  # INFRASTRUCTURE SECURITY
+  # ============================================================================
+  - repo: https://github.com/aws-cloudformation/cfn-lint
+    rev: v1.55.1
+    hooks:
+      - id: cfn-lint
+        exclude: ^\.*
+
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.108.1
+    hooks:
+      - id: terraform_tflint
+        files: '\.tf$'
+        verbose: true
+        args:
+          - --args=--format=compact --force
+
+  # ============================================================================
+  # LICENSE COMPLIANCE
+  # ============================================================================
+  # DO NOT bump to 2026.x — `pre-commit autoupdate` will try to. Two regressions
+  # break template consumers:
+  #   1. No pyproject.toml -> hard crash "RuntimeError: All resolvers failed".
+  #      The CLI's hardcoded requirements_paths default ("pyproject.toml")
+  #      overrides the value set in licensecheck.toml, so a project using
+  #      requirements.txt still crashes. Passing --requirements-paths works
+  #      around it, but every path listed must exist or it crashes again.
+  #   2. A project with zero dependencies exits 3 instead of 0.
+  # 2025.1.0 prints "No packages" and exits 0 in both cases.
+  - repo: https://github.com/FHPythonUtils/LicenseCheck
+    rev: "2025.1.0"
+    hooks:
+      - id: licensecheck
+        name: License Compliance Check
+        args: ["--format", "ansi", "--zero"]
+        # Note: licensecheck will automatically detect pyproject.toml or requirements.txt
+        # Configure allowed/blocked licenses in licensecheck.toml
