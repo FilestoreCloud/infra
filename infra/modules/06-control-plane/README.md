@@ -27,11 +27,16 @@ Modern, lightweight single-page management application for SaaS Super Admins to 
 
 ## 2. Directory Contents
 
-| File                       | Purpose                                                                                                                        |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| [`index.html`](index.html) | HTML5 single-page application structure, KPI stat cards, tenant data table, modal dialogs, and MFA challenge view              |
-| [`app.js`](app.js)         | JavaScript controller handling DynamoDB fetching, TOTP MFA challenge resolution, RBAC UI gating, and live CloudWatch telemetry |
-| [`styles.css`](styles.css) | Modern responsive dark-mode styling and authenticator input formatting                                                         |
+| File                                                     | Purpose                                                                                                                                     |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`template.yaml`](template.yaml)                         | CloudFormation template for DynamoDB tenant registry, audit logs, admin users, Cognito, CloudWatch dashboard, and CloudFront/S3 web hosting |
+| [`tenant_operator_lambda.py`](tenant_operator_lambda.py) | Control Plane REST API Lambda backend and operational lifecycle controller                                                                  |
+| [`runbook.yaml`](runbook.yaml)                           | Systems Manager (SSM) Automation Runbook for tenant lifecycle workflows (`PROVISION`, `SUSPEND`, `RESUME`, `DEPROVISION`)                   |
+| [`dashboard.json`](dashboard.json)                       | CloudWatch operational telemetry dashboard definition                                                                                       |
+
+> [!NOTE]
+> **Web Console Application:**
+> The Super Admin Web Console frontend source code has moved to the dedicated **`console`** repository (built with React 18, Refine, Ant Design 5, and Vite). This module provisions the hosting infrastructure (S3 bucket and CloudFront distribution) and the backend API Lambda.
 
 ---
 
