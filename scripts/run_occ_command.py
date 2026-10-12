@@ -1,12 +1,15 @@
-#!/usr/bin/env python3
-import boto3
+import os
 import sys
 import time
+import boto3
 
 tenant = sys.argv[1] if len(sys.argv) > 1 else "acme"
 occ_cmd = sys.argv[2] if len(sys.argv) > 2 else "status"
 
-session = boto3.Session(profile_name="handon", region_name="ap-southeast-1")
+session = boto3.Session(
+    profile_name=os.getenv("AWS_PROFILE"),
+    region_name=os.getenv("AWS_REGION", "ap-southeast-1"),
+)
 ecs = session.client("ecs")
 logs = session.client("logs")
 
@@ -21,21 +24,15 @@ res = ecs.run_task(
         "awsvpcConfiguration": {
             "subnets": ["subnet-08096079734609710", "subnet-049b7e2945e7eddce"],
             "securityGroups": ["sg-020acf11e92c99ca4"],
-            "assignPublicIp": "ENABLED"
+            "assignPublicIp": "ENABLED",
         }
     },
     overrides={
         "containerOverrides": [
-            {
-                "name": "nextcloud",
-                "command": [cmd_string]
-            },
-            {
-                "name": "litellm-sidecar",
-                "command": ["echo", "sidecar skipped"]
-            }
+            {"name": "nextcloud", "command": [cmd_string]},
+            {"name": "litellm-sidecar", "command": ["echo", "sidecar skipped"]},
         ]
-    }
+    },
 )
 
 task_arn = res["tasks"][0]["taskArn"]
@@ -49,15 +46,14 @@ print("Task stopped. Fetching logs...")
 time.sleep(3)
 stream_prefix = f"tenant-{tenant}/nextcloud/{task_id}"
 streams = logs.describe_log_streams(
-    logGroupName="/ecs/prod-nextcloud",
-    logStreamNamePrefix=stream_prefix
+    logGroupName="/ecs/prod-nextcloud", logStreamNamePrefix=stream_prefix
 )["logStreams"]
 
 if streams:
     events = logs.get_log_events(
         logGroupName="/ecs/prod-nextcloud",
         logStreamName=streams[0]["logStreamName"],
-        startFromHead=True
+        startFromHead=True,
     )["events"]
     for ev in events:
         print(ev["message"])

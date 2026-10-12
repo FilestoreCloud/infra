@@ -128,7 +128,9 @@ def test_tenant_upload_code_and_sql_content(tenant_fixture):
         method="PUT",
     )
     with urllib.request.urlopen(req_put, timeout=20) as resp:
-        assert resp.status in (201, 204), f"PUT code file failed with status {resp.status}"
+        assert resp.status in (201, 204), (
+            f"PUT code file failed with status {resp.status}"
+        )
 
     # Verify and cleanup
     req_del = urllib.request.Request(

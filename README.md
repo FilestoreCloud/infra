@@ -10,13 +10,13 @@ FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular Cloud
 
 ### Key Architectural Boundaries
 
-* **Container-per-Tenant Isolation:** Dedicated Amazon ECS Fargate task (`service-<tenant_id>`) per tenant. Suspending a tenant scales `desiredCount: 0` for FinOps zero compute cost.
-* **Dynamic Routing:** Host-Header routing at Application Load Balancer (`<tenant_id>.domain.com` ➔ `tg-<tenant_id>` ➔ `service-<tenant_id>`).
-* **3-Tier Storage & Data Separation:**
-  * **Persistent Config Store (Amazon EFS):** `/tenants/<tenant_id>/config` mounted to `/var/www/html/config`.
-  * **Object Storage Vault (Amazon S3):** Isolated prefixes `s3://<vault>/tenants/<tenant_id>/...`.
-  * **Database (Amazon RDS PostgreSQL 16):** Dedicated physical database (`nc_<tenant_id>`) per tenant.
-* **Control Plane & Registry:** Amazon DynamoDB Tenant Registry, SSM Lifecycle Operator runbooks, and CloudWatch operational dashboard.
+- **Container-per-Tenant Isolation:** Dedicated Amazon ECS Fargate task (`service-<tenant_id>`) per tenant. Suspending a tenant scales `desiredCount: 0` for FinOps zero compute cost.
+- **Dynamic Routing:** Host-Header routing at Application Load Balancer (`<tenant_id>.domain.com` ➔ `tg-<tenant_id>` ➔ `service-<tenant_id>`).
+- **3-Tier Storage & Data Separation:**
+  - **Persistent Config Store (Amazon EFS):** `/tenants/<tenant_id>/config` mounted to `/var/www/html/config`.
+  - **Object Storage Vault (Amazon S3):** Isolated prefixes `s3://<vault>/tenants/<tenant_id>/...`.
+  - **Database (Amazon RDS PostgreSQL 16):** Dedicated physical database (`nc_<tenant_id>`) per tenant.
+- **Control Plane & Registry:** Amazon DynamoDB Tenant Registry, SSM Lifecycle Operator runbooks, and CloudWatch operational dashboard.
 
 ---
 
@@ -87,5 +87,5 @@ cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W300
 
 ## 5. Related Repositories
 
-* [**`FilestoreCloud/runtime`**](https://github.com/FilestoreCloud/runtime): Docker Golden Image & Bedrock AI Sidecar.
-* [**`FilestoreCloud/console`**](https://github.com/FilestoreCloud/console): Super Admin Web Console (React 18 + Refine + Ant Design).
+- [**`FilestoreCloud/runtime`**](https://github.com/FilestoreCloud/runtime): Docker Golden Image & Bedrock AI Sidecar.
+- [**`FilestoreCloud/console`**](https://github.com/FilestoreCloud/console): Super Admin Web Console (React 18 + Refine + Ant Design).

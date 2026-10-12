@@ -1,5 +1,5 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Nextcloud Multi-Tenant SaaS - Module 05: Compute & Ingress Platform (ALB Host-Routing, ECS Fargate Cluster, Default Service, ECR, IAM)'
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Module 05: Compute & Ingress Platform (ALB Host-Routing, ECS Fargate Cluster, Default Service, ECR, IAM)"
 
 Parameters:
   EnvironmentName:
@@ -50,14 +50,14 @@ Parameters:
 
   TaskCpu:
     Type: String
-    Default: '1024'
-    AllowedValues: ['512', '1024', '2048', '4096']
+    Default: "1024"
+    AllowedValues: ["512", "1024", "2048", "4096"]
     Description: CPU units for the Fargate task (1024 = 1 vCPU)
 
   TaskMemory:
     Type: String
-    Default: '2048'
-    AllowedValues: ['1024', '2048', '4096', '8192']
+    Default: "2048"
+    AllowedValues: ["1024", "2048", "4096", "8192"]
     Description: Memory (in MB) for the Fargate task
 
   DesiredCount:
@@ -72,43 +72,43 @@ Parameters:
 
   EnableAIEngine:
     Type: String
-    Default: 'true'
-    AllowedValues: ['true', 'false']
+    Default: "true"
+    AllowedValues: ["true", "false"]
     Description: Enable Nextcloud AI Assistant and Amazon Bedrock foundation model integration
 
   ContainerImage:
     Type: String
-    Default: 'nextcloud:30.0.17-apache'
+    Default: "nextcloud:30.0.17-apache"
     Description: Container image URI (Use default or your Amazon ECR Golden Image URI)
 
   ACMCertificateArn:
     Type: String
     Description: ARN of an ACM TLS certificate for the HTTPS listener
-    Default: 'arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME'
+    Default: "arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME"
 
   EFSFileSystemId:
     Type: String
     Description: EFS File System ID for Nextcloud Persistent Config
-    Default: ''
+    Default: ""
 
   EFSFileSystemArn:
     Type: String
     Description: EFS File System ARN for IAM Task Role
-    Default: ''
+    Default: ""
 
   DefaultEFSAccessPointId:
     Type: String
     Description: EFS Access Point ID for Default Tenant Config
-    Default: ''
+    Default: ""
 
 Conditions:
-  HasEFS: !Not [!Equals [!Ref EFSFileSystemId, '']]
+  HasEFS: !Not [!Equals [!Ref EFSFileSystemId, ""]]
 
 Resources:
   NextcloudECRRepository:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub '${EnvironmentName}-nextcloud-enterprise'
+      RepositoryName: !Sub "${EnvironmentName}-nextcloud-enterprise"
       ImageScanningConfiguration:
         ScanOnPush: true
       Tags:
@@ -118,7 +118,7 @@ Resources:
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: !Sub '${EnvironmentName}-nextcloud-alb'
+      Name: !Sub "${EnvironmentName}-nextcloud-alb"
       Scheme: internet-facing
       Type: application
       Subnets:
@@ -128,14 +128,14 @@ Resources:
         - !Ref ALBSecurityGroupId
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-alb'
+          Value: !Sub "${EnvironmentName}-alb"
         - Key: Environment
           Value: !Ref EnvironmentName
 
   WAFWebACL:
     Type: AWS::WAFv2::WebACL
     Properties:
-      Name: !Sub '${EnvironmentName}-nextcloud-waf'
+      Name: !Sub "${EnvironmentName}-nextcloud-waf"
       Scope: REGIONAL
       Description: AWS WAF protection for Nextcloud SaaS ALB with OWASP Top 10, SQLi, and IP Rate Limiting
       DefaultAction:
@@ -143,7 +143,7 @@ Resources:
       VisibilityConfig:
         SampledRequestsEnabled: true
         CloudWatchMetricsEnabled: true
-        MetricName: !Sub '${EnvironmentName}-nextcloud-waf'
+        MetricName: !Sub "${EnvironmentName}-nextcloud-waf"
       Rules:
         - Name: AWS-AWSManagedRulesCommonRuleSet
           Priority: 1
@@ -213,13 +213,13 @@ Resources:
   ALBTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub '${EnvironmentName}-nextcloud-tg'
+      Name: !Sub "${EnvironmentName}-nextcloud-tg"
       Port: 80
       Protocol: HTTP
       TargetType: ip
       VpcId: !Ref VpcId
       Matcher:
-        HttpCode: '200-400'
+        HttpCode: "200-400"
       HealthCheckIntervalSeconds: 30
       HealthCheckPath: /status.php
       HealthCheckProtocol: HTTP
@@ -228,13 +228,13 @@ Resources:
       UnhealthyThresholdCount: 6
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
-          Value: '30'
+          Value: "30"
         - Key: stickiness.enabled
-          Value: 'true'
+          Value: "true"
         - Key: stickiness.type
           Value: lb_cookie
         - Key: stickiness.lb_cookie.duration_seconds
-          Value: '86400'
+          Value: "86400"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -246,7 +246,7 @@ Resources:
         - Type: redirect
           RedirectConfig:
             Protocol: HTTPS
-            Port: '443'
+            Port: "443"
             StatusCode: HTTP_301
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
@@ -272,7 +272,7 @@ Resources:
       Priority: 50000
       Conditions:
         - Field: path-pattern
-          Values: ['/*']
+          Values: ["/*"]
       Actions:
         - Type: forward
           TargetGroupArn: !Ref ALBTargetGroup
@@ -280,7 +280,7 @@ Resources:
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Sub '${EnvironmentName}-nextcloud-cluster'
+      ClusterName: !Sub "${EnvironmentName}-nextcloud-cluster"
       ClusterSettings:
         - Name: containerInsights
           Value: enabled
@@ -296,20 +296,20 @@ Resources:
           Base: 0
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-ecs-cluster'
+          Value: !Sub "${EnvironmentName}-ecs-cluster"
         - Key: Environment
           Value: !Ref EnvironmentName
 
   CloudWatchLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub '/ecs/${EnvironmentName}-nextcloud'
+      LogGroupName: !Sub "/ecs/${EnvironmentName}-nextcloud"
       RetentionInDays: 30
 
   AdminSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/secrets/admin-credentials'
+      Name: !Sub "/nextcloud/${EnvironmentName}/secrets/admin-credentials"
       Description: Nextcloud SaaS initial super-admin credentials
       SecretString: !Sub |
         {
@@ -323,7 +323,7 @@ Resources:
   LiteLLMSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/secrets/litellm-api-key'
+      Name: !Sub "/nextcloud/${EnvironmentName}/secrets/litellm-api-key"
       Description: LiteLLM Bedrock Bridge internal API key (SaaS-scoped, rotatable)
       GenerateSecretString:
         SecretStringTemplate: '{"prefix": "sk-saas-nextcloud-"}'
@@ -337,9 +337,9 @@ Resources:
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${EnvironmentName}-ecs-task-exec-role-${AWS::Region}'
+      RoleName: !Sub "${EnvironmentName}-ecs-task-exec-role-${AWS::Region}"
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -350,7 +350,7 @@ Resources:
       Policies:
         - PolicyName: SecretsManagerAccessPolicy
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
@@ -359,14 +359,14 @@ Resources:
                   - !Ref DBSecretArn
                   - !Ref AdminSecret
                   - !Ref LiteLLMSecret
-                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/tenants/*'
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/tenants/*"
 
   ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${EnvironmentName}-ecs-task-role-${AWS::Region}'
+      RoleName: !Sub "${EnvironmentName}-ecs-task-role-${AWS::Region}"
       AssumeRolePolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Effect: Allow
             Principal:
@@ -375,7 +375,7 @@ Resources:
       Policies:
         - PolicyName: S3VaultAccessPolicy
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
@@ -385,36 +385,35 @@ Resources:
                   - s3:ListBucket
                 Resource:
                   - !Ref S3VaultBucketArn
-                  - !Sub '${S3VaultBucketArn}/*'
+                  - !Sub "${S3VaultBucketArn}/*"
         - PolicyName: BedrockAIAccessPolicy
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
                   - bedrock:ListFoundationModels
-                Resource: '*'
+                Resource: "*"
         - PolicyName: EFSAccessPolicy
           PolicyDocument:
-            Version: '2012-10-17'
+            Version: "2012-10-17"
             Statement:
               - Effect: Allow
                 Action:
                   - elasticfilesystem:ClientMount
                   - elasticfilesystem:ClientWrite
                   - elasticfilesystem:DescribeFileSystems
-                Resource:
-                  !If
-                    - HasEFS
-                    - !Sub 'arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${EFSFileSystemId}'
-                    - '*'
+                Resource: !If
+                  - HasEFS
+                  - !Sub "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${EFSFileSystemId}"
+                  - "*"
 
   NextcloudTaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      Family: !Sub '${EnvironmentName}-nextcloud-app'
+      Family: !Sub "${EnvironmentName}-nextcloud-app"
       RequiresCompatibilities:
         - FARGATE
       Cpu: !Ref TaskCpu
@@ -422,17 +421,16 @@ Resources:
       NetworkMode: awsvpc
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       TaskRoleArn: !GetAtt ECSTaskRole.Arn
-      Volumes:
-        !If
-          - HasEFS
-          - - Name: nextcloud-config
-              EFSVolumeConfiguration:
-                FilesystemId: !Ref EFSFileSystemId
-                TransitEncryption: ENABLED
-                AuthorizationConfig:
-                  AccessPointId: !Ref DefaultEFSAccessPointId
-                  IAM: ENABLED
-          - !Ref 'AWS::NoValue'
+      Volumes: !If
+        - HasEFS
+        - - Name: nextcloud-config
+            EFSVolumeConfiguration:
+              FilesystemId: !Ref EFSFileSystemId
+              TransitEncryption: ENABLED
+              AuthorizationConfig:
+                AccessPointId: !Ref DefaultEFSAccessPointId
+                IAM: ENABLED
+        - !Ref "AWS::NoValue"
       ContainerDefinitions:
         - Name: nextcloud
           Image: !Ref ContainerImage
@@ -440,13 +438,12 @@ Resources:
             - ContainerPort: 80
               HostPort: 80
               Protocol: tcp
-          MountPoints:
-            !If
-              - HasEFS
-              - - SourceVolume: nextcloud-config
-                  ContainerPath: /var/www/html/config
-                  ReadOnly: false
-              - !Ref 'AWS::NoValue'
+          MountPoints: !If
+            - HasEFS
+            - - SourceVolume: nextcloud-config
+                ContainerPath: /var/www/html/config
+                ReadOnly: false
+            - !Ref "AWS::NoValue"
           Environment:
             - Name: POSTGRES_HOST
               Value: !Ref DatabaseEndpoint
@@ -459,52 +456,52 @@ Resources:
             - Name: OBJECTSTORE_S3_BUCKET
               Value: !Ref S3VaultBucketName
             - Name: OBJECTSTORE_S3_REGION
-              Value: !Ref 'AWS::Region'
+              Value: !Ref "AWS::Region"
             - Name: OBJECTSTORE_S3_AUTOCREATE
-              Value: 'false'
+              Value: "false"
             - Name: OBJECTSTORE_S3_USEPATH_STYLE
-              Value: 'false'
+              Value: "false"
             - Name: OBJECTSTORE_S3_SSL
-              Value: 'true'
+              Value: "true"
             - Name: NEXTCLOUD_TRUSTED_DOMAINS
-              Value: !Sub '${ApplicationLoadBalancer.DNSName} localhost 127.0.0.1 appleai.codes *.appleai.codes'
+              Value: !Sub "${ApplicationLoadBalancer.DNSName} localhost 127.0.0.1 appleai.codes *.appleai.codes"
             - Name: TRUSTED_PROXIES
               Value: 10.0.0.0/16
             - Name: NEXTCLOUD_ENABLE_AI
               Value: !Ref EnableAIEngine
             - Name: BEDROCK_REGION
-              Value: !Ref 'AWS::Region'
+              Value: !Ref "AWS::Region"
             - Name: BEDROCK_DEFAULT_MODEL
-              Value: 'bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0'
+              Value: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
             - Name: LITELLM_API_URL
-              Value: 'http://127.0.0.1:4000/v1'
+              Value: "http://127.0.0.1:4000/v1"
             - Name: OVERWRITEPROTOCOL
               Value: https
             - Name: OVERWRITECLIURL
-              Value: !Sub 'https://${ApplicationLoadBalancer.DNSName}'
+              Value: !Sub "https://${ApplicationLoadBalancer.DNSName}"
             - Name: NC_maintenance_window_start
-              Value: '2'
+              Value: "2"
             - Name: NC_default_phone_region
-              Value: 'VN'
+              Value: "VN"
             - Name: NC_setup_create_db_user
-              Value: 'false'
+              Value: "false"
           Secrets:
             - Name: POSTGRES_PASSWORD
-              ValueFrom: !Sub '${DBSecretArn}:password::'
+              ValueFrom: !Sub "${DBSecretArn}:password::"
             - Name: NEXTCLOUD_ADMIN_PASSWORD
-              ValueFrom: !Sub '${AdminSecret}:password::'
+              ValueFrom: !Sub "${AdminSecret}:password::"
             - Name: LITELLM_API_KEY
-              ValueFrom: !Sub '${LiteLLMSecret}:token::'
+              ValueFrom: !Sub "${LiteLLMSecret}:token::"
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref CloudWatchLogGroup
-              awslogs-region: !Ref 'AWS::Region'
+              awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: nextcloud
           HealthCheck:
             Command:
               - CMD-SHELL
-              - 'curl -f http://localhost/status.php || exit 1'
+              - "curl -f http://localhost/status.php || exit 1"
             Interval: 30
             Timeout: 10
             Retries: 5
@@ -512,7 +509,7 @@ Resources:
 
         # LiteLLM Bedrock Bridge Sidecar
         - Name: litellm-sidecar
-          Image: 'ghcr.io/berriai/litellm:main-v1.49.5'
+          Image: "ghcr.io/berriai/litellm:main-v1.49.5"
           Essential: false
           PortMappings:
             - ContainerPort: 4000
@@ -520,22 +517,22 @@ Resources:
               Protocol: tcp
           Environment:
             - Name: AWS_REGION
-              Value: !Ref 'AWS::Region'
+              Value: !Ref "AWS::Region"
             - Name: NUM_WORKERS
-              Value: '2'
+              Value: "2"
           Secrets:
             - Name: LITELLM_MASTER_KEY
-              ValueFrom: !Sub '${LiteLLMSecret}:token::'
+              ValueFrom: !Sub "${LiteLLMSecret}:token::"
           LogConfiguration:
             LogDriver: awslogs
             Options:
               awslogs-group: !Ref CloudWatchLogGroup
-              awslogs-region: !Ref 'AWS::Region'
+              awslogs-region: !Ref "AWS::Region"
               awslogs-stream-prefix: litellm
           HealthCheck:
             Command:
               - CMD-SHELL
-              - 'curl -f http://localhost:4000/health/liveliness || exit 1'
+              - "curl -f http://localhost:4000/health/liveliness || exit 1"
             Interval: 30
             Timeout: 10
             Retries: 3
@@ -545,7 +542,7 @@ Resources:
     Type: AWS::ECS::Service
     DependsOn: ALBListener
     Properties:
-      ServiceName: !Sub '${EnvironmentName}-nextcloud-service'
+      ServiceName: !Sub "${EnvironmentName}-nextcloud-service"
       Cluster: !Ref ECSCluster
       TaskDefinition: !Ref NextcloudTaskDefinition
       CapacityProviderStrategy:
@@ -581,15 +578,15 @@ Resources:
     Properties:
       MaxCapacity: !Ref MaxCount
       MinCapacity: !Ref DesiredCount
-      ResourceId: !Sub 'service/${ECSCluster}/${ECSService.Name}'
-      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
+      ResourceId: !Sub "service/${ECSCluster}/${ECSService.Name}"
+      RoleARN: !Sub "arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
 
   ECSAutoScalingPolicyCPU:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
     Properties:
-      PolicyName: !Sub '${EnvironmentName}-ecs-cpu-scaling'
+      PolicyName: !Sub "${EnvironmentName}-ecs-cpu-scaling"
       PolicyType: TargetTrackingScaling
       ScalingTargetId: !Ref ECSAutoScalingTarget
       TargetTrackingScalingPolicyConfiguration:
@@ -603,7 +600,7 @@ Resources:
   SSMALBDNS:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/alb-dns'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/alb-dns"
       Type: String
       Value: !GetAtt ApplicationLoadBalancer.DNSName
       Description: ALB Public DNS Name
@@ -613,7 +610,7 @@ Resources:
   SSMAdminUser:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/app/admin-user'
+      Name: !Sub "/nextcloud/${EnvironmentName}/app/admin-user"
       Type: String
       Value: admin
       Description: Nextcloud Initial Admin User
@@ -623,9 +620,9 @@ Resources:
   SSMTrustedDomains:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/app/trusted-domains'
+      Name: !Sub "/nextcloud/${EnvironmentName}/app/trusted-domains"
       Type: String
-      Value: !Sub '${ApplicationLoadBalancer.DNSName} localhost 127.0.0.1 appleai.codes *.appleai.codes'
+      Value: !Sub "${ApplicationLoadBalancer.DNSName} localhost 127.0.0.1 appleai.codes *.appleai.codes"
       Description: Nextcloud Trusted Domains
       Tags:
         Environment: !Ref EnvironmentName
@@ -633,7 +630,7 @@ Resources:
   SSMAIEnabled:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/ai/enabled'
+      Name: !Sub "/nextcloud/${EnvironmentName}/ai/enabled"
       Type: String
       Value: !Ref EnableAIEngine
       Description: Status of Nextcloud AI Engine integration
@@ -643,9 +640,9 @@ Resources:
   SSMAIModelId:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/ai/bedrock-model-id'
+      Name: !Sub "/nextcloud/${EnvironmentName}/ai/bedrock-model-id"
       Type: String
-      Value: 'anthropic.claude-3-5-sonnet-20241022-v2:0'
+      Value: "anthropic.claude-3-5-sonnet-20241022-v2:0"
       Description: AWS Bedrock Default Model for Nextcloud Assistant
       Tags:
         Environment: !Ref EnvironmentName
@@ -653,7 +650,7 @@ Resources:
   SSMClusterName:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/ecs-cluster-name'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/ecs-cluster-name"
       Type: String
       Value: !Ref ECSCluster
       Description: ECS Cluster Name
@@ -663,7 +660,7 @@ Resources:
   SSMServiceName:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/ecs-service-name'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/ecs-service-name"
       Type: String
       Value: !GetAtt ECSService.Name
       Description: ECS Service Name
@@ -673,7 +670,7 @@ Resources:
   SSMECSTaskRoleArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/ecs-task-role-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/ecs-task-role-arn"
       Type: String
       Value: !GetAtt ECSTaskRole.Arn
       Description: ECS Task Role ARN
@@ -683,7 +680,7 @@ Resources:
   SSMECSTaskExecutionRoleArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/ecs-task-execution-role-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/ecs-task-execution-role-arn"
       Type: String
       Value: !GetAtt ECSTaskExecutionRole.Arn
       Description: ECS Task Execution Role ARN
@@ -693,7 +690,7 @@ Resources:
   SSMALBHTTPSListenerArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/alb-https-listener-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/alb-https-listener-arn"
       Type: String
       Value: !Ref ALBHTTPSListener
       Description: ALB HTTPS Listener ARN for tenant host-routing rules
@@ -703,7 +700,7 @@ Resources:
   SSMALBArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/alb-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/alb-arn"
       Type: String
       Value: !Ref ApplicationLoadBalancer
       Description: Application Load Balancer ARN
@@ -713,7 +710,7 @@ Resources:
   SSMALBDNSName:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/alb-dns-name'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/alb-dns-name"
       Type: String
       Value: !GetAtt ApplicationLoadBalancer.DNSName
       Description: ALB DNS Name
@@ -723,7 +720,7 @@ Resources:
   SSMECRRepoUri:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/ecr-repo-uri'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/ecr-repo-uri"
       Type: String
       Value: !GetAtt NextcloudECRRepository.RepositoryUri
       Description: Nextcloud ECR Repository URI
@@ -733,7 +730,7 @@ Resources:
   SSMAdminSecretArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/admin-secret-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/admin-secret-arn"
       Type: String
       Value: !Ref AdminSecret
       Description: Admin Secret ARN
@@ -743,7 +740,7 @@ Resources:
   SSMLiteLLMSecretArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/litellm-secret-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/litellm-secret-arn"
       Type: String
       Value: !Ref LiteLLMSecret
       Description: LiteLLM Secret ARN
@@ -753,72 +750,72 @@ Resources:
 Outputs:
   LoadBalancerURL:
     Description: Public URL of the Nextcloud Application Load Balancer (HTTPS)
-    Value: !Sub 'https://${ApplicationLoadBalancer.DNSName}'
+    Value: !Sub "https://${ApplicationLoadBalancer.DNSName}"
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-LoadBalancerURL'
+      Name: !Sub "${EnvironmentName}-nextcloud-LoadBalancerURL"
 
   LoadBalancerDNS:
     Description: ALB DNS Name
     Value: !GetAtt ApplicationLoadBalancer.DNSName
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-LoadBalancerDNS'
+      Name: !Sub "${EnvironmentName}-nextcloud-LoadBalancerDNS"
 
   LoadBalancerFullName:
     Description: Full Name of the Load Balancer
     Value: !GetAtt ApplicationLoadBalancer.LoadBalancerFullName
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-LoadBalancerFullName'
+      Name: !Sub "${EnvironmentName}-nextcloud-LoadBalancerFullName"
 
   TargetGroupFullName:
     Description: Full Name of the Target Group
     Value: !GetAtt ALBTargetGroup.TargetGroupFullName
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-TargetGroupFullName'
+      Name: !Sub "${EnvironmentName}-nextcloud-TargetGroupFullName"
 
   ALBHTTPSListenerArn:
     Description: ALB HTTPS Listener ARN
     Value: !Ref ALBHTTPSListener
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ALBHTTPSListenerArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-ALBHTTPSListenerArn"
 
   ECSClusterName:
     Description: ECS Cluster Name
     Value: !Ref ECSCluster
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ECSClusterName'
+      Name: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
 
   ECSServiceName:
     Description: ECS Service Name
     Value: !GetAtt ECSService.Name
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ECSServiceName'
+      Name: !Sub "${EnvironmentName}-nextcloud-ECSServiceName"
 
   ECSTaskExecutionRoleArn:
     Description: ECS Task Execution Role ARN
     Value: !GetAtt ECSTaskExecutionRole.Arn
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ECSTaskExecutionRoleArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-ECSTaskExecutionRoleArn"
 
   ECSTaskRoleArn:
     Description: ECS Task Role ARN
     Value: !GetAtt ECSTaskRole.Arn
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ECSTaskRoleArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-ECSTaskRoleArn"
 
   ECRRepositoryUri:
     Description: Amazon ECR Golden Image Repository URI
     Value: !GetAtt NextcloudECRRepository.RepositoryUri
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ECRRepositoryUri'
+      Name: !Sub "${EnvironmentName}-nextcloud-ECRRepositoryUri"
 
   AdminSecretArn:
     Description: Secrets Manager Secret ARN for Nextcloud Admin Credentials
     Value: !Ref AdminSecret
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-AdminSecretArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-AdminSecretArn"
 
   LiteLLMSecretArn:
     Description: Secrets Manager Secret ARN for LiteLLM Bedrock Bridge API Key
     Value: !Ref LiteLLMSecret
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-LiteLLMSecretArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-LiteLLMSecretArn"

@@ -4,29 +4,29 @@ on:
   workflow_dispatch:
     inputs:
       tenant_id:
-        description: 'Unique Tenant ID (lowercase alphanumeric, e.g. acme, globex)'
+        description: "Unique Tenant ID (lowercase alphanumeric, e.g. acme, globex)"
         required: true
-        default: 'tenant-demo'
+        default: "tenant-demo"
       tenant_domain:
-        description: 'Tenant Custom Domain (e.g. acme.yourdomain.com)'
+        description: "Tenant Custom Domain (e.g. acme.yourdomain.com)"
         required: true
-        default: 'tenant-demo.nextcloud.local'
+        default: "tenant-demo.nextcloud.local"
       environment:
-        description: 'Target Environment'
+        description: "Target Environment"
         required: true
-        default: 'prod'
+        default: "prod"
         type: choice
         options:
           - dev
           - staging
           - prod
       storage_quota_gb:
-        description: 'Storage Quota (GB)'
+        description: "Storage Quota (GB)"
         required: false
-        default: '100'
+        default: "100"
 
 permissions:
-  id-token: write   # Required for AWS OIDC authentication
+  id-token: write # Required for AWS OIDC authentication
   contents: read
 
 jobs:
@@ -40,7 +40,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
 
       - name: Install Dependencies
@@ -51,7 +51,7 @@ jobs:
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN || 'arn:aws:iam::649519997247:role/nextcloud-github-actions-deploy-role' }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
           audience: sts.amazonaws.com
 
@@ -69,7 +69,7 @@ jobs:
           echo "   Quota   : ${{ inputs.storage_quota_gb }} GB"
           echo "   Env     : ${{ inputs.environment }}"
           echo "==============================================================="
-          
+
           python3 scripts/provision_dedicated_tenant.py \
             --tenant-id "${{ inputs.tenant_id }}" \
             --tenant-domain "${{ inputs.tenant_domain }}"

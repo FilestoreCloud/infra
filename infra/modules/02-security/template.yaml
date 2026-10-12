@@ -1,5 +1,5 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Nextcloud Multi-Tenant SaaS - Module 02: Security (ALB, ECS, RDS Security Groups)'
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Module 02: Security (ALB, ECS, RDS Security Groups)"
 
 Parameters:
   EnvironmentName:
@@ -31,7 +31,7 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-alb-sg'
+          Value: !Sub "${EnvironmentName}-alb-sg"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -50,7 +50,7 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-ecs-fargate-sg'
+          Value: !Sub "${EnvironmentName}-ecs-fargate-sg"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -69,7 +69,7 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-rds-postgres-sg'
+          Value: !Sub "${EnvironmentName}-rds-postgres-sg"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -89,7 +89,7 @@ Resources:
           CidrIp: 0.0.0.0/0
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-efs-sg'
+          Value: !Sub "${EnvironmentName}-efs-sg"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -97,7 +97,7 @@ Resources:
   SSMALBSecurityGroup:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/security/alb-sg-id'
+      Name: !Sub "/nextcloud/${EnvironmentName}/security/alb-sg-id"
       Type: String
       Value: !Ref ALBSecurityGroup
       Description: ALB Security Group ID
@@ -107,7 +107,7 @@ Resources:
   SSMECSSecurityGroup:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/security/ecs-sg-id'
+      Name: !Sub "/nextcloud/${EnvironmentName}/security/ecs-sg-id"
       Type: String
       Value: !Ref ECSSecurityGroup
       Description: ECS Security Group ID
@@ -117,7 +117,7 @@ Resources:
   SSMDBSecurityGroup:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/security/db-sg-id'
+      Name: !Sub "/nextcloud/${EnvironmentName}/security/db-sg-id"
       Type: String
       Value: !Ref DBSecurityGroup
       Description: RDS DB Security Group ID
@@ -127,7 +127,7 @@ Resources:
   SSMEFSSecurityGroup:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/security/efs-sg-id'
+      Name: !Sub "/nextcloud/${EnvironmentName}/security/efs-sg-id"
       Type: String
       Value: !Ref EFSSecurityGroup
       Description: EFS Security Group ID
@@ -139,22 +139,22 @@ Outputs:
     Description: ALB Security Group ID
     Value: !Ref ALBSecurityGroup
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ALBSecurityGroupId'
+      Name: !Sub "${EnvironmentName}-nextcloud-ALBSecurityGroupId"
 
   ECSSecurityGroupId:
     Description: ECS Security Group ID
     Value: !Ref ECSSecurityGroup
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-ECSSecurityGroupId'
+      Name: !Sub "${EnvironmentName}-nextcloud-ECSSecurityGroupId"
 
   DBSecurityGroupId:
     Description: RDS DB Security Group ID
     Value: !Ref DBSecurityGroup
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-DBSecurityGroupId'
+      Name: !Sub "${EnvironmentName}-nextcloud-DBSecurityGroupId"
 
   EFSSecurityGroupId:
     Description: EFS Security Group ID
     Value: !Ref EFSSecurityGroup
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-EFSSecurityGroupId'
+      Name: !Sub "${EnvironmentName}-nextcloud-EFSSecurityGroupId"

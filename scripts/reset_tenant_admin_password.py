@@ -1,12 +1,15 @@
-#!/usr/bin/env python3
-import boto3
 import json
+import os
 import sys
 import time
+import boto3
 
 tenant = sys.argv[1] if len(sys.argv) > 1 else "acme"
 
-session = boto3.Session(profile_name="handon", region_name="ap-southeast-1")
+session = boto3.Session(
+    profile_name=os.getenv("AWS_PROFILE"),
+    region_name=os.getenv("AWS_REGION", "ap-southeast-1"),
+)
 ecs = session.client("ecs")
 sm = session.client("secretsmanager")
 logs = session.client("logs")
@@ -17,20 +20,20 @@ creds = json.loads(sec_str)
 admin_user = creds.get("username", "admin")
 admin_pass = creds.get("password")
 
-print(f"============================================================")
+print("============================================================")
 print(f"🔑 RESETTING NEXTCLOUD ADMIN PASSWORD FOR TENANT '{tenant}'")
 print(f"Target User: {admin_user}")
-print(f"Target Password: {admin_pass}")
-print(f"============================================================")
+print("Target Password: [CONFIGURED IN SECRETS MANAGER]")
+print("============================================================")
 
 # Command to ensure /var/www/html is populated and execute occ
 cmd = (
     "cp -rn /usr/src/nextcloud/. /var/www/html/ && "
     "chown -R www-data:www-data /var/www/html && "
     f"su -s /bin/sh www-data -c 'php /var/www/html/occ status && "
-    f"export OC_PASS=\"{admin_pass}\" && "
+    f'export OC_PASS="{admin_pass}" && '
     f"php /var/www/html/occ user:resetpassword --password-from-env {admin_user} || "
-    f"php /var/www/html/occ user:add --password-from-env --display-name=\"Administrator\" {admin_user}'"
+    f'php /var/www/html/occ user:add --password-from-env --display-name="Administrator" {admin_user}\''
 )
 
 res = ecs.run_task(
@@ -41,21 +44,15 @@ res = ecs.run_task(
         "awsvpcConfiguration": {
             "subnets": ["subnet-08096079734609710", "subnet-049b7e2945e7eddce"],
             "securityGroups": ["sg-020acf11e92c99ca4"],
-            "assignPublicIp": "ENABLED"
+            "assignPublicIp": "ENABLED",
         }
     },
     overrides={
         "containerOverrides": [
-            {
-                "name": "nextcloud",
-                "command": [cmd]
-            },
-            {
-                "name": "litellm-sidecar",
-                "command": ["echo", "sidecar skipped"]
-            }
+            {"name": "nextcloud", "command": [cmd]},
+            {"name": "litellm-sidecar", "command": ["echo", "sidecar skipped"]},
         ]
-    }
+    },
 )
 
 task_arn = res["tasks"][0]["taskArn"]
@@ -70,15 +67,14 @@ print("Task finished. Fetching CloudWatch logs...")
 time.sleep(3)
 stream_prefix = f"tenant-{tenant}/nextcloud/{task_id}"
 streams = logs.describe_log_streams(
-    logGroupName="/ecs/prod-nextcloud",
-    logStreamNamePrefix=stream_prefix
+    logGroupName="/ecs/prod-nextcloud", logStreamNamePrefix=stream_prefix
 )["logStreams"]
 
 if streams:
     events = logs.get_log_events(
         logGroupName="/ecs/prod-nextcloud",
         logStreamName=streams[0]["logStreamName"],
-        startFromHead=True
+        startFromHead=True,
     )["events"]
     print("\n--- OCC OUTPUT ---")
     for ev in events:

@@ -4,18 +4,18 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Target Deployment Environment'
+        description: "Target Deployment Environment"
         required: true
-        default: 'dev'
+        default: "dev"
         type: choice
         options:
           - dev
           - staging
           - prod
       action:
-        description: 'Deployment / Lifecycle Action'
+        description: "Deployment / Lifecycle Action"
         required: true
-        default: 'deploy-module'
+        default: "deploy-module"
         type: choice
         options:
           - deploy-module
@@ -25,9 +25,9 @@ on:
           - destroy-all
           - validate
       module:
-        description: 'Infrastructure Module (if deploy-module or destroy-module)'
+        description: "Infrastructure Module (if deploy-module or destroy-module)"
         required: false
-        default: 'compute'
+        default: "compute"
         type: choice
         options:
           - compute
@@ -37,14 +37,14 @@ on:
           - networking
           - control-plane
       provision_smoke_tenant:
-        description: 'Run automated tenant provisioning smoke test after deploy'
+        description: "Run automated tenant provisioning smoke test after deploy"
         required: false
         default: false
         type: boolean
 
 permissions:
-  id-token: write   # Required for AWS OIDC authentication
-  contents: read    # Required for actions/checkout
+  id-token: write # Required for AWS OIDC authentication
+  contents: read # Required for actions/checkout
 
 concurrency:
   group: deploy-${{ github.ref_name }}-${{ inputs.environment || 'auto' }}
@@ -61,7 +61,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install Validation Tools
         run: pip install cfn-lint yamllint pyyaml
@@ -90,7 +90,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
           cache: pip
 
       - name: Install Python Dependencies
@@ -101,7 +101,7 @@ jobs:
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN || 'arn:aws:iam::649519997247:role/nextcloud-github-actions-deploy-role' }}
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
           audience: sts.amazonaws.com
 
@@ -234,7 +234,7 @@ jobs:
               done
               ;;
             deploy-nested)
-              S3_BUCKET="${{ vars.CFN_TEMPLATES_BUCKET || 'nextcloud-cfn-templates-649519997247' }}"
+              S3_BUCKET="${{ vars.CFN_TEMPLATES_BUCKET || 'filestore-cfn-templates-build' }}"
               aws s3 mb "s3://${S3_BUCKET}" 2>/dev/null || true
               aws cloudformation package \
                 --template-file infra/root.yaml \
@@ -266,7 +266,7 @@ jobs:
         run: |
           ENV_NAME="${{ steps.target.outputs.env }}"
           ALB_DNS=$(aws ssm get-parameter --name "/nextcloud/${ENV_NAME}/infra/alb-dns" --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-          
+
           if [ -n "${ALB_DNS}" ] && [ "${ALB_DNS}" != "None" ]; then
             echo "Checking Nextcloud ALB health: http://${ALB_DNS}/status.php"
             curl --max-time 15 --retry 3 --retry-delay 10 -I "http://${ALB_DNS}/status.php" || echo "⚠️ ALB is initializing..."

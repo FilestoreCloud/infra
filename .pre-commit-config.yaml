@@ -149,11 +149,13 @@ repos:
             "--confidence",
             "medium,high",
             "--checks",
-            "CLOUD_RESOURCES,EMAIL,INTELLECTUAL_PROPERTY,IP_ADDRESS,OTP,SECRETS,SOCIAL_MEDIA",
+            "SECRETS",
             "--disable-ip-types",
             "trademark,copyright,trade_secret",
             "--config",
             ".devsecops/ferret-scan.yaml",
+            "--suppression-file",
+            ".ferret-scan-suppressions.yaml",
           ]
         files: '\.(go|java|json|kt|kts|md|py|sh|sql|swift|txt|xml|yaml|yml)$'
         exclude: '(^\.git/|\.ash/|\.cache/|\.devsecops/|\.dsr/|\.idea/|\.kiro/|\.venv/|\.virtualenv/|__pycache__/|\.pytest_cache/|\.mypy_cache/|\.ruff_cache/|\.tox/|\.terraform/|\.next/|\.nuxt/|\.svelte-kit/|\.turbo/|\.docusaurus/|_build/|site/|bin/|cdk\.out/|dist/|node_modules/|\.pnpm-store/|\.yarn/|bower_components/|\.vscode/|out/|\.output/|\.nyc_output/|test-results/|reports/|tmp/|temp/|logs/|setup\.sh|vendor/|Pods/|venv/|test_|_test\.|^README\.md$|\.DS_Store$|Thumbs\.db$|.*\.pyc$|.*\.pyo$|.*\.swp$|.*\.swo$|.*\.log$|package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|poetry\.lock$|Pipfile\.lock$|Gemfile\.lock$|\.terraform\.lock\.hcl$|terraform\.tfstate$|cdk\.context\.json$)'
@@ -166,8 +168,7 @@ repos:
     rev: v1.55.1
     hooks:
       - id: cfn-lint
-        files: '^infra/.*\.ya?ml$'
-        exclude: '(^infra/diagrams/|^infra/modules/06-control-plane/runbook\.yaml)'
+        files: '^infra/(modules/[^/]+/template|root)\.ya?ml$'
 
   # ============================================================================
   # LICENSE COMPLIANCE

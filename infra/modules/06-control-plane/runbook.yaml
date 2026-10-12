@@ -1,6 +1,6 @@
 description: Native AWS Automation Runbook for Nextcloud Tenant Lifecycle Management (Provision, Suspend, Resume, Deprovision)
-schemaVersion: '0.3'
-assumeRole: 'arn:aws:iam::649519997247:role/prod-nextcloud-ssm-automation-role'
+schemaVersion: "0.3"
+assumeRole: "arn:aws:iam::123456789012:role/prod-nextcloud-ssm-automation-role"
 parameters:
   TenantId:
     type: String
@@ -15,11 +15,11 @@ parameters:
     description: Tenant Lifecycle State Transition
   StorageQuotaGB:
     type: String
-    default: '100'
+    default: "100"
     description: Storage quota in GB (Applicable when Action is PROVISION)
   CompanyDomain:
     type: String
-    default: 'tenant.local'
+    default: "tenant.local"
     description: Custom domain for the tenant (Applicable when Action is PROVISION)
 mainSteps:
   - name: ChooseActionBranch
@@ -27,16 +27,16 @@ mainSteps:
     inputs:
       Choices:
         - NextStep: ProvisionTenantInDynamoDB
-          Variable: '{{ Action }}'
+          Variable: "{{ Action }}"
           StringEquals: PROVISION
         - NextStep: SuspendTenantInDynamoDB
-          Variable: '{{ Action }}'
+          Variable: "{{ Action }}"
           StringEquals: SUSPEND
         - NextStep: ResumeTenantInDynamoDB
-          Variable: '{{ Action }}'
+          Variable: "{{ Action }}"
           StringEquals: RESUME
         - NextStep: DeprovisionTenantInDynamoDB
-          Variable: '{{ Action }}'
+          Variable: "{{ Action }}"
           StringEquals: DEPROVISION
 
   # 1. PROVISION STEP: Create Tenant Record & Publish Initial Metric
@@ -48,18 +48,18 @@ mainSteps:
       TableName: prod-nextcloud-tenant-registry
       Item:
         tenant_id:
-          S: '{{ TenantId }}'
+          S: "{{ TenantId }}"
         status:
           S: ACTIVE
         quota_gb:
-          N: '{{ StorageQuotaGB }}'
+          N: "{{ StorageQuotaGB }}"
         domain:
-          S: '{{ CompanyDomain }}'
+          S: "{{ CompanyDomain }}"
         created_at:
-          S: '{{ global:DATE_TIME }}'
+          S: "{{ global:DATE_TIME }}"
         last_updated:
-          S: '{{ global:DATE_TIME }}'
-      ConditionExpression: 'attribute_not_exists(tenant_id)'
+          S: "{{ global:DATE_TIME }}"
+      ConditionExpression: "attribute_not_exists(tenant_id)"
     nextStep: PublishTenantActiveMetric
 
   - name: PublishTenantActiveMetric
@@ -72,13 +72,13 @@ mainSteps:
         - MetricName: TenantStorageUsedMB
           Dimensions:
             - Name: TenantId
-              Value: '{{ TenantId }}'
+              Value: "{{ TenantId }}"
           Value: 0.1
           Unit: Megabytes
         - MetricName: TenantActiveStatus
           Dimensions:
             - Name: TenantId
-              Value: '{{ TenantId }}'
+              Value: "{{ TenantId }}"
           Value: 1
           Unit: Count
     isEnd: true
@@ -92,16 +92,16 @@ mainSteps:
       TableName: prod-nextcloud-tenant-registry
       Key:
         tenant_id:
-          S: '{{ TenantId }}'
-      UpdateExpression: 'SET #st = :s, #lu = :t'
+          S: "{{ TenantId }}"
+      UpdateExpression: "SET #st = :s, #lu = :t"
       ExpressionAttributeNames:
-        '#st': status
-        '#lu': last_updated
+        "#st": status
+        "#lu": last_updated
       ExpressionAttributeValues:
-        ':s':
+        ":s":
           S: SUSPENDED
-        ':t':
-          S: '{{ global:DATE_TIME }}'
+        ":t":
+          S: "{{ global:DATE_TIME }}"
     nextStep: PublishTenantSuspendedMetric
 
   - name: PublishTenantSuspendedMetric
@@ -114,7 +114,7 @@ mainSteps:
         - MetricName: TenantActiveStatus
           Dimensions:
             - Name: TenantId
-              Value: '{{ TenantId }}'
+              Value: "{{ TenantId }}"
           Value: 0
           Unit: Count
     isEnd: true
@@ -128,16 +128,16 @@ mainSteps:
       TableName: prod-nextcloud-tenant-registry
       Key:
         tenant_id:
-          S: '{{ TenantId }}'
-      UpdateExpression: 'SET #st = :s, #lu = :t'
+          S: "{{ TenantId }}"
+      UpdateExpression: "SET #st = :s, #lu = :t"
       ExpressionAttributeNames:
-        '#st': status
-        '#lu': last_updated
+        "#st": status
+        "#lu": last_updated
       ExpressionAttributeValues:
-        ':s':
+        ":s":
           S: ACTIVE
-        ':t':
-          S: '{{ global:DATE_TIME }}'
+        ":t":
+          S: "{{ global:DATE_TIME }}"
     nextStep: PublishTenantResumedMetric
 
   - name: PublishTenantResumedMetric
@@ -150,7 +150,7 @@ mainSteps:
         - MetricName: TenantActiveStatus
           Dimensions:
             - Name: TenantId
-              Value: '{{ TenantId }}'
+              Value: "{{ TenantId }}"
           Value: 1
           Unit: Count
     isEnd: true
@@ -164,7 +164,7 @@ mainSteps:
       TableName: prod-nextcloud-tenant-registry
       Key:
         tenant_id:
-          S: '{{ TenantId }}'
+          S: "{{ TenantId }}"
     nextStep: PublishTenantDeprovisionedMetric
 
   - name: PublishTenantDeprovisionedMetric
@@ -177,7 +177,7 @@ mainSteps:
         - MetricName: TenantActiveStatus
           Dimensions:
             - Name: TenantId
-              Value: '{{ TenantId }}'
+              Value: "{{ TenantId }}"
           Value: 0
           Unit: Count
     isEnd: true
