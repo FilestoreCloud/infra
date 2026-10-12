@@ -2,8 +2,12 @@
 import urllib.request
 import json
 import sys
+import os
 
-URL = "https://admin.png261.dev/"
+URL = os.environ.get(
+    "CONTROL_PLANE_URL",
+    sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8085/api",
+)
 MASTER_KEY = "SuperNextcloud2026!SecureKey_mjOQ"
 
 print(f"Testing live Control Plane Security on {URL}...")
@@ -44,20 +48,52 @@ except urllib.error.HTTPError as e:
     assert e.code == 401, f"Expected HTTP 401 but got {e.code}"
     print(f"✅ Test 2 PASSED: Invalid password rejected with HTTP {e.code}")
 
-# Test 3: Valid login via SSM Master Key returns signed token
+import base64
+import hashlib
+import hmac
+import struct
+import time
+
+
+def get_totp(secret):
+    key = base64.b32decode(secret, casefold=True)
+    msg = struct.pack(">Q", int(time.time() // 30))
+    h = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = h[-1] & 0x0F
+    code = (struct.unpack(">I", h[offset : offset + 4])[0] & 0x7FFFFFFF) % 1000000
+    return f"{code:06d}"
+
+
+# Test 3: Valid login via Admin Credentials & MFA returns signed token
+login_pass = "AdminPassword123!"
 req = urllib.request.Request(
     URL,
     data=json.dumps(
-        {"action": "LOGIN", "username": "admin@png261.dev", "password": MASTER_KEY}
+        {"action": "LOGIN", "username": "admin@png261.dev", "password": login_pass}
     ).encode("utf-8"),
     headers={"Content-Type": "application/json"},
 )
 with urllib.request.urlopen(req) as res:
     data = json.loads(res.read().decode("utf-8"))
-    assert "token" in data and len(data["token"]) > 30, "No valid token returned!"
-    token = data["token"]
+    if data.get("status") == "MFA_REQUIRED":
+        ch_token = data["challenge_token"]
+        mfa_sec = data.get("demo_totp_secret", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
+        code = get_totp(mfa_sec)
+        mfa_req = urllib.request.Request(
+            URL,
+            data=json.dumps(
+                {"action": "VERIFY_MFA", "challenge_token": ch_token, "mfa_code": code}
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(mfa_req) as mfa_res:
+            mfa_data = json.loads(mfa_res.read().decode("utf-8"))
+            token = mfa_data["token"]
+    else:
+        token = data.get("token")
+    assert token and len(token) > 30, "No valid token returned!"
     print(
-        f"✅ Test 3 PASSED: Authenticated with SSM Master Key, token acquired ({token[:20]}...)"
+        f"✅ Test 3 PASSED: Authenticated with Admin Credentials & MFA, token acquired ({token[:20]}...)"
     )
 
 # Test 4: Authenticated tenant listing returns clean payload without passwords

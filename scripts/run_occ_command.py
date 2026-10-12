@@ -12,6 +12,14 @@ session = boto3.Session(
 )
 ecs = session.client("ecs")
 logs = session.client("logs")
+ssm = session.client("ssm")
+
+subnets = ssm.get_parameter(Name="/nextcloud/prod/infra/public-subnets")["Parameter"][
+    "Value"
+].split(",")
+ecs_sg = ssm.get_parameter(Name="/nextcloud/prod/security/ecs-sg-id")["Parameter"][
+    "Value"
+]
 
 cmd_string = f"su -s /bin/sh www-data -c 'php /var/www/html/occ {occ_cmd}'"
 print(f"Running occ on tenant '{tenant}': {occ_cmd}")
@@ -22,15 +30,14 @@ res = ecs.run_task(
     launchType="FARGATE",
     networkConfiguration={
         "awsvpcConfiguration": {
-            "subnets": ["subnet-08096079734609710", "subnet-049b7e2945e7eddce"],
-            "securityGroups": ["sg-020acf11e92c99ca4"],
+            "subnets": subnets,
+            "securityGroups": [ecs_sg],
             "assignPublicIp": "ENABLED",
         }
     },
     overrides={
         "containerOverrides": [
             {"name": "nextcloud", "command": [cmd_string]},
-            {"name": "litellm-sidecar", "command": ["echo", "sidecar skipped"]},
         ]
     },
 )

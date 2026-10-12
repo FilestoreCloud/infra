@@ -25,11 +25,15 @@ os.environ.setdefault("CLUSTER_NAME", "prod-nextcloud-cluster")
 import tenant_operator_lambda
 
 PORT = int(os.environ.get("PORT", 8080))
-DIST_DIR = os.path.join(PROJECT_ROOT, "control-panel", "dist")
-CONTROL_PANEL_DIR = (
-    DIST_DIR
-    if os.path.exists(os.path.join(DIST_DIR, "index.html"))
-    else os.path.join(PROJECT_ROOT, "control-panel")
+CANDIDATE_DIRS = [
+    os.path.join(PROJECT_ROOT, "control-panel", "dist"),
+    os.path.abspath(os.path.join(PROJECT_ROOT, "..", "console", "dist")),
+    os.path.join(PROJECT_ROOT, "control-panel"),
+    os.path.abspath(os.path.join(PROJECT_ROOT, "..", "console")),
+]
+CONTROL_PANEL_DIR = next(
+    (d for d in CANDIDATE_DIRS if os.path.exists(os.path.join(d, "index.html"))),
+    os.path.join(PROJECT_ROOT, "control-panel"),
 )
 
 
@@ -49,9 +53,13 @@ class ControlPanelHandler(SimpleHTTPRequestHandler):
         if parsed.path.startswith("/api"):
             self.handle_api("GET", parsed)
         else:
-            local_path = os.path.join(CONTROL_PANEL_DIR, parsed.path.lstrip("/"))
+            rel_path = parsed.path
+            if "/assets/" in rel_path:
+                rel_path = rel_path[rel_path.index("/assets/") :]
+                self.path = rel_path
+            local_path = os.path.join(CONTROL_PANEL_DIR, rel_path.lstrip("/"))
             if not os.path.exists(local_path) or os.path.isdir(local_path):
-                if not parsed.path.startswith("/assets/"):
+                if not rel_path.startswith("/assets/"):
                     self.path = "/index.html"
             super().do_GET()
 

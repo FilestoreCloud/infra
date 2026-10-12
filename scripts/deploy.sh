@@ -344,6 +344,10 @@ deploy_module() {
       SYNC_SRC="${PROJECT_ROOT}/control-panel"
       if [ -f "${PROJECT_ROOT}/control-panel/dist/index.html" ]; then
         SYNC_SRC="${PROJECT_ROOT}/control-panel/dist"
+      elif [ -f "${PROJECT_ROOT}/../console/dist/index.html" ]; then
+        SYNC_SRC="${PROJECT_ROOT}/../console/dist"
+      elif [ -d "${PROJECT_ROOT}/../console" ]; then
+        SYNC_SRC="${PROJECT_ROOT}/../console"
       fi
       "${AWS_CLI[@]}" s3 sync "${SYNC_SRC}/" "s3://${ADMIN_WEB_BUCKET}/" --delete
       echo "✓ Synced web assets from ${SYNC_SRC} to s3://${ADMIN_WEB_BUCKET}"

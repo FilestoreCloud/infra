@@ -36,21 +36,28 @@ cmd = (
     f'php /var/www/html/occ user:add --password-from-env --display-name="Administrator" {admin_user}\''
 )
 
+ssm = session.client("ssm")
+subnets = ssm.get_parameter(Name="/nextcloud/prod/infra/public-subnets")["Parameter"][
+    "Value"
+].split(",")
+ecs_sg = ssm.get_parameter(Name="/nextcloud/prod/security/ecs-sg-id")["Parameter"][
+    "Value"
+]
+
 res = ecs.run_task(
     cluster="prod-nextcloud-cluster",
     taskDefinition=f"prod-nextcloud-{tenant}",
     launchType="FARGATE",
     networkConfiguration={
         "awsvpcConfiguration": {
-            "subnets": ["subnet-08096079734609710", "subnet-049b7e2945e7eddce"],
-            "securityGroups": ["sg-020acf11e92c99ca4"],
+            "subnets": subnets,
+            "securityGroups": [ecs_sg],
             "assignPublicIp": "ENABLED",
         }
     },
     overrides={
         "containerOverrides": [
             {"name": "nextcloud", "command": [cmd]},
-            {"name": "litellm-sidecar", "command": ["echo", "sidecar skipped"]},
         ]
     },
 )

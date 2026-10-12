@@ -118,7 +118,6 @@ def get_infra_metadata():
         "s3_vault_bucket": param_dict.get("/nextcloud/prod/infra/s3-vault-bucket"),
         "db_secret_arn": param_dict.get("/nextcloud/prod/infra/db-secret-arn")
         or outputs.get("DBSecretArn"),
-        "litellm_secret_arn": outputs.get("LiteLLMSecretArn"),
         "ecs_sg": ecs_sg,
         "exec_role_arn": exec_role_arn,
         "task_role_arn": task_role_arn,
@@ -168,7 +167,6 @@ echo "Schema public ownership and search_path configured on {db_name}" . PHP_EOL
         overrides={
             "containerOverrides": [
                 {"name": "nextcloud", "command": ["php", "-r", php_code]},
-                {"name": "litellm-sidecar", "command": ["echo", "sidecar skipped"]},
             ]
         },
     )
@@ -458,10 +456,6 @@ def provision_tenant(
                 "name": "nextcloud",
                 "image": infra["golden_image"],
                 "essential": True,
-                "entryPoint": ["sh", "-c"],
-                "command": [
-                    "cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html && exec /entrypoint.sh apache2-foreground"
-                ],
                 "portMappings": [
                     {"containerPort": 80, "hostPort": 80, "protocol": "tcp"}
                 ],
@@ -484,7 +478,6 @@ def provision_tenant(
                         "name": "BEDROCK_DEFAULT_MODEL",
                         "value": "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0",
                     },
-                    {"name": "LITELLM_API_URL", "value": "http://127.0.0.1:4000/v1"},
                     {
                         "name": "OBJECTSTORE_S3_BUCKET",
                         "value": infra["s3_vault_bucket"],
@@ -507,10 +500,6 @@ def provision_tenant(
                         "name": "NEXTCLOUD_ADMIN_PASSWORD",
                         "valueFrom": f"{admin_secret_arn}:password::",
                     },
-                    {
-                        "name": "LITELLM_API_KEY",
-                        "valueFrom": f"{infra['litellm_secret_arn']}:token::",
-                    },
                 ],
                 "logConfiguration": {
                     "logDriver": "awslogs",
@@ -529,32 +518,6 @@ def provision_tenant(
                     "timeout": 10,
                     "retries": 5,
                     "startPeriod": 180,
-                },
-            },
-            {
-                "name": "litellm-sidecar",
-                "image": "ghcr.io/berriai/litellm:main-v1.49.5",
-                "essential": False,
-                "portMappings": [
-                    {"containerPort": 4000, "hostPort": 4000, "protocol": "tcp"}
-                ],
-                "environment": [
-                    {"name": "AWS_REGION", "value": AWS_REGION},
-                    {"name": "NUM_WORKERS", "value": "2"},
-                ],
-                "secrets": [
-                    {
-                        "name": "LITELLM_MASTER_KEY",
-                        "valueFrom": f"{infra['litellm_secret_arn']}:token::",
-                    }
-                ],
-                "logConfiguration": {
-                    "logDriver": "awslogs",
-                    "options": {
-                        "awslogs-group": "/ecs/prod-nextcloud",
-                        "awslogs-region": AWS_REGION,
-                        "awslogs-stream-prefix": f"litellm-{tenant_id}",
-                    },
                 },
             },
         ],

@@ -225,7 +225,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "70.00"
       filename: rollout_tenant_image.py
@@ -236,7 +236,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "70.00"
       filename: rollout_tenant_image.py
@@ -247,7 +247,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "80.00"
       filename: rollout_tenant_image.py
@@ -258,7 +258,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "70.00"
       filename: rollout_tenant_image.py
@@ -269,7 +269,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "70.00"
       filename: rollout_tenant_image.py
@@ -280,7 +280,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "80.00"
       filename: rollout_tenant_image.py
@@ -291,7 +291,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "70.00"
       filename: rollout_tenant_image.py
@@ -302,7 +302,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "80.00"
       filename: rollout_tenant_image.py
@@ -313,7 +313,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "70.00"
       filename: rollout_tenant_image.py
@@ -324,7 +324,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T10:35:57.416008+07:00
-    last_seen_at: 2026-10-12T10:42:42.88666+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "95.00"
       filename: rollout_tenant_image.py
@@ -830,7 +830,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T11:22:34.004531+07:00
-    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "100.00"
       filename: teardown_all.py
@@ -841,7 +841,7 @@ rules:
     reason: Auto-generated suppression rule (disabled by default)
     enabled: true
     created_at: 2026-10-12T11:22:34.004531+07:00
-    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
     metadata:
       confidence: "95.00"
       filename: provision_dedicated_tenant.py
@@ -1001,3 +1001,102 @@ rules:
       filename: tenant_operator_lambda.py
       finding_type: API_KEY_OR_SECRET
       line_number: "2422"
+  - id: SUP-00000092
+    hash: 13d82b3212129b62ac3ed58377e8e484be163cf4e057cc3820fef389d597f38b # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "70.00"
+      filename: register_and_deploy_tenant_tasks.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "4"
+  - id: SUP-00000093
+    hash: 8c586106ae974532ed57e0c657e8bdb7d273cdfcf5e621f1679afd93e0d519a5 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "70.00"
+      filename: reset_tenant_admin_password.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "9"
+  - id: SUP-00000094
+    hash: a96ddc85e16a7fdef9abe9042d2a3df03967efe61811574e6788488f3892db6e # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "80.00"
+      filename: reset_tenant_admin_password.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "26"
+  - id: SUP-00000095
+    hash: 9d618cc824193ecafdeb2576f5eae8bba52096ba9896fbfdee88d5bf9f1c7028 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "70.00"
+      filename: run_occ_command.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "9"
+  - id: SUP-00000096
+    hash: d2bcb5c3d359d871ca8733f627607ea3b015954373333078b06e44a4042480a2 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "95.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "279"
+  - id: SUP-00000097
+    hash: ab5c96e5c9c84b66cd841c33d22140dc37f0dce2b856f90a03b2928d9399a27e # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "75.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "299"
+  - id: SUP-00000098
+    hash: b37c74cef00551124b75eb5da65069803dc9cb91e348a2dd701eb0936d6e39e4 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "75.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "311"
+  - id: SUP-00000099
+    hash: 66bf5a4b689bbbafff83a7f1ce56bec917b80b5356952cc849c701040d7b1f67 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "80.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "621"
+  - id: SUP-00000100
+    hash: 9169d9aa85b7a4a1e084b4e27ece8d42104f6eb0ebe42d85165c4f20c395c586 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T13:45:49.160216+07:00
+    last_seen_at: 2026-10-12T13:45:49.160216+07:00
+    metadata:
+      confidence: "75.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "804"

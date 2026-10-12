@@ -34,20 +34,43 @@ def get_tenant_credentials(tenant_id="acme"):
     return username, password
 
 
+import ssl
+
+ssl_ctx = ssl.create_default_context()
+ssl_ctx.check_hostname = False
+ssl_ctx.verify_mode = ssl.CERT_NONE
+
+
 @pytest.fixture(params=["acme", "marvel"])
 def tenant_fixture(request):
     tenant_id = request.param
-    domain = f"{tenant_id}.png261.dev"
+    domain = os.environ.get(
+        f"TENANT_{tenant_id.upper()}_DOMAIN", f"{tenant_id}.appleai.codes"
+    )
     username, password = get_tenant_credentials(tenant_id)
     auth_header = (
         "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
     )
+
+    boto_kwargs = {"region_name": AWS_REGION}
+    if AWS_PROFILE:
+        boto_kwargs["profile_name"] = AWS_PROFILE
+    session = boto3.Session(**boto_kwargs)
+    ssm = session.client("ssm")
+    try:
+        alb_dns = ssm.get_parameter(Name="/nextcloud/prod/infra/alb-dns")["Parameter"][
+            "Value"
+        ]
+        connect_host = alb_dns
+    except Exception:
+        connect_host = domain
+
     return {
         "tenant_id": tenant_id,
         "domain": domain,
         "username": username,
         "auth_header": auth_header,
-        "base_dav_url": f"https://{domain}/remote.php/dav/files/{username}",
+        "base_dav_url": f"https://{connect_host}/remote.php/dav/files/{username}",
     }
 
 
@@ -56,10 +79,11 @@ def test_tenant_propfind_directory_listing(tenant_fixture):
     dav_url = f"{tenant_fixture['base_dav_url']}/"
     headers = {
         "Authorization": tenant_fixture["auth_header"],
+        "Host": tenant_fixture["domain"],
         "Depth": "1",
     }
     req = urllib.request.Request(dav_url, headers=headers, method="PROPFIND")
-    with urllib.request.urlopen(req, timeout=15) as resp:
+    with urllib.request.urlopen(req, context=ssl_ctx, timeout=15) as resp:
         assert resp.status == 207, f"Expected 207 Multi-Status, got {resp.status}"
         xml_data = resp.read().decode("utf-8")
         assert "multistatus" in xml_data.lower()
@@ -80,20 +104,24 @@ def test_tenant_upload_small_and_large_files(tenant_fixture):
         data=payload,
         headers={
             "Authorization": tenant_fixture["auth_header"],
+            "Host": tenant_fixture["domain"],
             "Content-Type": "application/octet-stream",
         },
         method="PUT",
     )
-    with urllib.request.urlopen(req_put, timeout=20) as resp:
+    with urllib.request.urlopen(req_put, context=ssl_ctx, timeout=20) as resp:
         assert resp.status in (201, 204), f"PUT 50KB failed with status {resp.status}"
 
     # 2. Verify file content via GET
     req_get = urllib.request.Request(
         file_url,
-        headers={"Authorization": tenant_fixture["auth_header"]},
+        headers={
+            "Authorization": tenant_fixture["auth_header"],
+            "Host": tenant_fixture["domain"],
+        },
         method="GET",
     )
-    with urllib.request.urlopen(req_get, timeout=15) as resp:
+    with urllib.request.urlopen(req_get, context=ssl_ctx, timeout=15) as resp:
         assert resp.status == 200
         downloaded = resp.read()
         assert len(downloaded) == len(payload)
@@ -102,10 +130,13 @@ def test_tenant_upload_small_and_large_files(tenant_fixture):
     # 3. Clean up
     req_del = urllib.request.Request(
         file_url,
-        headers={"Authorization": tenant_fixture["auth_header"]},
+        headers={
+            "Authorization": tenant_fixture["auth_header"],
+            "Host": tenant_fixture["domain"],
+        },
         method="DELETE",
     )
-    with urllib.request.urlopen(req_del, timeout=15) as resp:
+    with urllib.request.urlopen(req_del, context=ssl_ctx, timeout=15) as resp:
         assert resp.status in (204, 200)
 
 
@@ -126,11 +157,12 @@ def test_tenant_upload_code_and_sql_content(tenant_fixture):
         data=payload,
         headers={
             "Authorization": tenant_fixture["auth_header"],
+            "Host": tenant_fixture["domain"],
             "Content-Type": "text/plain",
         },
         method="PUT",
     )
-    with urllib.request.urlopen(req_put, timeout=20) as resp:
+    with urllib.request.urlopen(req_put, context=ssl_ctx, timeout=20) as resp:
         assert resp.status in (201, 204), (
             f"PUT code file failed with status {resp.status}"
         )
@@ -138,8 +170,11 @@ def test_tenant_upload_code_and_sql_content(tenant_fixture):
     # Verify and cleanup
     req_del = urllib.request.Request(
         file_url,
-        headers={"Authorization": tenant_fixture["auth_header"]},
+        headers={
+            "Authorization": tenant_fixture["auth_header"],
+            "Host": tenant_fixture["domain"],
+        },
         method="DELETE",
     )
-    with urllib.request.urlopen(req_del, timeout=15) as resp:
+    with urllib.request.urlopen(req_del, context=ssl_ctx, timeout=15) as resp:
         assert resp.status in (204, 200)

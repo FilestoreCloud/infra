@@ -621,24 +621,24 @@ def test_lambda_container_logs():
     assert "events" in data
     assert len(data["events"]) > 0
 
-    # 2. Filter specifically for LiteLLM Bedrock Bridge sidecar
-    sidecar_event = {
+    # 2. Filter specifically for Nextcloud container
+    nc_event = {
         "httpMethod": "POST",
         "headers": {"authorization": f"Bearer {admin_token}"},
         "body": json.dumps(
             {
                 "action": "GET_CONTAINER_LOGS",
                 "tenant_id": tenant_id,
-                "container": "litellm-sidecar",
+                "container": "nextcloud",
             }
         ),
     }
-    resp_sidecar = tol.lambda_handler(sidecar_event, None)
-    assert resp_sidecar["statusCode"] == 200
-    sc_data = json.loads(resp_sidecar["body"])
-    for ev in sc_data["events"]:
-        assert ev["container"] == "litellm-sidecar"
-    print("  ✅ Lambda Live Container Logs (App + LiteLLM Bedrock Bridge) verified.")
+    resp_nc = tol.lambda_handler(nc_event, None)
+    assert resp_nc["statusCode"] == 200
+    nc_data = json.loads(resp_nc["body"])
+    for ev in nc_data["events"]:
+        assert ev["container"] == "nextcloud"
+    print("  ✅ Lambda Live Container Logs (Nextcloud container) verified.")
 
 
 def test_lambda_webhook_config_and_testing():
