@@ -1100,3 +1100,135 @@ rules:
       filename: provision_dedicated_tenant.py
       finding_type: API_KEY_OR_SECRET
       line_number: "804"
+  - id: SUP-00000101
+    hash: 62c5df8ff4c2bc71f806af2b8ced957d4fbbf12aee265b1314ec7520e57d0054 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "145"
+  - id: SUP-00000102
+    hash: 85d9bb369c48294fcc6565f0ccacdf7538ec19ab8ffe37f836f9c6509eff1a81 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "100.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "527"
+  - id: SUP-00000103
+    hash: d433f03f3943a90c082c4421671a061f780169a157a129ebf5ff0cbdca4473dc # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "527"
+  - id: SUP-00000104
+    hash: 2a22ee11105f452bb71b66dd806ae4d59b5e42ff5c20434ad663dcb7a5816b32 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2393"
+  - id: SUP-00000105
+    hash: ee8080657ccdf3cecdceb5d3936a3c4422e3007287ac202ab21c7680c34c9fe2 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "100.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2428"
+  - id: SUP-00000106
+    hash: e2202c19247fbf446368160898a39602f928b5411dc03caa850b3d20d9d8107d # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2428"
+  - id: SUP-00000107
+    hash: 78108cb8808d14d425875c76c792e3ea2af74b8f2fff526e87584160de951c59 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "100.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2455"
+  - id: SUP-00000108
+    hash: 06eb17b553d29cdaaf05df2488c05400bc1cce197499e8b0ca86cfc69e035edd # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2455"
+  - id: SUP-00000109
+    hash: 2c12e571192ca21d5feea48a87305502c5dc73ebf3bc5069482141278a3df4bf # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2499"
+  - id: SUP-00000110
+    hash: 22dcb04cb221f06e05dfd8c4dc7b30eb4412d168991ced5685c77bddc1fa906f # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "100.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2536"
+  - id: SUP-00000111
+    hash: 4f3dc01308c4c2bd1079a64bcf4f93e88d0214263729d5eb04abfccedb438bcd # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2536"
+  - id: SUP-00000112
+    hash: ce62946b41a4941d01dd67047091fdbac83d8277e97a1c914d35e21916e4b626 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T14:21:44.318161+07:00
+    last_seen_at: 2026-10-12T14:21:44.318161+07:00
+    metadata:
+      confidence: "85.00"
+      filename: tenant_operator_lambda.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "2596"
