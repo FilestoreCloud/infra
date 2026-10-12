@@ -1,0 +1,207 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Root Orchestrator (Nested Stacks for Greenfield 1-Click Bootstrap)"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: prod
+    Description: Environment prefix (prod, staging, dev)
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for RDS PostgreSQL
+
+  AdminPassword:
+    Type: String
+    NoEcho: true
+    Description: Initial admin password for Nextcloud
+
+  TaskCpu:
+    Type: String
+    Default: "1024"
+    AllowedValues: ["512", "1024", "2048", "4096"]
+    Description: CPU units for the Fargate task (1024 = 1 vCPU)
+
+  TaskMemory:
+    Type: String
+    Default: "2048"
+    AllowedValues: ["1024", "2048", "4096", "8192"]
+    Description: Memory (in MB) for the Fargate task
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+    Description: Desired task count for Nextcloud ECS service
+
+  MaxCount:
+    Type: Number
+    Default: 6
+    Description: Maximum task count for autoscaling
+
+  EnableAIEngine:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Enable Nextcloud AI Assistant and Amazon Bedrock foundation model integration
+
+  ContainerImage:
+    Type: String
+    Default: "nextcloud:30.0.17-apache"
+    Description: Container image URI (Use default or your Amazon ECR Golden Image URI)
+
+  ACMCertificateArn:
+    Type: String
+    Description: ARN of an ACM TLS certificate for the HTTPS listener
+    Default: "arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME"
+
+Resources:
+  # ============================================================================
+  # 1. NETWORKING STACK
+  # ============================================================================
+  NetworkingStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/01-networking/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+
+  # ============================================================================
+  # 2. SECURITY STACK
+  # ============================================================================
+  SecurityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/02-security/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt NetworkingStack.Outputs.VpcId
+
+  # ============================================================================
+  # 3. STORAGE STACK (S3 VAULT & EFS PERSISTENT CONFIG)
+  # ============================================================================
+  StorageStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/03-storage/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        PublicSubnet1Id: !GetAtt NetworkingStack.Outputs.PublicSubnet1Id
+        PublicSubnet2Id: !GetAtt NetworkingStack.Outputs.PublicSubnet2Id
+        EFSSecurityGroupId: !GetAtt SecurityStack.Outputs.EFSSecurityGroupId
+
+  # ============================================================================
+  # 4. DATABASE STACK
+  # ============================================================================
+  DatabaseStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/04-database/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        PrivateSubnet1Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet1Id
+        PrivateSubnet2Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet2Id
+        DBSecurityGroupId: !GetAtt SecurityStack.Outputs.DBSecurityGroupId
+        DBPassword: !Ref DBPassword
+
+  # ============================================================================
+  # 5. COMPUTE & APPLICATION STACK
+  # ============================================================================
+  ComputeStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/05-compute/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt NetworkingStack.Outputs.VpcId
+        PublicSubnet1Id: !GetAtt NetworkingStack.Outputs.PublicSubnet1Id
+        PublicSubnet2Id: !GetAtt NetworkingStack.Outputs.PublicSubnet2Id
+        ALBSecurityGroupId: !GetAtt SecurityStack.Outputs.ALBSecurityGroupId
+        ECSSecurityGroupId: !GetAtt SecurityStack.Outputs.ECSSecurityGroupId
+        S3VaultBucketName: !GetAtt StorageStack.Outputs.S3VaultBucketName
+        S3VaultBucketArn: !GetAtt StorageStack.Outputs.S3VaultBucketArn
+        EFSFileSystemId: !GetAtt StorageStack.Outputs.EFSFileSystemId
+        EFSFileSystemArn: !GetAtt StorageStack.Outputs.EFSFileSystemArn
+        DefaultEFSAccessPointId: !GetAtt StorageStack.Outputs.DefaultEFSAccessPointId
+        DatabaseEndpoint: !GetAtt DatabaseStack.Outputs.DatabaseEndpoint
+        DBSecretArn: !GetAtt DatabaseStack.Outputs.DBSecretArn
+        AdminPassword: !Ref AdminPassword
+        TaskCpu: !Ref TaskCpu
+        TaskMemory: !Ref TaskMemory
+        DesiredCount: !Ref DesiredCount
+        MaxCount: !Ref MaxCount
+        EnableAIEngine: !Ref EnableAIEngine
+        ContainerImage: !Ref ContainerImage
+        ACMCertificateArn: !Ref ACMCertificateArn
+
+  # ============================================================================
+  # 6. SAAS CONTROL PLANE STACK
+  # ============================================================================
+  ControlPlaneStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/06-control-plane/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        S3VaultBucketArn: !GetAtt StorageStack.Outputs.S3VaultBucketArn
+        ApplicationLoadBalancerDNS: !GetAtt ComputeStack.Outputs.LoadBalancerDNS
+        ApplicationLoadBalancerFullName: !GetAtt ComputeStack.Outputs.LoadBalancerFullName
+        ECSClusterName: !GetAtt ComputeStack.Outputs.ECSClusterName
+        ECSServiceName: !GetAtt ComputeStack.Outputs.ECSServiceName
+
+Outputs:
+  LoadBalancerURL:
+    Description: Public URL of the Nextcloud Application Load Balancer (HTTPS)
+    Value: !GetAtt ComputeStack.Outputs.LoadBalancerURL
+
+  S3VaultBucketName:
+    Description: S3 Vault Bucket Name
+    Value: !GetAtt StorageStack.Outputs.S3VaultBucketName
+
+  DatabaseEndpoint:
+    Description: Private RDS PostgreSQL Endpoint Address
+    Value: !GetAtt DatabaseStack.Outputs.DatabaseEndpoint
+
+  ECSClusterName:
+    Description: ECS Cluster Name
+    Value: !GetAtt ComputeStack.Outputs.ECSClusterName
+
+  TenantRegistryTable:
+    Description: DynamoDB Tenant Registry Table
+    Value: !GetAtt ControlPlaneStack.Outputs.TenantRegistryTable
+
+  DBSecretArn:
+    Description: Secrets Manager Secret ARN for Database Credentials
+    Value: !GetAtt DatabaseStack.Outputs.DBSecretArn
+
+  AdminSecretArn:
+    Description: Secrets Manager Secret ARN for Nextcloud Admin Credentials
+    Value: !GetAtt ComputeStack.Outputs.AdminSecretArn
+
+  LiteLLMSecretArn:
+    Description: Secrets Manager Secret ARN for LiteLLM Bedrock Bridge API Key
+    Value: !GetAtt ComputeStack.Outputs.LiteLLMSecretArn
+
+  ECRRepositoryUri:
+    Description: Amazon ECR Golden Image Repository URI
+    Value: !GetAtt ComputeStack.Outputs.ECRRepositoryUri
+
+  EFSFileSystemId:
+    Description: EFS File System ID for Nextcloud Persistent Config
+    Value: !GetAtt StorageStack.Outputs.EFSFileSystemId
+
+  DefaultEFSAccessPointId:
+    Description: EFS Access Point ID for Default Tenant
+    Value: !GetAtt StorageStack.Outputs.DefaultEFSAccessPointId
+
+  AdminWebURL:
+    Description: CloudFront HTTPS URL for Super Admin Web Console
+    Value: !GetAtt ControlPlaneStack.Outputs.AdminWebURL
+
+  AdminWebBucketName:
+    Description: S3 Bucket Name for Super Admin Web Console
+    Value: !GetAtt ControlPlaneStack.Outputs.AdminWebBucketName
+
+  AdminWebDistributionId:
+    Description: CloudFront Distribution ID for Super Admin Web Console
+    Value: !GetAtt ControlPlaneStack.Outputs.AdminWebDistributionId

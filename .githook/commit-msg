@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Git Hook: commit-msg
+# Purpose: Enforce Conventional Commits specification
+# ==============================================================================
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$HOOK_DIR/helpers/colors.sh"
+source "$HOOK_DIR/helpers/commit-validator.sh"
+
+COMMIT_MSG_FILE="$1"
+
+# Skip check if bypass flag is set
+if [ "${SKIP_COMMIT_MSG_CHECK:-0}" = "1" ]; then
+  log_warn "Commit message validation skipped by SKIP_COMMIT_MSG_CHECK=1"
+  exit 0
+fi
+
+log_step "Validating commit message..."
+
+if ! validate_commit_message "$COMMIT_MSG_FILE"; then
+  exit 1
+fi
+
+log_success "Commit message satisfies Conventional Commits specification."
+exit 0

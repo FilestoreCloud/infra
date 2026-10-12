@@ -1,0 +1,12 @@
+line-length = 88
+target-version = "py311"
+
+[lint]
+select = ["E", "F", "W"]
+ignore = [
+    "E501",  # line length handled by black/formatter
+    "E402",  # dynamic sys.path inserts before local module imports
+    "E741",  # ambiguous variable names in legacy scripts
+    "W291",  # trailing whitespace
+    "W293",  # blank line contains whitespace
+]

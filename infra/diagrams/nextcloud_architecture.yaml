@@ -1,0 +1,402 @@
+Diagram:
+  DefinitionFiles:
+    - Type: URL
+      Url: "https://raw.githubusercontent.com/awslabs/diagram-as-code/main/definitions/definition-for-aws-icons-light.yaml"
+
+  Resources:
+    Canvas:
+      Type: AWS::Diagram::Canvas
+      Direction: vertical
+      Children:
+        - ActorsStack
+        - AWSCloud
+
+    # ─────────────────────────────────────────────────────────────
+    # ACTORS (CUSTOM DOMAIN CLIENTS & ADMIN)
+    # ─────────────────────────────────────────────────────────────
+    ActorsStack:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - ExternalGuest
+        - Tenant1Users
+        - Tenant2Users
+        - SaaSSuperAdmin
+
+    ExternalGuest:
+      Type: AWS::Diagram::Resource
+      Preset: "Client"
+      Title: "External Guest (Public Shares)"
+
+    Tenant1Users:
+      Type: AWS::Diagram::Resource
+      Preset: "Users"
+      Title: "Tenant 1: Acme (acme.png261.dev)"
+
+    Tenant2Users:
+      Type: AWS::Diagram::Resource
+      Preset: "Users"
+      Title: "Tenant 2: Marvel (marvel.png261.dev)"
+
+    SaaSSuperAdmin:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Management Console"
+      Title: "SaaS Super Admin (admin.png261.dev)"
+
+    # ─────────────────────────────────────────────────────────────
+    # AWS CLOUD & ROUTE 53 DNS LAYER
+    # ─────────────────────────────────────────────────────────────
+    AWSCloud:
+      Type: AWS::Diagram::Cloud
+      Direction: vertical
+      Preset: AWSCloudNoLogo
+      Align: center
+      Children:
+        - Route53Stack
+        - Region
+
+    Route53Stack:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - Route53
+
+    Route53:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Route 53"
+      Title: "Amazon Route 53 (DNS / *.png261.dev)"
+
+    # ─────────────────────────────────────────────────────────────
+    # AWS REGION (ap-southeast-1)
+    # ─────────────────────────────────────────────────────────────
+    Region:
+      Type: AWS::Region
+      Direction: horizontal
+      Title: "AWS Region (ap-southeast-1)"
+      Children:
+        - VPC
+        - RegionalServices
+
+    VPC:
+      Type: AWS::EC2::VPC
+      Title: "Nextcloud SaaS VPC (10.0.0.0/16)"
+      Direction: vertical
+      Children:
+        - PublicSubnetGroup
+        - PrivateSubnetGroup
+      BorderChildren:
+        - Position: N
+          Resource: IGW
+
+    IGW:
+      Type: AWS::EC2::InternetGateway
+      IconFill:
+        Type: rect
+      Title: "Internet Gateway"
+
+    PublicSubnetGroup:
+      Type: AWS::EC2::Subnet
+      Preset: PublicSubnet
+      Title: "Public Subnets (AZ1 & AZ2 - Host-Header Ingress, Dedicated Tenant Containers & EFS)"
+      Direction: vertical
+      Children:
+        - WAF
+        - ALB
+        - ECSCluster
+        - SharedStorageRow
+
+    WAF:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS WAF"
+      Title: "AWS WAFv2 (OWASP, SQLi, Rate Limit)"
+
+    ALB:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Preset: Application Load Balancer
+      Title: "Application Load Balancer (Host Routing: acme.*, marvel.*)"
+
+    ECSCluster:
+      Type: AWS::ECS::Cluster
+      Title: "Amazon ECS (Container-per-Tenant Fargate Fleet)"
+      Direction: horizontal
+      Children:
+        - FargateTask1
+        - FargateTask2
+
+    FargateTask1:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Fargate"
+      Title: "Tenant Acme (service-acme: 1-4 Tasks)"
+
+    FargateTask2:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Fargate"
+      Title: "Tenant Marvel (service-marvel: 1-4 Tasks)"
+
+    SharedStorageRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - NextcloudEFS
+        - S3GatewayEndpoint
+
+    NextcloudEFS:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Elastic File System (Amazon EFS)"
+      Title: "Amazon EFS (/tenants/{id}/config Access Points)"
+
+    S3GatewayEndpoint:
+      Type: AWS::EC2::VPCEndpoint
+      Title: "S3 Gateway Endpoint (Free / Zero-NAT)"
+
+    PrivateSubnetGroup:
+      Type: AWS::EC2::Subnet
+      Preset: PrivateSubnet
+      Title: "Private Subnets (AZ1 & AZ2 - Isolated Data Tier)"
+      Direction: horizontal
+      Children:
+        - RDSInstance
+
+    RDSInstance:
+      Type: AWS::RDS::DBInstance
+      Title: "Amazon RDS PostgreSQL 16 (Isolated DBs: nc_acme, nc_marvel)"
+
+    # ─────────────────────────────────────────────────────────────
+    # REGIONAL SERVICES & CONTROL PLANE
+    # ─────────────────────────────────────────────────────────────
+    RegionalServices:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - Row1
+        - Row2
+        - Row3
+        - Row4
+
+    Row1:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - S3VaultBucket
+        - DynamoDBTenantRegistry
+
+    S3VaultBucket:
+      Type: AWS::S3::Bucket
+      Title: "Amazon S3 Vault (s3://vault/{tenant}/*)"
+
+    DynamoDBTenantRegistry:
+      Type: AWS::DynamoDB::Table
+      Title: "DynamoDB Tenant Registry"
+
+    Row2:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - SecretsManager
+        - SystemsManager
+
+    SecretsManager:
+      Type: AWS::SecretsManager::Secret
+      Title: "AWS Secrets Manager"
+
+    SystemsManager:
+      Type: AWS::SSM::Document
+      Title: "SSM Lifecycle Runbook"
+
+    Row3:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - BedrockAI
+        - ECRRepo
+
+    BedrockAI:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Bedrock"
+      Title: "Amazon Bedrock (Claude 3.5)"
+
+    ECRRepo:
+      Type: AWS::ECR
+      Title: "Amazon ECR (Golden Image)"
+
+    Row4:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - CloudWatchLog
+        - CloudWatchDashboard
+
+    CloudWatchLog:
+      Type: AWS::CloudWatch
+      Title: "Amazon CloudWatch Logs"
+
+    CloudWatchDashboard:
+      Type: AWS::CloudWatch
+      Title: "SaaS Control Plane Dashboard"
+
+  # ─────────────────────────────────────────────────────────────
+  # RELATIONSHIPS & TRAFFIC FLOW
+  # ─────────────────────────────────────────────────────────────
+  Links:
+    # DNS Resolution: Clients -> Route 53
+    - Source: ExternalGuest
+      SourcePosition: S
+      Target: Route53
+      TargetPosition: NW
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: Tenant1Users
+      SourcePosition: S
+      Target: Route53
+      TargetPosition: NNW
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: Tenant2Users
+      SourcePosition: S
+      Target: Route53
+      TargetPosition: NNE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Ingress: Route 53 -> IGW -> WAF -> ALB
+    - Source: Route53
+      SourcePosition: S
+      Target: IGW
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: IGW
+      SourcePosition: S
+      Target: WAF
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: WAF
+      SourcePosition: S
+      Target: ALB
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # SaaS Control Plane Access
+    - Source: SaaSSuperAdmin
+      SourcePosition: S
+      Target: SystemsManager
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: SaaSSuperAdmin
+      SourcePosition: E
+      Target: DynamoDBTenantRegistry
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Ingress Host-Header Routing: ALB -> Dedicated Tenant Containers
+    - Source: ALB
+      SourcePosition: SW
+      Target: FargateTask1
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: ALB
+      SourcePosition: SE
+      Target: FargateTask2
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Config Isolation: Dedicated Containers -> EFS Access Points
+    - Source: FargateTask1
+      SourcePosition: S
+      Target: NextcloudEFS
+      TargetPosition: NW
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: FargateTask2
+      SourcePosition: S
+      Target: NextcloudEFS
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Storage Isolation: Tasks -> S3 via Gateway Endpoint
+    - Source: FargateTask2
+      SourcePosition: S
+      Target: S3GatewayEndpoint
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: S3GatewayEndpoint
+      SourcePosition: E
+      Target: S3VaultBucket
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Database Isolation: Dedicated Tasks -> Dedicated Databases in RDS PostgreSQL
+    - Source: FargateTask1
+      SourcePosition: W
+      Target: RDSInstance
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: FargateTask2
+      SourcePosition: S
+      Target: RDSInstance
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Tasks -> Secrets Manager
+    - Source: FargateTask2
+      SourcePosition: E
+      Target: SecretsManager
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Tasks -> Bedrock AI
+    - Source: FargateTask2
+      SourcePosition: NE
+      Target: BedrockAI
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Tasks -> CloudWatch Logs
+    - Source: FargateTask2
+      SourcePosition: ESE
+      Target: CloudWatchLog
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # SSM -> DynamoDB
+    - Source: SystemsManager
+      SourcePosition: N
+      Target: DynamoDBTenantRegistry
+      TargetPosition: S
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal

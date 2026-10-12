@@ -1,0 +1,122 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Environments & Secrets
+.env
+.env.*
+!.env.example
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+*.pem
+*.key
+*.cert
+*.crt
+credentials.json
+client_secrets.json
+
+# Operating System
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary logs & Local debug artifacts
+*.log
+system_admin.log
+crash.log
+cookies.txt
+dashboard_view.html
+
+# Local Test & Benchmark artifacts
+.benchmarks/
+reports/.gh_issues_raw.json
+
+# AI Assistant & Local Agent cache
+.agents/
+
+# S3 Vault local cache (except sample data)
+s3-vault/*/.vault_initialized
+
+# Node / Web / Documentation tools
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.mintlify/
+
+# Infrastructure local state
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# DevSecOps - Generated files (safe to ignore)
+ferret-sast-report.json
+ferret-scan-results.sarif
+.ash/
+.eslintcache
+
+# DevSecOps - Tool cache directories
+.ruff_cache/
+.mypy_cache/

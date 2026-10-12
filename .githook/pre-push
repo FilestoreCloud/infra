@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Git Hook: pre-push
+# Purpose: Guard protected branches against accidental direct or force pushes
+# ==============================================================================
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$HOOK_DIR/helpers/colors.sh"
+source "$HOOK_DIR/helpers/git-env.sh"
+
+REMOTE="$1"
+URL="$2"
+
+if [ "${SKIP_PRE_PUSH:-0}" = "1" ]; then
+  log_warn "pre-push validation skipped by SKIP_PRE_PUSH=1"
+  exit 0
+fi
+
+log_step "Checking pre-push constraints for remote: $REMOTE ($URL)..."
+
+# Read standard input for ref updates: <local-ref> <local-sha> <remote-ref> <remote-sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Skip branch deletion
+  if [ "$local_sha" = "0000000000000000000000000000000000000000" ]; then
+    continue
+  fi
+
+  remote_branch=$(echo "$remote_ref" | sed 's#^refs/heads/##')
+
+  # Check if pushing to protected branch
+  if is_protected_branch "$remote_branch"; then
+    if [ "${ALLOW_DIRECT_PUSH:-0}" != "1" ]; then
+      log_warn "Notice: You are pushing to protected branch '$remote_branch'."
+      printf "  ${COLOR_GRAY}Ensure your commits have passed CI, peer review, and security testing.${COLOR_RESET}\n"
+    fi
+  fi
+done
+
+log_success "pre-push validation passed."
+exit 0

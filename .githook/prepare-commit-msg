@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Git Hook: prepare-commit-msg
+# Purpose: Optionally prepend ticket ID / branch issue prefix to commit template
+# ==============================================================================
+
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="${2:-}"
+COMMIT_SHA="${3:-}"
+
+# Do not modify message for merge, squash, or amend commits
+if [ -n "$COMMIT_SOURCE" ] && [ "$COMMIT_SOURCE" != "template" ]; then
+  exit 0
+fi
+
+BRANCH_NAME=$(git symbolic-ref --short -q HEAD 2>/dev/null || echo "")
+
+# Look for issue/ticket pattern in branch name (e.g., NC-123, PROJ-456, #789)
+TICKET_ID=$(echo "$BRANCH_NAME" | grep -oE '([A-Z]+-[0-9]+|#[0-9]+)' | head -n 1 || true)
+
+if [ -n "$TICKET_ID" ]; then
+  # Only prepend if ticket is not already present in commit message file
+  if ! grep -q "$TICKET_ID" "$COMMIT_MSG_FILE" 2>/dev/null; then
+    EXISTING_MSG=$(cat "$COMMIT_MSG_FILE" 2>/dev/null || echo "")
+    printf "[%s] %s" "$TICKET_ID" "$EXISTING_MSG" > "$COMMIT_MSG_FILE"
+  fi
+fi
+
+exit 0

@@ -1,0 +1,160 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Nextcloud Multi-Tenant SaaS - Module 02: Security (ALB, ECS, RDS Security Groups)'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: prod
+    Description: Environment prefix (prod, staging, dev)
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where the security groups will be created
+
+Resources:
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Public ALB Ingress Security Group
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-alb-sg'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ECS Fargate Task Security Group (Inbound locked to ALB)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-ecs-fargate-sg'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS PostgreSQL Private Security Group (Inbound locked to ECS)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-rds-postgres-sg'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  EFSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EFS File System Security Group (Inbound NFS locked to ECS Fargate)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+          Description: NFS traffic from ECS Fargate
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-efs-sg'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # SSM Parameter Store exports
+  SSMALBSecurityGroup:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/nextcloud/${EnvironmentName}/security/alb-sg-id'
+      Type: String
+      Value: !Ref ALBSecurityGroup
+      Description: ALB Security Group ID
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  SSMECSSecurityGroup:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/nextcloud/${EnvironmentName}/security/ecs-sg-id'
+      Type: String
+      Value: !Ref ECSSecurityGroup
+      Description: ECS Security Group ID
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  SSMDBSecurityGroup:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/nextcloud/${EnvironmentName}/security/db-sg-id'
+      Type: String
+      Value: !Ref DBSecurityGroup
+      Description: RDS DB Security Group ID
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  SSMEFSSecurityGroup:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/nextcloud/${EnvironmentName}/security/efs-sg-id'
+      Type: String
+      Value: !Ref EFSSecurityGroup
+      Description: EFS Security Group ID
+      Tags:
+        Environment: !Ref EnvironmentName
+
+Outputs:
+  ALBSecurityGroupId:
+    Description: ALB Security Group ID
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: !Sub '${EnvironmentName}-nextcloud-ALBSecurityGroupId'
+
+  ECSSecurityGroupId:
+    Description: ECS Security Group ID
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub '${EnvironmentName}-nextcloud-ECSSecurityGroupId'
+
+  DBSecurityGroupId:
+    Description: RDS DB Security Group ID
+    Value: !Ref DBSecurityGroup
+    Export:
+      Name: !Sub '${EnvironmentName}-nextcloud-DBSecurityGroupId'
+
+  EFSSecurityGroupId:
+    Description: EFS Security Group ID
+    Value: !Ref EFSSecurityGroup
+    Export:
+      Name: !Sub '${EnvironmentName}-nextcloud-EFSSecurityGroupId'

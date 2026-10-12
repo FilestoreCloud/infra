@@ -1,0 +1,30 @@
+[
+  {
+    "ParameterKey": "EnvironmentName",
+    "ParameterValue": "prod"
+  },
+  {
+    "ParameterKey": "TaskCpu",
+    "ParameterValue": "1024"
+  },
+  {
+    "ParameterKey": "TaskMemory",
+    "ParameterValue": "2048"
+  },
+  {
+    "ParameterKey": "DesiredCount",
+    "ParameterValue": "1"
+  },
+  {
+    "ParameterKey": "MaxCount",
+    "ParameterValue": "6"
+  },
+  {
+    "ParameterKey": "EnableAIEngine",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "ContainerImage",
+    "ParameterValue": "nextcloud:30.0.17-apache"
+  }
+]

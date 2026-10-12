@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Nextcloud Multi-Tenant SaaS - Module 04: Database (RDS PostgreSQL 16 & Secrets Manager)'
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: prod
+    Description: Environment prefix (prod, staging, dev)
+
+  PrivateSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet 1 ID for RDS Subnet Group
+
+  PrivateSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: Private Subnet 2 ID for RDS Subnet Group
+
+  DBSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Security Group ID for RDS PostgreSQL
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: Instance class for RDS PostgreSQL
+
+  DBAllocatedStorage:
+    Type: String
+    Default: '20'
+    Description: Allocated storage in GB
+
+  MaxAllocatedStorage:
+    Type: Number
+    Default: 100
+    Description: Maximum storage limit (in GB) for RDS Storage Auto-Scaling
+
+  DBName:
+    Type: String
+    Default: nextcloud
+    Description: Initial database name
+
+  DBMasterUsername:
+    Type: String
+    Default: nextcloud
+    Description: Master username for PostgreSQL
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for RDS PostgreSQL
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private Subnet Group for RDS PostgreSQL
+      SubnetIds:
+        - !Ref PrivateSubnet1Id
+        - !Ref PrivateSubnet2Id
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-db-subnet-group'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DBParameterGroup:
+    Type: AWS::RDS::DBParameterGroup
+    Properties:
+      Description: Parameter group for Nextcloud PostgreSQL 16 with SSL optional
+      Family: postgres16
+      Parameters:
+        rds.force_ssl: '0'
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-db-parameter-group'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RDSInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub '${EnvironmentName}-nextcloud-db'
+      Engine: postgres
+      EngineVersion: '16.10'
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: !Ref DBAllocatedStorage
+      MaxAllocatedStorage: !Ref MaxAllocatedStorage
+      StorageType: gp3
+      DBName: !Ref DBName
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBParameterGroupName: !Ref DBParameterGroup
+      VPCSecurityGroups:
+        - !Ref DBSecurityGroupId
+      PubliclyAccessible: false
+      MultiAZ: false
+      BackupRetentionPeriod: 1
+      DeleteAutomatedBackups: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${EnvironmentName}-nextcloud-postgres'
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '/nextcloud/${EnvironmentName}/secrets/db-credentials'
+      Description: Database credentials for Nextcloud RDS PostgreSQL
+      SecretString: !Sub |
+        {
+          "engine": "postgres",
+          "host": "${RDSInstance.Endpoint.Address}",
+          "port": 5432,
+          "username": "${DBMasterUsername}",
+          "password": "${DBPassword}",
+          "dbname": "${DBName}"
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # SSM Parameter Store exports
+  SSMDBEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/nextcloud/${EnvironmentName}/infra/db-endpoint'
+      Type: String
+      Value: !GetAtt RDSInstance.Endpoint.Address
+      Description: RDS PostgreSQL Endpoint Address
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  SSMDBSecretArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/nextcloud/${EnvironmentName}/infra/db-secret-arn'
+      Type: String
+      Value: !Ref DBSecret
+      Description: Secrets Manager Secret ARN for Database Credentials
+      Tags:
+        Environment: !Ref EnvironmentName
+
+Outputs:
+  DatabaseEndpoint:
+    Description: Private RDS PostgreSQL Endpoint Address
+    Value: !GetAtt RDSInstance.Endpoint.Address
+    Export:
+      Name: !Sub '${EnvironmentName}-nextcloud-DatabaseEndpoint'
+
+  DBSecretArn:
+    Description: Secrets Manager Secret ARN for Database Credentials
+    Value: !Ref DBSecret
+    Export:
+      Name: !Sub '${EnvironmentName}-nextcloud-DBSecretArn'
+
+  RDSInstanceIdentifier:
+    Description: RDS Instance Identifier
+    Value: !Ref RDSInstance
+    Export:
+      Name: !Sub '${EnvironmentName}-nextcloud-RDSInstanceIdentifier'

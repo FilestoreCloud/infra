@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Git Hook: pre-commit
+# Purpose: Prevent direct commits to protected branches, verify staged security,
+#          and run code quality & DevSecOps checks via pre-commit.
+# ==============================================================================
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$HOOK_DIR/helpers/colors.sh"
+source "$HOOK_DIR/helpers/git-env.sh"
+source "$HOOK_DIR/helpers/security-guard.sh"
+
+CURRENT_BRANCH=$(get_current_branch)
+
+# ------------------------------------------------------------------------------
+# 1. Branch Protection Check
+# ------------------------------------------------------------------------------
+if [ "${ALLOW_DIRECT_MAIN:-0}" != "1" ] && [ "${SKIP_BRANCH_PROTECTION:-0}" != "1" ]; then
+  if is_protected_branch "$CURRENT_BRANCH"; then
+    log_error "Direct commits to protected branch '$CURRENT_BRANCH' are forbidden!"
+    printf "\n"
+    printf "  ${COLOR_BOLD}Recommended workflow:${COLOR_RESET}\n"
+    printf "    1. Create a feature branch: ${COLOR_CYAN}git checkout -b feat/your-feature-name${COLOR_RESET}\n"
+    printf "    2. Commit changes and push to origin\n"
+    printf "    3. Open a Pull Request for review\n\n"
+    printf "  ${COLOR_GRAY}(To bypass in an emergency, set ALLOW_DIRECT_MAIN=1 git commit ...)${COLOR_RESET}\n\n"
+    exit 1
+  fi
+fi
+
+# ------------------------------------------------------------------------------
+# 2. Staged Security & Hygiene Scan
+# ------------------------------------------------------------------------------
+log_step "Checking staged files for secrets and conflict markers..."
+if ! check_staged_security; then
+  exit 1
+fi
+log_success "Staged files hygiene scan passed."
+
+# ------------------------------------------------------------------------------
+# 3. Code Quality & DevSecOps Linters
+# ------------------------------------------------------------------------------
+if [ "${SKIP_PRE_COMMIT:-0}" = "1" ]; then
+  log_warn "pre-commit execution skipped by SKIP_PRE_COMMIT=1"
+  exit 0
+fi
+
+# Locate pre-commit binary
+PRE_COMMIT_BIN=""
+if command -v pre-commit >/dev/null 2>&1; then
+  PRE_COMMIT_BIN="pre-commit"
+elif [ -x "/opt/homebrew/bin/pre-commit" ]; then
+  PRE_COMMIT_BIN="/opt/homebrew/bin/pre-commit"
+elif [ -x "$HOME/.local/bin/pre-commit" ]; then
+  PRE_COMMIT_BIN="$HOME/.local/bin/pre-commit"
+fi
+
+if [ -n "$PRE_COMMIT_BIN" ]; then
+  log_step "Running pre-commit hooks (.pre-commit-config.yaml)..."
+  if ! "$PRE_COMMIT_BIN" run --hook-stage pre-commit; then
+    log_error "pre-commit hooks reported issues. Please fix them before committing."
+    exit 1
+  fi
+  log_success "All pre-commit hooks passed successfully."
+else
+  log_warn "pre-commit binary not found. Running basic local syntax checks..."
+
+  # Basic Python syntax verification on staged python files
+  STAGED_PY=$(get_staged_files | grep -E '\.py$' || true)
+  if [ -n "$STAGED_PY" ]; then
+    log_step "Verifying Python syntax..."
+    for py_file in $STAGED_PY; do
+      if [ -f "$py_file" ]; then
+        if ! python3 -m py_compile "$py_file" 2>/dev/null; then
+          log_error "Python syntax error in: $py_file"
+          exit 1
+        fi
+      fi
+    done
+    log_success "Python syntax validation passed."
+  fi
+  log_info "Tip: Install pre-commit (brew install pre-commit or pip install pre-commit) for full DevSecOps checks."
+fi
+
+exit 0

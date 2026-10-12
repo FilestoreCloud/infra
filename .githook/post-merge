@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# Git Hook: post-merge
+# Purpose: Notify developer if dependencies or infrastructure configs were modified
+# ==============================================================================
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$HOOK_DIR/helpers/colors.sh"
+
+CHANGED_FILES=$(git diff-tree -r --name-only --no-commit-id ORIG_HEAD HEAD 2>/dev/null || true)
+
+if [ -z "$CHANGED_FILES" ]; then
+  exit 0
+fi
+
+# Check for Python dependencies change
+if echo "$CHANGED_FILES" | grep -Eq '(requirements\.txt|setup\.py|pyproject\.toml)'; then
+  log_warn "Dependencies changed in this merge!"
+  printf "  ${COLOR_CYAN}Run: pip install -r requirements.txt${COLOR_RESET}\n"
+fi
+
+# Check for CloudFormation infrastructure changes
+if echo "$CHANGED_FILES" | grep -Eq '^infra/.*\.ya?ml$'; then
+  log_info "Infrastructure CloudFormation templates were updated in this merge."
+fi
+
+# Check for pre-commit or DevSecOps config updates
+if echo "$CHANGED_FILES" | grep -Eq '(\.pre-commit-config\.yaml|\.devsecops/)'; then
+  log_info "DevSecOps rules or pre-commit configuration updated."
+fi
+
+exit 0
