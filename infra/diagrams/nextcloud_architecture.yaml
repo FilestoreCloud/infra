@@ -12,7 +12,7 @@ Diagram:
         - AWSCloud
 
     # ─────────────────────────────────────────────────────────────
-    # ACTORS (CUSTOM DOMAIN CLIENTS & ADMIN)
+    # TENANT ACTORS & EXTERNAL CLIENTS
     # ─────────────────────────────────────────────────────────────
     ActorsStack:
       Type: AWS::Diagram::HorizontalStack
@@ -20,49 +20,54 @@ Diagram:
         - ExternalGuest
         - Tenant1Users
         - Tenant2Users
-        - SaaSSuperAdmin
 
     ExternalGuest:
       Type: AWS::Diagram::Resource
       Preset: "Client"
-      Title: "External Guest (Public Shares)"
+      Title: "External Guest\n(Public Shares & WebDAV)"
 
     Tenant1Users:
       Type: AWS::Diagram::Resource
       Preset: "Users"
-      Title: "Tenant 1: Acme (acme.png261.dev)"
+      Title: "Tenant 1: Acme Users\n(acme.png261.dev)\nWeb, Sync Client & Mobile"
 
     Tenant2Users:
       Type: AWS::Diagram::Resource
       Preset: "Users"
-      Title: "Tenant 2: Marvel (marvel.png261.dev)"
-
-    SaaSSuperAdmin:
-      Type: AWS::Diagram::Resource
-      Preset: "AWS Management Console"
-      Title: "SaaS Super Admin (admin.png261.dev)"
+      Title: "Tenant 2: Marvel Users\n(marvel.png261.dev)\nWeb, Sync Client & Mobile"
 
     # ─────────────────────────────────────────────────────────────
-    # AWS CLOUD & ROUTE 53 DNS LAYER
+    # AWS CLOUD ENVIRONMENT
     # ─────────────────────────────────────────────────────────────
     AWSCloud:
       Type: AWS::Diagram::Cloud
       Direction: vertical
-      Preset: AWSCloudNoLogo
+      Title: "AWS Cloud"
       Align: center
       Children:
-        - Route53Stack
+        - EdgePerimeterStack
         - Region
 
-    Route53Stack:
+    # Edge Ingress & Perimeter Security Layer
+    EdgePerimeterStack:
       Type: AWS::Diagram::HorizontalStack
       Children:
         - Route53
+        - ACM
+        - WAF
 
     Route53:
+      Type: AWS::Route53
+      Title: "Amazon Route 53 (DNS)\nHosted Zone: png261.dev\nWildcard *.png261.dev ALIAS"
+
+    ACM:
       Type: AWS::Diagram::Resource
-      Preset: "Amazon Route 53"
-      Title: "Amazon Route 53 (DNS / *.png261.dev)"
+      Preset: "AWS Certificate Manager (ACM)"
+      Title: "AWS ACM (TLS 1.3)\nWildcard *.png261.dev\nAuto DNS Validation"
+
+    WAF:
+      Type: AWS::WAFv2
+      Title: "AWS WAFv2 (WebACL)\nOWASP Top 10, BadInputs\nSQLi & IP Rate Limit"
 
     # ─────────────────────────────────────────────────────────────
     # AWS REGION (ap-southeast-1)
@@ -75,6 +80,9 @@ Diagram:
         - VPC
         - RegionalServices
 
+    # ─────────────────────────────────────────────────────────────
+    # VPC (LEAN ZERO-NAT MULTI-AZ ARCHITECTURE)
+    # ─────────────────────────────────────────────────────────────
     VPC:
       Type: AWS::EC2::VPC
       Title: "Nextcloud SaaS VPC (10.0.0.0/16)"
@@ -92,26 +100,21 @@ Diagram:
         Type: rect
       Title: "Internet Gateway"
 
+    # Public Subnets (AZ1 & AZ2): ALB Ingress, Dedicated ECS Tasks, EFS & S3 Endpoint
     PublicSubnetGroup:
       Type: AWS::EC2::Subnet
       Preset: PublicSubnet
-      Title: "Public Subnets (AZ1 & AZ2 - Host-Header Ingress, Dedicated Tenant Containers & EFS)"
+      Title: "Public Subnets AZ1 & AZ2 (Host Routing Ingress, Dedicated Compute & Config Store)"
       Direction: vertical
       Children:
-        - WAF
         - ALB
         - ECSCluster
         - SharedStorageRow
 
-    WAF:
-      Type: AWS::Diagram::Resource
-      Preset: "AWS WAF"
-      Title: "AWS WAFv2 (OWASP, SQLi, Rate Limit)"
-
     ALB:
       Type: AWS::ElasticLoadBalancingV2::LoadBalancer
       Preset: Application Load Balancer
-      Title: "Application Load Balancer (Host Routing: acme.*, marvel.*)"
+      Title: "Application Load Balancer (Dual-AZ Ingress)\nWildcard TLS 1.3 · Host-Header Priority Routing\nHealth Check: /status.php (200 OK)"
 
     ECSCluster:
       Type: AWS::ECS::Cluster
@@ -124,12 +127,12 @@ Diagram:
     FargateTask1:
       Type: AWS::Diagram::Resource
       Preset: "AWS Fargate"
-      Title: "Tenant Acme (service-acme: 1-4 Tasks)"
+      Title: "Tenant Acme (service-acme: 1-4 Tasks)\nDual Container: Nextcloud 30 + LiteLLM Sidecar\nAuto-Scaled: CPU > 70%"
 
     FargateTask2:
       Type: AWS::Diagram::Resource
       Preset: "AWS Fargate"
-      Title: "Tenant Marvel (service-marvel: 1-4 Tasks)"
+      Title: "Tenant Marvel (service-marvel: 1-4 Tasks)\nDual Container: Nextcloud 30 + LiteLLM Sidecar\nAuto-Scaled: CPU > 70%"
 
     SharedStorageRow:
       Type: AWS::Diagram::HorizontalStack
@@ -140,91 +143,67 @@ Diagram:
     NextcloudEFS:
       Type: AWS::Diagram::Resource
       Preset: "Amazon Elastic File System (Amazon EFS)"
-      Title: "Amazon EFS (/tenants/{id}/config Access Points)"
+      Title: "Amazon EFS (/tenants/{id}/config Access Points)\nPOSIX UID 33:33 (www-data) Encrypted"
 
     S3GatewayEndpoint:
       Type: AWS::EC2::VPCEndpoint
-      Title: "S3 Gateway Endpoint (Free / Zero-NAT)"
+      Title: "S3 Gateway Endpoint\n(Complimentary / Zero-NAT Routing)"
 
+    # Private Subnets (AZ1 & AZ2): Isolated RDS Relational Database Tier
     PrivateSubnetGroup:
       Type: AWS::EC2::Subnet
       Preset: PrivateSubnet
-      Title: "Private Subnets (AZ1 & AZ2 - Isolated Data Tier)"
+      Title: "Private Subnets AZ1 & AZ2 (Isolated Relational Data Tier)"
       Direction: horizontal
       Children:
         - RDSInstance
 
     RDSInstance:
       Type: AWS::RDS::DBInstance
-      Title: "Amazon RDS PostgreSQL 16 (Isolated DBs: nc_acme, nc_marvel)"
+      Title: "Amazon RDS PostgreSQL 16 (AWS Graviton2)\nDedicated Catalogs: nc_acme, nc_marvel\nPrivate Subnet Group · Encrypted KMS"
 
     # ─────────────────────────────────────────────────────────────
-    # REGIONAL SERVICES & CONTROL PLANE
+    # REGIONAL SERVICES & PLATFORM INTEGRATIONS
     # ─────────────────────────────────────────────────────────────
     RegionalServices:
       Type: AWS::Diagram::VerticalStack
       Children:
-        - Row1
-        - Row2
-        - Row3
-        - Row4
+        - StorageAndSecurityRow
+        - AIAndObservabilityRow
 
-    Row1:
+    StorageAndSecurityRow:
       Type: AWS::Diagram::HorizontalStack
       Children:
         - S3VaultBucket
-        - DynamoDBTenantRegistry
+        - SecretsManager
+        - ECRRepo
 
     S3VaultBucket:
       Type: AWS::S3::Bucket
-      Title: "Amazon S3 Vault (s3://vault/{tenant}/*)"
-
-    DynamoDBTenantRegistry:
-      Type: AWS::DynamoDB::Table
-      Title: "DynamoDB Tenant Registry"
-
-    Row2:
-      Type: AWS::Diagram::HorizontalStack
-      Children:
-        - SecretsManager
-        - SystemsManager
+      Title: "Amazon S3 Vault\n(s3://vault/tenants/{id}/*)\nIntelligent Tiering & Encryption"
 
     SecretsManager:
       Type: AWS::SecretsManager::Secret
-      Title: "AWS Secrets Manager"
+      Title: "AWS Secrets Manager\n(DB, Admin & LiteLLM Secrets)\nKMS Envelope Encryption"
 
-    SystemsManager:
-      Type: AWS::SSM::Document
-      Title: "SSM Lifecycle Runbook"
+    ECRRepo:
+      Type: AWS::ECR
+      Title: "Amazon ECR\n(Golden Image: Nextcloud 30\n+ Bedrock Assistant Tools)"
 
-    Row3:
+    AIAndObservabilityRow:
       Type: AWS::Diagram::HorizontalStack
       Children:
         - BedrockAI
-        - ECRRepo
+        - CloudWatchLog
 
     BedrockAI:
       Type: AWS::Diagram::Resource
       Preset: "Amazon Bedrock"
-      Title: "Amazon Bedrock (Claude 3.5)"
-
-    ECRRepo:
-      Type: AWS::ECR
-      Title: "Amazon ECR (Golden Image)"
-
-    Row4:
-      Type: AWS::Diagram::HorizontalStack
-      Children:
-        - CloudWatchLog
-        - CloudWatchDashboard
+      Title: "Amazon Bedrock (Claude 3.5 Sonnet)\nSigV4 IAM Task Role Invocation\nContext Chat & Document AI"
 
     CloudWatchLog:
       Type: AWS::CloudWatch
-      Title: "Amazon CloudWatch Logs"
-
-    CloudWatchDashboard:
-      Type: AWS::CloudWatch
-      Title: "SaaS Control Plane Dashboard"
+      Title: "Amazon CloudWatch Logs\n(/ecs/nextcloud & Container Insights)\nStructured Log Streaming"
 
   # ─────────────────────────────────────────────────────────────
   # RELATIONSHIPS & TRAFFIC FLOW
@@ -255,16 +234,8 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    # Ingress: Route 53 -> IGW -> WAF -> ALB
+    # Ingress: Route 53 -> WAF -> IGW -> ALB
     - Source: Route53
-      SourcePosition: S
-      Target: IGW
-      TargetPosition: N
-      TargetArrowHead:
-        Type: Open
-      Type: orthogonal
-
-    - Source: IGW
       SourcePosition: S
       Target: WAF
       TargetPosition: N
@@ -274,24 +245,15 @@ Diagram:
 
     - Source: WAF
       SourcePosition: S
-      Target: ALB
+      Target: IGW
       TargetPosition: N
       TargetArrowHead:
         Type: Open
       Type: orthogonal
 
-    # SaaS Control Plane Access
-    - Source: SaaSSuperAdmin
+    - Source: IGW
       SourcePosition: S
-      Target: SystemsManager
-      TargetPosition: N
-      TargetArrowHead:
-        Type: Open
-      Type: orthogonal
-
-    - Source: SaaSSuperAdmin
-      SourcePosition: E
-      Target: DynamoDBTenantRegistry
+      Target: ALB
       TargetPosition: N
       TargetArrowHead:
         Type: Open
@@ -374,7 +336,7 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    # Tasks -> Bedrock AI
+    # Tasks -> Bedrock AI (Claude 3.5 Sonnet)
     - Source: FargateTask2
       SourcePosition: NE
       Target: BedrockAI
@@ -392,11 +354,11 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    # SSM -> DynamoDB
-    - Source: SystemsManager
-      SourcePosition: N
-      Target: DynamoDBTenantRegistry
-      TargetPosition: S
+    # Tasks -> ECR Golden Image Pull
+    - Source: FargateTask1
+      SourcePosition: NE
+      Target: ECRRepo
+      TargetPosition: W
       TargetArrowHead:
         Type: Open
       Type: orthogonal

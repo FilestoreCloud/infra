@@ -6,6 +6,8 @@ Modular CloudFormation Infrastructure as Code (IaC) and operational automation f
 
 ## 1. Architecture Overview
 
+![FilestoreCloud Multi-Tenant AWS Architecture](docs/images/nextcloud_architecture.png)
+
 FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular CloudFormation architecture with container-per-tenant isolation on Amazon ECS Fargate.
 
 ### Key Architectural Boundaries
@@ -16,7 +18,7 @@ FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular Cloud
   - **Persistent Config Store (Amazon EFS):** `/tenants/<tenant_id>/config` mounted to `/var/www/html/config`.
   - **Object Storage Vault (Amazon S3):** Isolated prefixes `s3://<vault>/tenants/<tenant_id>/...`.
   - **Database (Amazon RDS PostgreSQL 16):** Dedicated physical database (`nc_<tenant_id>`) per tenant.
-- **Control Plane & Registry:** Amazon DynamoDB Tenant Registry, SSM Lifecycle Operator runbooks, and CloudWatch operational dashboard.
+- **Observability & Security:** AWS Secrets Manager encryption, CloudWatch Logs & Container Insights, Amazon Bedrock Claude 3.5 Sonnet sidecar integration.
 
 ---
 
@@ -24,7 +26,10 @@ FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular Cloud
 
 ```
 .
+├── docs/
+│   └── images/                # Architecture diagrams (compiled with awsdac)
 ├── infra/
+│   ├── diagrams/              # Diagram-as-Code specifications (awslabs/diagram-as-code)
 │   ├── modules/
 │   │   ├── 01-networking/     # VPC, Subnets, Route Tables, NAT / VPC Endpoints
 │   │   ├── 02-security/       # Security Groups, KMS Keys, IAM Roles
@@ -85,7 +90,21 @@ cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W300
 
 ---
 
-## 5. Related Repositories
+## 5. Architecture Diagrams as Code
+
+The architecture diagrams are maintained as code using [AWS Diagram as Code (`awsdac`)](https://github.com/awslabs/diagram-as-code):
+
+```bash
+# Rebuild Nextcloud infrastructure architecture diagram
+awsdac infra/diagrams/nextcloud_architecture.yaml -o docs/images/nextcloud_architecture.png -f
+
+# Rebuild Super Admin Console architecture diagram
+awsdac infra/diagrams/console_architecture.yaml -o docs/images/console_architecture.png -f
+```
+
+---
+
+## 6. Related Repositories
 
 - [**`FilestoreCloud/runtime`**](https://github.com/FilestoreCloud/runtime): Docker Golden Image & Bedrock AI Sidecar.
 - [**`FilestoreCloud/console`**](https://github.com/FilestoreCloud/console): Super Admin Web Console (React 18 + Refine + Ant Design).

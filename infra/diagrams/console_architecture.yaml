@@ -1,0 +1,364 @@
+Diagram:
+  DefinitionFiles:
+    - Type: URL
+      Url: "https://raw.githubusercontent.com/awslabs/diagram-as-code/main/definitions/definition-for-aws-icons-light.yaml"
+
+  Resources:
+    Canvas:
+      Type: AWS::Diagram::Canvas
+      Direction: vertical
+      Children:
+        - AdminActorsStack
+        - AWSCloud
+
+    # ─────────────────────────────────────────────────────────────
+    # CONSOLE ACTORS & ENTERPRISE RBAC PERSONAS
+    # ─────────────────────────────────────────────────────────────
+    AdminActorsStack:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - SuperAdminActor
+        - TenantOperatorActor
+        - SecurityAuditorActor
+
+    SuperAdminActor:
+      Type: AWS::Diagram::Resource
+      Preset: "User"
+      Title: "SaaS Super Admin\n(Role: SuperAdmin)\nFull Lifecycle & Deletion"
+
+    TenantOperatorActor:
+      Type: AWS::Diagram::Resource
+      Preset: "User"
+      Title: "Tenant Operator\n(Role: TenantOperator)\nFleet Ops & Scaling"
+
+    SecurityAuditorActor:
+      Type: AWS::Diagram::Resource
+      Preset: "User"
+      Title: "Security Auditor\n(Role: SecurityAuditor)\nRead-only Compliance"
+
+    # ─────────────────────────────────────────────────────────────
+    # AWS CLOUD ENVIRONMENT
+    # ─────────────────────────────────────────────────────────────
+    AWSCloud:
+      Type: AWS::Diagram::Cloud
+      Direction: vertical
+      Title: "AWS Cloud"
+      Children:
+        - EdgeIngressStack
+        - ConsoleCoreRegion
+
+    # Edge Ingress & Distribution Layer
+    EdgeIngressStack:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - Route53DNS
+        - ACMCert
+        - WAFProtection
+        - CloudFrontDist
+
+    Route53DNS:
+      Type: AWS::Route53
+      Title: "Amazon Route 53\n(admin.png261.dev DNS)"
+
+    ACMCert:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Certificate Manager (ACM)"
+      Title: "AWS ACM\n(Wildcard TLS 1.3 Certificate)"
+
+    WAFProtection:
+      Type: AWS::WAFv2
+      Title: "AWS WAFv2\n(WebACL Rate Limit & OWASP)"
+
+    CloudFrontDist:
+      Type: AWS::CloudFront
+      Title: "Amazon CloudFront\n(admin.png261.dev CDN Edge)\nSPA Fallback & /api* Routing"
+
+    # Region with Console Services & Managed SaaS Fleet
+    ConsoleCoreRegion:
+      Type: AWS::Region
+      Title: "AWS Region (ap-southeast-1)"
+      Direction: horizontal
+      Children:
+        - ConsolePlatformStack
+        - ManagedFleetStack
+
+    # SaaS Control Plane Services
+    ConsolePlatformStack:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - WebHostingAndAuthRow
+        - OrchestrationRow
+        - StateAndComplianceRow
+        - TelemetryRow
+
+    WebHostingAndAuthRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - AdminWebS3Bucket
+        - CognitoUserPool
+        - AdminUsersTable
+
+    AdminWebS3Bucket:
+      Type: AWS::S3::Bucket
+      Title: "Amazon S3 Admin Web\n(Vite+React 18 SPA Hosting)\nCloudFront OAC Protected"
+
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Title: "Amazon Cognito User Pool\n(MFA TOTP Authenticator)\nSession Tokens"
+
+    AdminUsersTable:
+      Type: AWS::DynamoDB::Table
+      Title: "DynamoDB Admin Users\n(PBKDF2 Hashes & RBAC Claims)"
+
+    OrchestrationRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - SSMRunbook
+        - SSMAutoRole
+        - BackendApiHandler
+
+    SSMRunbook:
+      Type: AWS::SSM::Document
+      Title: "SSM Lifecycle Runbook\n(Tenant-Lifecycle-Operator)\nPROVISION | SUSPEND | RESUME"
+
+    SSMAutoRole:
+      Type: AWS::IAM::Role
+      Title: "SSM Automation IAM Role\n(Least Privilege Operator)"
+
+    BackendApiHandler:
+      Type: AWS::Diagram::Resource
+      Preset: "Application Load Balancer"
+      Title: "Control Plane API Origin\n(/api* Pass-Through & Auth)"
+
+    StateAndComplianceRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - TenantRegistryTable
+        - AuditLogsTable
+        - AuditLogGroup
+
+    TenantRegistryTable:
+      Type: AWS::DynamoDB::Table
+      Title: "DynamoDB Tenant Registry\n(Lifecycle State, Quotas & Domains)"
+
+    AuditLogsTable:
+      Type: AWS::DynamoDB::Table
+      Title: "DynamoDB Audit Logs\n(Immutable 1-Year TTL Ledger)"
+
+    AuditLogGroup:
+      Type: AWS::Diagram::Resource
+      Preset: "Logs"
+      Title: "CloudWatch Audit Log Group\n(/aws/audit/control-plane 365d)"
+
+    TelemetryRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - CloudWatchDashboard
+        - SSMParams
+
+    CloudWatchDashboard:
+      Type: AWS::CloudWatch
+      Title: "CloudWatch Dashboard\n(Real-Time Tenant Telemetry)"
+
+    SSMParams:
+      Type: AWS::SSM::Parameter
+      Title: "SSM Parameter Store\n(/nextcloud/prod/control-plane/*)"
+
+    # Managed Nextcloud Fleet (Target Infrastructure Managed by Console)
+    ManagedFleetStack:
+      Type: AWS::Diagram::VerticalStack
+      Children:
+        - FleetComputeRow
+        - FleetStorageRow
+
+    FleetComputeRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - ECSFleet
+        - RDSFleet
+
+    ECSFleet:
+      Type: AWS::Diagram::Resource
+      Preset: "AWS Fargate"
+      Title: "Amazon ECS Fargate Fleet\n(service-acme, service-marvel)\ndesiredCount: 0 (Suspend) / 1 (Active)"
+
+    RDSFleet:
+      Type: AWS::RDS::DBInstance
+      Title: "Amazon RDS PostgreSQL 16\n(Physical DBs: nc_acme, nc_marvel)\nSchema Provisioning & Cleanup"
+
+    FleetStorageRow:
+      Type: AWS::Diagram::HorizontalStack
+      Children:
+        - S3VaultFleet
+        - EFSConfigFleet
+
+    S3VaultFleet:
+      Type: AWS::S3::Bucket
+      Title: "Amazon S3 Vault Bucket\n(s3://vault/tenants/{tenant_id}/*)\nQuota Enforcement & Lifecycle"
+
+    EFSConfigFleet:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon Elastic File System (Amazon EFS)"
+      Title: "Amazon EFS Config Store\n(/tenants/{tenant_id}/config)\nDedicated Access Points"
+
+  # ─────────────────────────────────────────────────────────────
+  # RELATIONSHIPS & OPERATIONAL INTERACTIONS
+  # ─────────────────────────────────────────────────────────────
+  Links:
+    # Admin User Ingress -> DNS & CDN
+    - Source: SuperAdminActor
+      SourcePosition: S
+      Target: Route53DNS
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: TenantOperatorActor
+      SourcePosition: S
+      Target: Route53DNS
+      TargetPosition: NNE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: SecurityAuditorActor
+      SourcePosition: S
+      Target: Route53DNS
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: Route53DNS
+      SourcePosition: E
+      Target: WAFProtection
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: WAFProtection
+      SourcePosition: E
+      Target: CloudFrontDist
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # CloudFront -> Web Assets & Backend API
+    - Source: CloudFrontDist
+      SourcePosition: S
+      Target: AdminWebS3Bucket
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: CloudFrontDist
+      SourcePosition: SE
+      Target: BackendApiHandler
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Auth flow
+    - Source: AdminWebS3Bucket
+      SourcePosition: E
+      Target: CognitoUserPool
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: CognitoUserPool
+      SourcePosition: E
+      Target: AdminUsersTable
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Backend API -> SSM Runbook & Audit
+    - Source: BackendApiHandler
+      SourcePosition: W
+      Target: SSMRunbook
+      TargetPosition: E
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: BackendApiHandler
+      SourcePosition: S
+      Target: AuditLogsTable
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: BackendApiHandler
+      SourcePosition: S
+      Target: AuditLogGroup
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # SSM Runbook Execution & IAM Role
+    - Source: SSMAutoRole
+      SourcePosition: W
+      Target: SSMRunbook
+      TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: SSMRunbook
+      SourcePosition: S
+      Target: TenantRegistryTable
+      TargetPosition: N
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: SSMRunbook
+      SourcePosition: S
+      Target: CloudWatchDashboard
+      TargetPosition: NW
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # SSM Runbook Lifecycle Operations on Managed Fleet
+    - Source: SSMRunbook
+      SourcePosition: E
+      Target: ECSFleet
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: SSMRunbook
+      SourcePosition: E
+      Target: RDSFleet
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: SSMRunbook
+      SourcePosition: E
+      Target: S3VaultFleet
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: SSMRunbook
+      SourcePosition: E
+      Target: EFSConfigFleet
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
