@@ -61,7 +61,7 @@ Teardown & Lifecycle Commands:
 Configuration Flags:
   --env <name>         Target environment: dev, staging, prod (Default: prod)
   --region <region>    Target AWS Region (Default: ap-southeast-1)
-  --profile <profile>  Target AWS Profile (Default: handon)
+  --profile <profile>  Target AWS Profile (Default: none / AWS credential chain)
   --s3-bucket <bucket> S3 bucket for packaging nested stack templates
   -h, --help           Show this help message
 
@@ -161,7 +161,7 @@ normalize_module() {
   esac
 }
 
-PROFILE="${AWS_PROFILE:-handon}"
+PROFILE="${PROFILE:-${AWS_PROFILE:-}}"
 
 # Configure AWS CLI wrapper array
 AWS_CLI=(aws)

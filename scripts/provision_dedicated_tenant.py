@@ -16,12 +16,15 @@ import time
 import boto3
 from botocore.exceptions import ClientError
 
-AWS_PROFILE = os.environ.get("AWS_PROFILE", "handon")
+AWS_PROFILE = os.environ.get("AWS_PROFILE")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 CLUSTER_NAME = "prod-nextcloud-cluster"
 TABLE_NAME = "prod-nextcloud-tenant-registry"
 
-session = boto3.Session(profile_name=AWS_PROFILE, region_name=AWS_REGION)
+boto_kwargs = {"region_name": AWS_REGION}
+if AWS_PROFILE:
+    boto_kwargs["profile_name"] = AWS_PROFILE
+session = boto3.Session(**boto_kwargs)  # pragma: allowlist secret
 ecs = session.client("ecs")
 elbv2 = session.client("elbv2")
 ssm = session.client("ssm")

@@ -2,7 +2,7 @@
 """
 Local Control Panel Server
 Serves static control-panel UI and routes /api calls to tenant_operator_lambda
-using AWS credentials from profile 'handon'.
+using AWS credentials from environment or profile.
 """
 
 import json
@@ -16,12 +16,11 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONTROL_PLANE_DIR = os.path.join(PROJECT_ROOT, "infra", "modules", "06-control-plane")
 sys.path.insert(0, CONTROL_PLANE_DIR)
 
-# Set AWS environment for boto3
-os.environ["AWS_PROFILE"] = "handon"
-os.environ["AWS_REGION"] = "ap-southeast-1"
-os.environ["ENVIRONMENT_NAME"] = "prod"
-os.environ["TABLE_NAME"] = "prod-nextcloud-tenant-registry"
-os.environ["CLUSTER_NAME"] = "prod-nextcloud-cluster"
+# Set AWS environment defaults for boto3
+os.environ.setdefault("AWS_REGION", "ap-southeast-1")
+os.environ.setdefault("ENVIRONMENT_NAME", "prod")
+os.environ.setdefault("TABLE_NAME", "prod-nextcloud-tenant-registry")
+os.environ.setdefault("CLUSTER_NAME", "prod-nextcloud-cluster")
 
 import tenant_operator_lambda
 

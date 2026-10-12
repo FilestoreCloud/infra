@@ -825,3 +825,80 @@ rules:
       filename: provision_dedicated_tenant.py
       finding_type: API_KEY_OR_SECRET
       line_number: "838"
+  - id: SUP-00000076
+    hash: fb0612bd11b3cd5966131e56355d397ab24b7c66ec2e142997640643434d152a # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    metadata:
+      confidence: "100.00"
+      filename: teardown_all.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "21"
+  - id: SUP-00000077
+    hash: fdc5542fed2cbf43e9317403175dc05ef0cb176a5b4f884f11490af4b4881d14 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    metadata:
+      confidence: "95.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "27"
+  - id: SUP-00000078
+    hash: 167158317ac0523864b41b39843ce22dcd31c65602926860a335a3774f53d4aa # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    metadata:
+      confidence: "95.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "281"
+  - id: SUP-00000079
+    hash: 9273d3fd5f4bc5af17f9f524f2d2b00046adac6c3e375fa75ae9f0c9de0e2b13 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    metadata:
+      confidence: "75.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "301"
+  - id: SUP-00000080
+    hash: a77ee9a750c5ae37bd92e406c5cc461026a66abfe793984aee22a3fb7828366b # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    metadata:
+      confidence: "75.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "313"
+  - id: SUP-00000081
+    hash: c76f14359db6770628f50613d134d05fea21b1c3d35c99915b14f7b8c61c3ec3 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    metadata:
+      confidence: "80.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "658"
+  - id: SUP-00000082
+    hash: 075266e37e8265c1800363038d5be60f69c0c2281b81bd7f14d1bd2afee2a921 # pragma: allowlist secret
+    reason: Auto-generated suppression rule (disabled by default)
+    enabled: true
+    created_at: 2026-10-12T11:22:34.004531+07:00
+    last_seen_at: 2026-10-12T11:22:34.004531+07:00
+    metadata:
+      confidence: "75.00"
+      filename: provision_dedicated_tenant.py
+      finding_type: API_KEY_OR_SECRET
+      line_number: "841"

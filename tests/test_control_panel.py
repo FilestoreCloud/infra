@@ -21,7 +21,7 @@ WEB_BASE = os.environ.get("CONTROL_PANEL_URL", "https://admin.png261.dev").rstri
 API_BASE = f"{WEB_BASE}/api" if not WEB_BASE.endswith("/api") else WEB_BASE
 
 AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
-AWS_PROFILE = os.environ.get("AWS_PROFILE", "handon")
+AWS_PROFILE = os.environ.get("AWS_PROFILE")
 TABLE_NAME = "prod-nextcloud-tenant-registry"
 DASHBOARD_NAME = "prod-Nextcloud-SaaS-Control-Plane"
 
@@ -29,10 +29,10 @@ DASHBOARD_NAME = "prod-Nextcloud-SaaS-Control-Plane"
 session = None
 has_aws_creds = False
 try:
-    if "AWS_ROLE_ARN" not in os.environ and "AWS_ACCESS_KEY_ID" not in os.environ:
-        session = boto3.Session(profile_name=AWS_PROFILE, region_name=AWS_REGION)
-    else:
-        session = boto3.Session(region_name=AWS_REGION)
+    boto_kwargs = {"region_name": AWS_REGION}
+    if AWS_PROFILE:
+        boto_kwargs["profile_name"] = AWS_PROFILE
+    session = boto3.Session(**boto_kwargs)
     session.client("sts").get_caller_identity()
     has_aws_creds = True
 except Exception:

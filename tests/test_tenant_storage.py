@@ -7,7 +7,7 @@ import pytest
 import boto3
 
 AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
-AWS_PROFILE = os.environ.get("AWS_PROFILE", "handon")
+AWS_PROFILE = os.environ.get("AWS_PROFILE")
 
 
 def get_tenant_credentials(tenant_id="acme"):
@@ -17,7 +17,10 @@ def get_tenant_credentials(tenant_id="acme"):
 
     if not password:
         try:
-            session = boto3.Session(profile_name=AWS_PROFILE, region_name=AWS_REGION)
+            boto_kwargs = {"region_name": AWS_REGION}
+            if AWS_PROFILE:
+                boto_kwargs["profile_name"] = AWS_PROFILE
+            session = boto3.Session(**boto_kwargs)
             sm = session.client("secretsmanager")
             sec_resp = sm.get_secret_value(
                 SecretId=f"/nextcloud/prod/tenants/{tenant_id}/admin-credentials"

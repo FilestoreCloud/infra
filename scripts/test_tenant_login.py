@@ -2,11 +2,17 @@
 import urllib.request
 import urllib.parse
 import http.cookiejar
+import json
+import os
 import re
 import boto3
-import json
 
-session = boto3.Session(profile_name="handon", region_name="ap-southeast-1")
+AWS_PROFILE = os.environ.get("AWS_PROFILE")
+AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
+boto_kwargs = {"region_name": AWS_REGION}
+if AWS_PROFILE:
+    boto_kwargs["profile_name"] = AWS_PROFILE
+session = boto3.Session(**boto_kwargs)
 sm = session.client("secretsmanager")
 
 tenants = ["acme", "marvel"]

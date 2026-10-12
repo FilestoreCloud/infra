@@ -6,15 +6,19 @@ S3 vault data, CloudFormation stacks, snapshots, and dashboards to guarantee
 ZERO ongoing AWS billing.
 """
 
+import os
 import time
 
 import boto3
 from botocore.exceptions import ClientError
 
-AWS_PROFILE = "handon"
-AWS_REGION = "ap-southeast-1"
+AWS_PROFILE = os.environ.get("AWS_PROFILE")
+AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 
-session = boto3.Session(profile_name=AWS_PROFILE, region_name=AWS_REGION)
+boto_kwargs = {"region_name": AWS_REGION}
+if AWS_PROFILE:
+    boto_kwargs["profile_name"] = AWS_PROFILE
+session = boto3.Session(**boto_kwargs)  # pragma: allowlist secret
 ecs = session.client("ecs")
 elbv2 = session.client("elbv2")
 efs = session.client("efs")
@@ -27,12 +31,20 @@ logs = session.client("logs")
 autoscaling = session.client("application-autoscaling")
 waf = session.client("wafv2")
 
+sts = session.client("sts")
+try:
+    account_id = sts.get_caller_identity()["Account"]
+except Exception:
+    account_id = "unknown"
+
 CLUSTER_NAME = "prod-nextcloud-cluster"
-VAULT_BUCKET = f"prod-nextcloud-vault-649519997247-{AWS_REGION}"
+VAULT_BUCKET = f"prod-nextcloud-vault-{account_id}-{AWS_REGION}"
 
 print("=" * 70)
 print("🛑 COMPLETE ZERO-COST INFRASTRUCTURE TEARDOWN INITIATED")
-print(f"AWS Region: {AWS_REGION} | Profile: {AWS_PROFILE}")
+print(
+    f"AWS Region: {AWS_REGION} | Profile: {AWS_PROFILE or 'default'} | Account: {account_id}"
+)
 print("=" * 70)
 
 
