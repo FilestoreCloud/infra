@@ -178,10 +178,6 @@ Outputs:
     Description: Secrets Manager Secret ARN for Nextcloud Admin Credentials
     Value: !GetAtt ComputeStack.Outputs.AdminSecretArn
 
-  LiteLLMSecretArn:
-    Description: Secrets Manager Secret ARN for LiteLLM Bedrock Bridge API Key
-    Value: !GetAtt ComputeStack.Outputs.LiteLLMSecretArn
-
   ECRRepositoryUri:
     Description: Amazon ECR Golden Image Repository URI
     Value: !GetAtt ComputeStack.Outputs.ECRRepositoryUri

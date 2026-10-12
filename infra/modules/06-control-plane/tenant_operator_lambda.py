@@ -1354,7 +1354,6 @@ def execute_tenant_occ(tenant_id, command, user="SuperAdmin"):
             "Database: PostgreSQL 16.3 (Connected, latency 1.2ms)\n"
             f"Object store: Amazon S3 Vault (s3://prod-nextcloud-vault-649519997247/tenants/{tenant_id}/)\n"
             "Config file: /var/www/html/config/config.php (Permissions 0640 UID 33)\n"
-            "LiteLLM Bedrock Bridge: http://127.0.0.1:4000 (Active, Claude 3.5 Sonnet connected)\n"
             "All system checks passed successfully."
         )
         exit_code = 0
@@ -1828,18 +1827,6 @@ def get_tenant_detail(tenant_id):
                 "health_status": agent_health,
                 "cpu_utilization": "14.2%" if status == "ACTIVE" else "0.0%",
                 "memory_utilization": "38.6%" if status == "ACTIVE" else "0.0%",
-            },
-            {
-                "name": "litellm-bedrock-bridge",
-                "image": "litellm-bedrock-bridge:latest",
-                "container_port": 4000,
-                "protocol": "OpenAI/Bedrock Bridge Sidecar",
-                "status": "RUNNING" if status != "SUSPENDED" else "STOPPED",
-                "health_status": "HEALTHY" if status != "SUSPENDED" else "UNKNOWN",
-                "model_id": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                "bedrock_region": REGION,
-                "avg_latency_ms": 192,
-                "requests_last_24h": 348,
             },
         ],
     }

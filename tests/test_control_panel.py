@@ -407,23 +407,20 @@ def test_lambda_tenant_detail_endpoint():
     assert "efs_mount_path" in topo
     assert "s3_vault_prefix" in topo
 
-    # 3. Agent & Container Runtime
+    # 3. Agent & Container Runtime (Single-container architecture)
     assert "agent" in data
     agent = data["agent"]
     assert "containers" in agent
-    assert len(agent["containers"]) == 2
+    assert len(agent["containers"]) == 1
     app_c = agent["containers"][0]
-    sidecar_c = agent["containers"][1]
     assert "nextcloud" in app_c["name"]
-    assert "litellm-bedrock-bridge" in sidecar_c["name"]
-    assert sidecar_c["model_id"] == "anthropic.claude-3-5-sonnet-20241022-v2:0"
 
     # 4. Accounts and Incident logs
     assert "accounts" in data
     assert len(data["accounts"]) >= 1
     assert "incidents_history" in data
     print(
-        "  ✅ Lambda GET_TENANT_DETAIL endpoint (Topology + Dual-Container Agent + Accounts) verified."
+        "  ✅ Lambda GET_TENANT_DETAIL endpoint (Topology + Single-Container Agent + Accounts) verified."
     )
 
 

@@ -320,20 +320,6 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
-  LiteLLMSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: !Sub "/nextcloud/${EnvironmentName}/secrets/litellm-api-key"
-      Description: LiteLLM Bedrock Bridge internal API key (SaaS-scoped, rotatable)
-      GenerateSecretString:
-        SecretStringTemplate: '{"prefix": "sk-saas-nextcloud-"}'
-        GenerateStringKey: token
-        PasswordLength: 32
-        ExcludePunctuation: true
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -358,7 +344,6 @@ Resources:
                 Resource:
                   - !Ref DBSecretArn
                   - !Ref AdminSecret
-                  - !Ref LiteLLMSecret
                   - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/tenants/*"
 
   ECSTaskRole:
@@ -473,8 +458,6 @@ Resources:
               Value: !Ref "AWS::Region"
             - Name: BEDROCK_DEFAULT_MODEL
               Value: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
-            - Name: LITELLM_API_URL
-              Value: "http://127.0.0.1:4000/v1"
             - Name: OVERWRITEPROTOCOL
               Value: https
             - Name: OVERWRITECLIURL
@@ -490,8 +473,6 @@ Resources:
               ValueFrom: !Sub "${DBSecretArn}:password::"
             - Name: NEXTCLOUD_ADMIN_PASSWORD
               ValueFrom: !Sub "${AdminSecret}:password::"
-            - Name: LITELLM_API_KEY
-              ValueFrom: !Sub "${LiteLLMSecret}:token::"
           LogConfiguration:
             LogDriver: awslogs
             Options:
@@ -506,37 +487,6 @@ Resources:
             Timeout: 10
             Retries: 5
             StartPeriod: 180
-
-        # LiteLLM Bedrock Bridge Sidecar
-        - Name: litellm-sidecar
-          Image: "ghcr.io/berriai/litellm:main-v1.49.5"
-          Essential: false
-          PortMappings:
-            - ContainerPort: 4000
-              HostPort: 4000
-              Protocol: tcp
-          Environment:
-            - Name: AWS_REGION
-              Value: !Ref "AWS::Region"
-            - Name: NUM_WORKERS
-              Value: "2"
-          Secrets:
-            - Name: LITELLM_MASTER_KEY
-              ValueFrom: !Sub "${LiteLLMSecret}:token::"
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref CloudWatchLogGroup
-              awslogs-region: !Ref "AWS::Region"
-              awslogs-stream-prefix: litellm
-          HealthCheck:
-            Command:
-              - CMD-SHELL
-              - "curl -f http://localhost:4000/health/liveliness || exit 1"
-            Interval: 30
-            Timeout: 10
-            Retries: 3
-            StartPeriod: 60
 
   ECSService:
     Type: AWS::ECS::Service
@@ -737,16 +687,6 @@ Resources:
       Tags:
         Environment: !Ref EnvironmentName
 
-  SSMLiteLLMSecretArn:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/nextcloud/${EnvironmentName}/infra/litellm-secret-arn"
-      Type: String
-      Value: !Ref LiteLLMSecret
-      Description: LiteLLM Secret ARN
-      Tags:
-        Environment: !Ref EnvironmentName
-
 Outputs:
   LoadBalancerURL:
     Description: Public URL of the Nextcloud Application Load Balancer (HTTPS)
@@ -813,9 +753,3 @@ Outputs:
     Value: !Ref AdminSecret
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-AdminSecretArn"
-
-  LiteLLMSecretArn:
-    Description: Secrets Manager Secret ARN for LiteLLM Bedrock Bridge API Key
-    Value: !Ref LiteLLMSecret
-    Export:
-      Name: !Sub "${EnvironmentName}-nextcloud-LiteLLMSecretArn"
