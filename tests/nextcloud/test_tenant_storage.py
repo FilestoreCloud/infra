@@ -10,10 +10,20 @@ AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 AWS_PROFILE = os.environ.get("AWS_PROFILE")
 
 
-def get_tenant_credentials(tenant_id="acme"):
+ENV = os.environ.get("ENV", "dev")
+
+
+def get_tenant_credentials(tenant_id: str):
     """Fetch tenant admin credentials from Secrets Manager or environment."""
-    username = os.environ.get(f"TENANT_{tenant_id.upper()}_USER", "admin")
-    password = os.environ.get(f"TENANT_{tenant_id.upper()}_PASSWORD")
+    username = (
+        os.environ.get(f"TENANT_{tenant_id.upper()}_USER")
+        or os.environ.get("NEXTCLOUD_USER")
+    )
+    password = (
+        os.environ.get(f"TENANT_{tenant_id.upper()}_PASSWORD")
+        or os.environ.get("NEXTCLOUD_PASSWORD")
+        or os.environ.get("ADMIN_PASSWORD")
+    )
 
     if not password:
         try:
@@ -23,13 +33,16 @@ def get_tenant_credentials(tenant_id="acme"):
             session = boto3.Session(**boto_kwargs)
             sm = session.client("secretsmanager")
             sec_resp = sm.get_secret_value(
-                SecretId=f"/nextcloud/prod/tenants/{tenant_id}/admin-credentials"
+                SecretId=f"/nextcloud/{ENV}/tenants/{tenant_id}/admin-credentials"
             )
             creds = json.loads(sec_resp["SecretString"])
-            username = creds.get("username", "admin")
+            username = username or creds.get("username")
             password = creds.get("password")
         except Exception as e:
             pytest.skip(f"Could not retrieve credentials for {tenant_id}: {e}")
+
+    if not username or not password:
+        pytest.skip(f"Incomplete credentials for {tenant_id}")
 
     return username, password
 
@@ -41,24 +54,35 @@ ssl_ctx.check_hostname = False
 ssl_ctx.verify_mode = ssl.CERT_NONE
 
 
-@pytest.fixture(params=["acme", "marvel"])
+@pytest.fixture
 def tenant_fixture(request):
-    tenant_id = request.param
-    domain = os.environ.get(
-        f"TENANT_{tenant_id.upper()}_DOMAIN", f"{tenant_id}.appleai.codes"
-    )
-    username, password = get_tenant_credentials(tenant_id)
-    auth_header = (
-        "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
-    )
+    tenant_id = os.environ.get("TENANT_ID")
+    if not tenant_id:
+        pytest.skip("TENANT_ID environment variable not provided")
 
+    domain = (
+        os.environ.get("TENANT_DOMAIN")
+        or os.environ.get(f"TENANT_{tenant_id.upper()}_DOMAIN")
+    )
     boto_kwargs = {"region_name": AWS_REGION}
     if AWS_PROFILE:
         boto_kwargs["profile_name"] = AWS_PROFILE
     session = boto3.Session(**boto_kwargs)
     ssm = session.client("ssm")
+
+    if not domain:
+        try:
+            domain = ssm.get_parameter(Name=f"/nextcloud/{ENV}/tenants/{tenant_id}/domain")["Parameter"]["Value"]
+        except Exception:
+            domain = ""
+
+    username, password = get_tenant_credentials(tenant_id)
+    auth_header = (
+        "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
+    )
+
     try:
-        alb_dns = ssm.get_parameter(Name="/nextcloud/prod/infra/alb-dns")["Parameter"][
+        alb_dns = ssm.get_parameter(Name=f"/nextcloud/{ENV}/infra/alb-dns")["Parameter"][
             "Value"
         ]
         connect_host = alb_dns
