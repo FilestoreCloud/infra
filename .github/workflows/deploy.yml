@@ -188,6 +188,22 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
+      - name: Deploy Complete SuperAdmin Lambda Operator Logic
+        run: |
+          echo "Packaging and updating tenant operator Lambda function..."
+          cd infra/modules/06-superadmin
+          python3 -c "
+          import zipfile
+          with open('tenant_operator_lambda.py', 'rb') as f:
+              code = f.read()
+          with zipfile.ZipFile('/tmp/tenant_operator.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+              z.writestr('index.py', code)
+          "
+          aws lambda update-function-code \
+            --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
+            --zip-file fileb:///tmp/tenant_operator.zip
+          echo "✓ Lambda function code updated successfully."
+
   deploy-observability:
     name: Deploy 07-Observability
     needs: [deploy-compute]
@@ -241,3 +257,38 @@ jobs:
         run: |
           cd tests/terratest
           go test -v -run "TestInPlace" -timeout 15m
+
+  verify-first-time-acceptance:
+    name: First-Time Deployment Acceptance (SuperAdmin & Dev Tenant Verification)
+    needs: [verify-terratest]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt requests boto3 pytest
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Run Acceptance & Tenant Provisioning Verification
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TENANT_ID: "dev-tenant"
+        run: |
+          chmod +x tests/test_first_time_deployment_acceptance.py
+          python3 tests/test_first_time_deployment_acceptance.py

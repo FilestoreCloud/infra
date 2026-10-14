@@ -606,6 +606,7 @@ Resources:
                 Action:
                   - cloudwatch:GetMetricData
                   - cloudwatch:GetMetricWidgetImage
+                  - cloudwatch:PutMetricData
                 Resource: "*"
               - Sid: ContainerLogInspection
                 Effect: Allow

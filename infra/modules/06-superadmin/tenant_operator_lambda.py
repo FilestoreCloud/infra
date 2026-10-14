@@ -36,6 +36,15 @@ efs = boto3.client("efs", region_name=REGION)
 secretsmanager = boto3.client("secretsmanager", region_name=REGION)
 logs = boto3.client("logs", region_name=REGION)
 
+
+def safe_put_metric_data(Namespace, MetricData):
+    """Safely emit CloudWatch metrics without breaking request execution."""
+    try:
+        safe_put_metric_data(Namespace=Namespace, MetricData=MetricData)
+    except Exception as exc:
+        print(f"CloudWatch put_metric_data warning: {exc}")
+
+
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -3082,7 +3091,7 @@ def _handle_request(event, context):
             dynamodb.put_item(TableName=TABLE_NAME, Item=ddb_item)
 
             # 7. CloudWatch Metric
-            cloudwatch.put_metric_data(
+            safe_put_metric_data(
                 Namespace="Nextcloud/SaaS",
                 MetricData=[
                     {
@@ -3131,7 +3140,7 @@ def _handle_request(event, context):
                 },
             )
 
-            cloudwatch.put_metric_data(
+            safe_put_metric_data(
                 Namespace="Nextcloud/SaaS",
                 MetricData=[
                     {
@@ -3172,7 +3181,7 @@ def _handle_request(event, context):
                 ExpressionAttributeValues={":s": {"S": "ACTIVE"}, ":t": {"S": now_iso}},
             )
 
-            cloudwatch.put_metric_data(
+            safe_put_metric_data(
                 Namespace="Nextcloud/SaaS",
                 MetricData=[
                     {
@@ -3245,7 +3254,7 @@ def _handle_request(event, context):
             )
 
             try:
-                cloudwatch.put_metric_data(
+                safe_put_metric_data(
                     Namespace="Nextcloud/SaaS",
                     MetricData=[
                         {
@@ -3400,7 +3409,7 @@ def _handle_request(event, context):
                 else (1.0 if new_status == "DEGRADED" else 2.0)
             )
             try:
-                cloudwatch.put_metric_data(
+                safe_put_metric_data(
                     Namespace="Nextcloud/SaaS",
                     MetricData=[
                         {
