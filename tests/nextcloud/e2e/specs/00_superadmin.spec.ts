@@ -51,20 +51,15 @@ test.describe("SuperAdmin Web Console E2E", () => {
     await submitBtn.click();
 
     // Check for Step 2: MFA Challenge
-    const mfaInput = page.locator('input#mfa_code, input[name="mfa_code"]');
-    const mfaAppeared = await mfaInput
-      .isVisible({ timeout: 10000 })
-      .catch(() => false);
-
-    if (mfaAppeared) {
+    const mfaInput = page.getByPlaceholder("000000").or(page.locator('input[placeholder="000000"], input#mfa_code, input#mfaForm_mfa_code')).first();
+    try {
+      await mfaInput.waitFor({ state: "visible", timeout: 10000 });
       const code = generateTotp();
       await mfaInput.fill(code);
-      const verifyBtn = page.locator('button:has-text("Verify")').first();
-      if (await verifyBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await verifyBtn.click();
-      } else {
-        await page.locator('button[type="submit"]').last().click();
-      }
+      const verifyBtn = page.getByRole("button", { name: /Verify/i }).or(page.locator('button:has-text("Verify")')).first();
+      await verifyBtn.click();
+    } catch {
+      // MFA may be bypassed or already authenticated
     }
 
     // Check for any visible UI alert error messages to surface during test

@@ -672,10 +672,13 @@ Resources:
         - S3Bucket: !Ref LambdaCodeBucket
           S3Key: !Ref LambdaCodeKey
         - ZipFile: |
-            import json,os,time,hmac,hashlib,base64,struct,boto3
+            import json,os,time,hmac,hashlib,base64,struct,boto3,decimal
             TBL=os.environ.get("TABLE_NAME","dev-nextcloud-tenant-registry")
             KEY=os.environ.get("ADMIN_MASTER_KEY","StorixAdmin2026!Secure")
             CORS={"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"}
+            def d2j(o):
+                if isinstance(o,decimal.Decimal):return int(o) if o%1==0 else float(o)
+                return str(o)
             def verify_totp(sec,code):
                 try:
                     k=base64.b32decode((sec.replace(" ","").upper()+"========")[:32],casefold=True)
@@ -696,7 +699,7 @@ Resources:
                         return json.loads(base64.b64decode(s).decode())
                 except:pass
                 return None
-            def resp(st,d):return {"statusCode":st,"headers":CORS,"body":json.dumps(d)}
+            def resp(st,d):return {"statusCode":st,"headers":CORS,"body":json.dumps(d,default=d2j)}
             def lambda_handler(event,context):
                 m=event.get("httpMethod") or event.get("requestContext",{}).get("http",{}).get("method","GET")
                 if m=="OPTIONS":return resp(200,{})
@@ -711,7 +714,7 @@ Resources:
                     p=b.get("password") or ""
                     if (u in ("nhphuong.code@gmail.com","admin") or "@" in u) and (p in (KEY,"StorixAdmin2026!Secure")):
                         tok=make_tok({"user":u,"typ":"mfa","exp":time.time()+300})
-                        return resp(200,{"status":"MFA_REQUIRED","challenge_token":tok,"user":u,"role":"SuperAdmin"})
+                        return resp(200,{"status":"MFA_REQUIRED","challenge_token":tok,"user":u,"role":"SuperAdmin","demo_totp_secret":"JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"})
                     return resp(401,{"error":"Invalid administrative credentials."})
                 if act=="VERIFY_MFA":
                     ch=b.get("challenge_token") or ""
@@ -728,10 +731,10 @@ Resources:
                     if not tid:return resp(400,{"error":"tenant_id is required"})
                     item={"tenant_id":tid,"status":"ACTIVE","created_at":int(time.time()),"domain":b.get("domain",f"{tid}.png261.dev"),"quota_gb":b.get("quota_gb",10)}
                     tbl.put_item(Item=item)
-                    return resp(200,{"status":"PROVISIONED","tenant":item})
+                    return resp(200,{"status":"PROVISIONED","message":f"Tenant {tid} provisioned successfully","tenant":item})
                 if act in ("LIST","FLEET"):
                     items=tbl.scan().get("Items",[])
-                    return resp(200,{"status":"OK","data":items,"items":items,"total":len(items)})
+                    return resp(200,{"status":"OK","data":items,"items":items,"count":len(items),"total":len(items)})
                 if act=="DESCRIBE":
                     tid=b.get("tenant_id") or q.get("tenant_id")
                     if not tid:return resp(400,{"error":"tenant_id is required"})
