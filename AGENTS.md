@@ -62,14 +62,14 @@ ruff check .
 ruff format .
 ```
 
-### Infrastructure Deployment
+### Infrastructure Deployment & Linting
 
 ```bash
 # Validate CloudFormation templates
-./scripts/deploy.sh --validate
+cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
 
-# Deploy all modules sequentially to production
-./scripts/deploy.sh --all --env prod
+# Deploy or destroy infrastructure:
+# Done via GitHub Actions CI/CD (.github/workflows/deploy.yml / destroy.yml)
 
 # Provision a dedicated tenant
 python3 scripts/provision_dedicated_tenant.py --tenant acme --domain acme.yourdomain.com --quota 50GB
@@ -89,7 +89,7 @@ python3 scripts/provision_dedicated_tenant.py --tenant acme --domain acme.yourdo
    - Validated by AWS Labs Ferret Scan and pre-commit checks.
    - Use AWS Secrets Manager, SSM Parameter Store, or environment variables.
 4. **NEVER Run Destructive Teardown Autonomously:**
-   - `scripts/teardown_all.py` deletes live AWS stacks, EFS filesystems, and databases. Never run without explicit user confirmation.
+   - Destruction workflows delete live AWS stacks, EFS filesystems, and databases. Never trigger `.github/workflows/destroy.yml` without explicit user confirmation.
 5. **Preserve Multi-Tenant Isolation:**
    - Keep isolated S3 prefixes (`s3://.../tenants/<tenant_id>/`) and dedicated database names (`nc_<tenant_id>`).
 

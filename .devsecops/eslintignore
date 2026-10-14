@@ -44,6 +44,3 @@ temp/
 package-lock.json
 yarn.lock
 pnpm-lock.yaml
-
-# Scripts & Lambdas
-scripts/capture_dashboard.js

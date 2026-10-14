@@ -1,55 +1,18 @@
-# Scripts & Automation Tooling
+# Operational Automation Tooling
 
-Operational, deployment, and tenant provisioning utilities for Nextcloud Multi-Tenant SaaS on AWS.
+Operational, tenant provisioning, and maintenance utilities for Nextcloud Multi-Tenant SaaS on AWS.
 
----
-
-## 1. Unified Deployment CLI (`deploy.sh`)
-
-[`deploy.sh`](deploy.sh) is a comprehensive Bash CLI runner for orchestrating CloudFormation stack deployments, template validations, and lifecycle teardowns.
-
-### Usage
-
-```bash
-./scripts/deploy.sh [OPTIONS]
-```
-
-### Options & Flags
-
-| Option                    | Description                                                                                                    |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `--validate`              | Validates all CloudFormation module templates and exits                                                        |
-| `--module <name>`         | Deploys a single isolated module (`networking`, `security`, `storage`, `database`, `compute`, `control-plane`) |
-| `--all`                   | Sequentially deploys all 6 modules from 01 to 06                                                               |
-| `--nested`                | Packages and deploys the Root Nested Stack (`infra/root.yaml`)                                                 |
-| `--destroy-module <name>` | Tears down an isolated module stack                                                                            |
-| `--destroy-all`           | Safely destroys all modules in reverse dependency order (`06 -> 05 -> 04 -> 03 -> 02 -> 01`)                   |
-| `--env <env>`             | Target environment name (`prod`, `staging`, `dev`; default: `prod`)                                            |
-| `--region <region>`       | AWS Region (default: `ap-southeast-1`)                                                                         |
-| `--s3-bucket <bucket>`    | S3 bucket used for packaging nested stack templates                                                            |
-
-### Common Examples
-
-```bash
-# Validate templates
-./scripts/deploy.sh --validate
-
-# Deploy only the compute module to dev
-./scripts/deploy.sh --module compute --env dev
-
-# Deploy all 6 modules sequentially to prod
-./scripts/deploy.sh --all --env prod
-
-# 1-Click Bootstrap using Nested Stacks
-./scripts/deploy.sh --nested --s3-bucket my-cfn-templates-bucket --env prod
-
-# Destroy development environment
-./scripts/deploy.sh --destroy-all --env dev
-```
+> [!NOTE]
+> All infrastructure provisioning, deployments, and full teardowns are managed strictly via **Native GitHub Actions CI/CD workflows**:
+>
+> - Deployment: [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
+> - Destruction: [`.github/workflows/destroy.yml`](../.github/workflows/destroy.yml)
+> - Fleet Rollout: [`.github/workflows/fleet-rollout.yml`](../.github/workflows/fleet-rollout.yml)
+> - Tenant Provisioning: [`.github/workflows/provision.yml`](../.github/workflows/provision.yml)
 
 ---
 
-## 2. Dedicated Tenant Provisioning Automation (`provision_dedicated_tenant.py`)
+## 1. Dedicated Tenant Provisioning Automation (`provision_dedicated_tenant.py`)
 
 [`provision_dedicated_tenant.py`](provision_dedicated_tenant.py) is an automated Python engine for bootstrapping dedicated Nextcloud tenants with isolated resources.
 
@@ -73,3 +36,26 @@ python3 scripts/provision_dedicated_tenant.py \
   --quota "100 GB" \
   --env prod
 ```
+
+---
+
+## 2. Fleet Rollout Engine (`rollout_tenant_image.py`)
+
+Automates phased / canary / blue-green rollouts of new golden container images across all dedicated tenant ECS services.
+
+```bash
+python3 scripts/rollout_tenant_image.py \
+  --image "<account-id>.dkr.ecr.<region>.amazonaws.com/nextcloud:30.0.6-production" \
+  --strategy phased \
+  --env prod
+```
+
+---
+
+## 3. Operational Utilities
+
+- **`run_occ_command.py`**: Dispatches OCC commands directly into a tenant's running ECS Fargate container.
+- **`reset_tenant_admin_password.py`**: Safely updates and rotates Nextcloud administrative credentials via AWS Secrets Manager.
+- **`serve_control_panel.py`**: Local development server for the control panel management API.
+- **`generate_aws_architecture_diagram.py`**: Architecture-as-Code visual diagram generator using the Python `diagrams` library.
+- **`test_live_security.py` / `test_tenant_login.py`**: Live validation utilities for verifying ALB endpoints and security enforcement post-deployment.

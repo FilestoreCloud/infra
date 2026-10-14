@@ -41,30 +41,27 @@ FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular Cloud
 │   │   └── tenant-instance/   # Per-tenant CloudFormation stack template
 │   ├── environments/          # Environment parameters (dev.yaml, staging.yaml, prod.yaml)
 │   └── root.yaml              # Root nested stack orchestrator
-├── scripts/                   # Operational automation (deploy.sh, provisioning, rollout, OCC)
+├── scripts/                   # Operational automation (provisioning, rollout, OCC, utilities)
 ├── tests/                     # Automated test suite (pytest)
-└── .github/workflows/         # CI/CD deployment & validation pipelines
+└── .github/workflows/         # Native GitHub Actions CI/CD deployment & destruction pipelines
 ```
 
 ---
 
 ## 3. Deployment & Quick Start
 
-### Validate Templates
+### Validate Templates Locally
 
 ```bash
-./scripts/deploy.sh --validate
+cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
 ```
 
 ### Deploy Full Infrastructure Stack
 
-```bash
-# Deploy all modules sequentially (01 -> 06)
-./scripts/deploy.sh --all --env prod
+All infrastructure deployments and destructions are executed via **Native GitHub Actions CI/CD**:
 
-# Or deploy a specific module
-./scripts/deploy.sh --module compute --env prod
-```
+- **Deploy**: Trigger workflow [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) (on push to `main` or via `workflow_dispatch`).
+- **Destroy**: Trigger workflow [`.github/workflows/destroy.yml`](.github/workflows/destroy.yml) (with required `CONFIRM_DESTROY: DESTROY` confirmation).
 
 ### Provision a Dedicated Tenant
 

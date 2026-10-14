@@ -88,25 +88,13 @@ All deployments are managed using GitHub Actions with AWS OIDC federation:
      - `deploy-nested` (packages and deploys `root.yaml` via AWS CloudFormation nested stacks)
      - `destroy-module` / `destroy-all` (tears down resources in reverse dependency order)
 
-### Option B: Unified Deployment Script (`scripts/deploy.sh`)
+### Option B: Local Validation & Linting
 
-The repository includes an interactive and scriptable CLI runner in [`scripts/deploy.sh`](../scripts/deploy.sh):
+CloudFormation templates can be validated locally using `cfn-lint`:
 
 ```bash
-# Validate all CloudFormation templates
-./scripts/deploy.sh --validate
-
-# Deploy a single module (e.g. 05-compute)
-./scripts/deploy.sh --module compute --env prod
-
-# Deploy all 6 modules sequentially
-./scripts/deploy.sh --all --env prod
-
-# Package and deploy Root Nested Stack
-./scripts/deploy.sh --nested --s3-bucket <your-cfn-templates-bucket> --env prod
-
-# Tear down infrastructure in reverse dependency order
-./scripts/deploy.sh --destroy-all --env prod
+# Lint all modules and root nested stack
+cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
 ```
 
 ### Option C: AWS CLI Direct Commands
