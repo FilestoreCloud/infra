@@ -32,7 +32,8 @@ infra/
 │   ├── 03-storage/             # S3 Multi-Tenant Vault Bucket & Amazon EFS Persistent Config Store
 │   ├── 04-database/            # RDS PostgreSQL 16 (Graviton2), DB Subnet/Parameter Groups, Secrets Manager
 │   ├── 05-compute/             # ALB Host Ingress, ECS Fargate Cluster, Default Fallback Service, ECR, IAM
-│   └── 06-superadmin/          # DynamoDB Tenant Registry, SuperAdmin API, SSM Lifecycle Runbook, CloudWatch Dashboard
+│   ├── 06-superadmin/          # DynamoDB Tenant Registry, SuperAdmin API, SSM Lifecycle Runbook, Web Console
+│   └── 07-observability/       # CloudWatch Dashboard, Metric Alarms, Alert SNS Topic, Platform Logs
 ├── environments/               # Per-environment parameter overrides
 │   ├── dev.json
 │   ├── staging.json
@@ -44,16 +45,17 @@ infra/
 
 ## 3. Modular Architecture Breakdown
 
-The infrastructure is decoupled into **6 autonomous modules** organized by lifecycle and change frequency:
+The infrastructure is decoupled into **7 autonomous modules** organized by lifecycle and change frequency:
 
-| Layer  | Module                                             | Key Resources                                                                          | Lifecycle / Change Frequency     |
-| ------ | -------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------- |
-| **01** | [`01-networking`](modules/01-networking/README.md) | VPC, 2 Public Subnets, 2 Private Subnets, IGW, S3 Gateway Endpoint                     | Low (Infrequent updates)         |
-| **02** | [`02-security`](modules/02-security/README.md)     | ALB SG, ECS SG, RDS SG, EFS SG (defense-in-depth chaining)                             | Low (Security policy changes)    |
-| **03** | [`03-storage`](modules/03-storage/README.md)       | S3 Vault Bucket & Amazon EFS FileSystem with Mount Targets & Access Point              | Very Low (Retain on delete)      |
-| **04** | [`04-database`](modules/04-database/README.md)     | RDS PostgreSQL 16.10 (`db.t4g.micro`), Secrets Manager credentials                     | Low (Snapshot on delete)         |
-| **05** | [`05-compute`](modules/05-compute/README.md)       | ALB, ECS Fargate, Nextcloud + LiteLLM sidecar, EFS mount `/config`, AutoScaling, ECR   | High (App deployments & scaling) |
-| **06** | [`06-superadmin`](modules/06-superadmin/README.md) | DynamoDB Tenant Registry, SuperAdmin API, SSM Automation Runbook, CloudWatch Dashboard | Medium (Operations & monitoring) |
+| Layer  | Module                                                   | Key Resources                                                                         | Lifecycle / Change Frequency     |
+| ------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
+| **01** | [`01-networking`](modules/01-networking/README.md)       | VPC, 2 Public Subnets, 2 Private Subnets, IGW, S3 Gateway Endpoint                    | Low (Infrequent updates)         |
+| **02** | [`02-security`](modules/02-security/README.md)           | ALB SG, ECS SG, RDS SG, EFS SG (defense-in-depth chaining)                            | Low (Security policy changes)    |
+| **03** | [`03-storage`](modules/03-storage/README.md)             | S3 Vault Bucket & Amazon EFS FileSystem with Mount Targets & Access Point             | Very Low (Retain on delete)      |
+| **04** | [`04-database`](modules/04-database/README.md)           | RDS PostgreSQL 16.10 (`db.t4g.micro`), Secrets Manager credentials                    | Low (Snapshot on delete)         |
+| **05** | [`05-compute`](modules/05-compute/README.md)             | ALB, ECS Fargate, Nextcloud + LiteLLM sidecar, EFS mount `/config`, AutoScaling, ECR  | High (App deployments & scaling) |
+| **06** | [`06-superadmin`](modules/06-superadmin/README.md)       | DynamoDB Tenant Registry, SuperAdmin API, SSM Automation Runbook, Web Hosting (S3/CF) | Medium (Operations & admin)      |
+| **07** | [`07-observability`](modules/07-observability/README.md) | CloudWatch Telemetry Dashboard, Metric Alarms (ALB, ECS, RDS), SNS Alerts Topic       | Low (Monitoring & alerts)        |
 
 ---
 
@@ -61,14 +63,15 @@ The infrastructure is decoupled into **6 autonomous modules** organized by lifec
 
 Modules publish their configuration to **AWS Systems Manager (SSM) Parameter Store** under `/nextcloud/${EnvironmentName}/...`, enabling loose coupling without rigid CloudFormation stack export locks:
 
-| Module          | Published SSM Parameters                                                                                                                                                                                                   |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `01-networking` | `/infra/vpc-id`, `/infra/public-subnets`, `/infra/private-subnets`                                                                                                                                                         |
-| `02-security`   | `/security/alb-sg-id`, `/security/ecs-sg-id`, `/security/db-sg-id`, `/security/efs-sg-id`                                                                                                                                  |
-| `03-storage`    | `/infra/s3-vault-bucket`, `/infra/s3-vault-bucket-arn`, `/infra/efs-id`, `/infra/default-access-point-id`                                                                                                                  |
-| `04-database`   | `/infra/db-endpoint`, `/infra/db-secret-arn`                                                                                                                                                                               |
-| `05-compute`    | `/infra/alb-dns`, `/infra/ecs-cluster-name`, `/infra/ecs-service-name`, `/infra/ecs-task-role-arn`, `/infra/ecs-task-execution-role-arn`, `/app/admin-user`, `/app/trusted-domains`, `/ai/enabled`, `/ai/bedrock-model-id` |
-| `06-superadmin` | `/infra/tenant-registry-table`, `/infra/ssm-operator-role-arn`                                                                                                                                                             |
+| Module             | Published SSM Parameters                                                                                                                                                                                                   |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `01-networking`    | `/infra/vpc-id`, `/infra/public-subnets`, `/infra/private-subnets`                                                                                                                                                         |
+| `02-security`      | `/security/alb-sg-id`, `/security/ecs-sg-id`, `/security/db-sg-id`, `/security/efs-sg-id`                                                                                                                                  |
+| `03-storage`       | `/infra/s3-vault-bucket`, `/infra/s3-vault-bucket-arn`, `/infra/efs-id`, `/infra/default-access-point-id`                                                                                                                  |
+| `04-database`      | `/infra/db-endpoint`, `/infra/db-secret-arn`                                                                                                                                                                               |
+| `05-compute`       | `/infra/alb-dns`, `/infra/ecs-cluster-name`, `/infra/ecs-service-name`, `/infra/ecs-task-role-arn`, `/infra/ecs-task-execution-role-arn`, `/app/admin-user`, `/app/trusted-domains`, `/ai/enabled`, `/ai/bedrock-model-id` |
+| `06-superadmin`    | `/infra/tenant-registry-table`, `/infra/ssm-operator-role-arn`                                                                                                                                                             |
+| `07-observability` | `/observability/dashboard-name`, `/observability/alerts-topic-arn`                                                                                                                                                         |
 
 ---
 

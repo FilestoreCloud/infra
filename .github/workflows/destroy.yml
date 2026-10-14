@@ -54,6 +54,12 @@ jobs:
         run: |
           echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
 
+      - name: Destroy 07-Observability
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-07-observability
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
       - name: Destroy 06-SuperAdmin
         uses: go-to-k/delstack-action@v1
         with:

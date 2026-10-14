@@ -145,9 +145,22 @@ Resources:
         EnvironmentName: !Ref EnvironmentName
         S3VaultBucketArn: !GetAtt StorageStack.Outputs.S3VaultBucketArn
         ApplicationLoadBalancerDNS: !GetAtt ComputeStack.Outputs.LoadBalancerDNS
+        ECSClusterName: !GetAtt ComputeStack.Outputs.ECSClusterName
+
+  # ============================================================================
+  # 7. OBSERVABILITY & MONITORING STACK
+  # ============================================================================
+  ObservabilityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/07-observability/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ApplicationLoadBalancerDNS: !GetAtt ComputeStack.Outputs.LoadBalancerDNS
         ApplicationLoadBalancerFullName: !GetAtt ComputeStack.Outputs.LoadBalancerFullName
         ECSClusterName: !GetAtt ComputeStack.Outputs.ECSClusterName
         ECSServiceName: !GetAtt ComputeStack.Outputs.ECSServiceName
+        RDSInstanceIdentifier: !GetAtt DatabaseStack.Outputs.RDSInstanceIdentifier
 
 Outputs:
   LoadBalancerURL:
@@ -217,3 +230,15 @@ Outputs:
   TenantOperatorLambdaFunctionUrl:
     Description: Control Plane Tenant Operator Lambda Function URL
     Value: !GetAtt ControlPlaneStack.Outputs.TenantOperatorLambdaFunctionUrl
+
+  CloudWatchDashboardName:
+    Description: CloudWatch Dashboard Name
+    Value: !GetAtt ObservabilityStack.Outputs.CloudWatchDashboardName
+
+  CloudWatchDashboardURL:
+    Description: AWS Management Console URL for CloudWatch Operational Dashboard
+    Value: !GetAtt ObservabilityStack.Outputs.CloudWatchDashboardURL
+
+  ObservabilityNotificationTopicArn:
+    Description: SNS Topic ARN for Observability Metric Alarms
+    Value: !GetAtt ObservabilityStack.Outputs.ObservabilityNotificationTopicArn

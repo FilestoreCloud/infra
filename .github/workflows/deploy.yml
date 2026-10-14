@@ -136,6 +136,15 @@ jobs:
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_NAMED_IAM
 
+      - name: Deploy 07-Observability Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-07-observability
+          template: infra/modules/07-observability/template.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+
       - name: Smoke Test & Health Check
         id: smoke_test
         env:
