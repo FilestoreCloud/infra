@@ -49,6 +49,7 @@ jobs:
           pip install boto3 psycopg2-binary pyyaml
 
       - name: Configure AWS Credentials via OIDC
+        id: aws-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -57,7 +58,7 @@ jobs:
 
       - name: Verify Connection to AWS
         run: |
-          aws sts get-caller-identity
+          echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
 
       - name: Run Dedicated Tenant Provisioning Engine
         env:
@@ -75,9 +76,21 @@ jobs:
             --tenant-domain "${{ inputs.tenant_domain }}"
 
       - name: Report Provisioning Status
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
         run: |
           echo "🎉 Tenant ${{ inputs.tenant_id }} provisioned successfully!"
-          echo "Registry Record in DynamoDB:"
-          aws dynamodb get-item \
-            --table-name "${{ inputs.environment }}-nextcloud-tenant-registry" \
-            --key '{"tenant_id": {"S": "${{ inputs.tenant_id }}"}}'
+          python3 -c "
+          import os, boto3, json
+          region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+          ddb = boto3.client('dynamodb', region_name=region)
+          try:
+              resp = ddb.get_item(
+                  TableName='${{ inputs.environment }}-nextcloud-tenant-registry',
+                  Key={'tenant_id': {'S': '${{ inputs.tenant_id }}'}}
+              )
+              print('Registry Record in DynamoDB:')
+              print(json.dumps(resp.get('Item', {}), indent=2))
+          except Exception as e:
+              print(f'DynamoDB lookup note: {e}')
+          "

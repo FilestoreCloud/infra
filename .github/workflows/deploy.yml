@@ -99,6 +99,7 @@ jobs:
           pip install boto3 psycopg2-binary pyyaml
 
       - name: Configure AWS Credentials via OIDC
+        id: aws-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
@@ -107,8 +108,7 @@ jobs:
 
       - name: Verify AWS Identity
         run: |
-          echo "Connected to AWS Account via OIDC:"
-          aws sts get-caller-identity
+          echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
 
       - name: Determine Environment & Action
         id: target
@@ -132,7 +132,7 @@ jobs:
           echo "module=${MODULE}" >> $GITHUB_OUTPUT
           echo "🚀 Target: Env=${ENV}, Action=${ACTION}, Module=${MODULE}"
 
-      - name: Execute Infrastructure Action
+      - name: Execute Infrastructure Action (Native SDK Engine)
         env:
           ENV_NAME: ${{ steps.target.outputs.env }}
           ACTION: ${{ steps.target.outputs.action }}
@@ -141,138 +141,35 @@ jobs:
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || 'AdminSuperSecurePass2026!' }}
           AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
         run: |
-          get_param() {
-            aws ssm get-parameter --name "$1" --query 'Parameter.Value' --output text 2>/dev/null || echo ""
-          }
-
-          deploy_mod() {
-            local mod="$1"
-            local stack="${ENV_NAME}-nextcloud-${mod}"
-            local tpl="infra/modules/${mod}/template.yaml"
-            local overrides=("EnvironmentName=${ENV_NAME}")
-
-            case "$mod" in
-              01-networking) ;;
-              02-security)
-                overrides+=("VpcId=$(get_param "/nextcloud/${ENV_NAME}/infra/vpc-id")")
-                ;;
-              03-storage) ;;
-              04-database)
-                IFS=',' read -r SUB1 SUB2 <<< "$(get_param "/nextcloud/${ENV_NAME}/infra/private-subnets")"
-                overrides+=(
-                  "PrivateSubnet1Id=${SUB1}"
-                  "PrivateSubnet2Id=${SUB2}"
-                  "DBSecurityGroupId=$(get_param "/nextcloud/${ENV_NAME}/security/db-sg-id")"
-                  "DBPassword=${DB_PASSWORD}"
-                )
-                ;;
-              05-compute)
-                IFS=',' read -r PUB1 PUB2 <<< "$(get_param "/nextcloud/${ENV_NAME}/infra/public-subnets")"
-                overrides+=(
-                  "VpcId=$(get_param "/nextcloud/${ENV_NAME}/infra/vpc-id")"
-                  "PublicSubnet1Id=${PUB1}"
-                  "PublicSubnet2Id=${PUB2}"
-                  "ALBSecurityGroupId=$(get_param "/nextcloud/${ENV_NAME}/security/alb-sg-id")"
-                  "ECSSecurityGroupId=$(get_param "/nextcloud/${ENV_NAME}/security/ecs-sg-id")"
-                  "S3VaultBucketName=$(get_param "/nextcloud/${ENV_NAME}/infra/s3-vault-bucket")"
-                  "S3VaultBucketArn=$(get_param "/nextcloud/${ENV_NAME}/infra/s3-vault-bucket-arn")"
-                  "DatabaseEndpoint=$(get_param "/nextcloud/${ENV_NAME}/infra/db-endpoint")"
-                  "DBSecretArn=$(get_param "/nextcloud/${ENV_NAME}/infra/db-secret-arn")"
-                  "AdminPassword=${ADMIN_PASSWORD}"
-                )
-                ;;
-              06-control-plane)
-                ALB_FULL_NAME=$(aws elbv2 describe-load-balancers --names "${ENV_NAME}-nextcloud-alb" --query 'LoadBalancers[0].LoadBalancerArn' --output text 2>/dev/null | awk -F':loadbalancer/' '{print $2}' || echo "app/${ENV_NAME}-nextcloud-alb/placeholder")
-                overrides+=(
-                  "S3VaultBucketArn=$(get_param "/nextcloud/${ENV_NAME}/infra/s3-vault-bucket-arn")"
-                  "ApplicationLoadBalancerDNS=$(get_param "/nextcloud/${ENV_NAME}/infra/alb-dns")"
-                  "ApplicationLoadBalancerFullName=${ALB_FULL_NAME}"
-                  "ECSClusterName=$(get_param "/nextcloud/${ENV_NAME}/infra/ecs-cluster-name")"
-                  "ECSServiceName=$(get_param "/nextcloud/${ENV_NAME}/infra/ecs-service-name")"
-                )
-                ;;
-            esac
-
-            echo "🚀 Deploying stack: ${stack} (${mod})..."
-            aws cloudformation deploy \
-              --template-file "${tpl}" \
-              --stack-name "${stack}" \
-              --capabilities CAPABILITY_NAMED_IAM \
-              --no-fail-on-empty-changeset \
-              --parameter-overrides "${overrides[@]}"
-            echo "✓ Deployed ${stack}"
-          }
-
-          destroy_mod() {
-            local mod="$1"
-            local stack="${ENV_NAME}-nextcloud-${mod}"
-            echo "⚠️ Destroying stack: ${stack}..."
-            aws cloudformation delete-stack --stack-name "${stack}"
-            aws cloudformation wait stack-delete-complete --stack-name "${stack}" 2>/dev/null || true
-            echo "✓ Deleted ${stack}"
-          }
-
-          normalize_mod() {
-            case "$1" in
-              networking|01-networking) echo "01-networking" ;;
-              security|02-security) echo "02-security" ;;
-              storage|03-storage) echo "03-storage" ;;
-              database|04-database) echo "04-database" ;;
-              compute|05-compute) echo "05-compute" ;;
-              control-plane|06-control-plane) echo "06-control-plane" ;;
-            esac
-          }
-
-          case "${ACTION}" in
-            deploy-module)
-              M=$(normalize_mod "${MODULE}")
-              deploy_mod "${M}"
-              ;;
-            deploy-all)
-              for m in 01-networking 02-security 03-storage 04-database 05-compute 06-control-plane; do
-                deploy_mod "$m"
-              done
-              ;;
-            deploy-nested)
-              S3_BUCKET="${{ vars.CFN_TEMPLATES_BUCKET || 'filestore-cfn-templates-build' }}"
-              aws s3 mb "s3://${S3_BUCKET}" 2>/dev/null || true
-              aws cloudformation package \
-                --template-file infra/root.yaml \
-                --s3-bucket "${S3_BUCKET}" \
-                --output-template-file packaged.yaml
-              aws cloudformation deploy \
-                --template-file packaged.yaml \
-                --stack-name "${ENV_NAME}-nextcloud-root" \
-                --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
-                --no-fail-on-empty-changeset \
-                --parameter-overrides "EnvironmentName=${ENV_NAME}" "DBPassword=${DB_PASSWORD}" "AdminPassword=${ADMIN_PASSWORD}"
-              ;;
-            destroy-module)
-              M=$(normalize_mod "${MODULE}")
-              destroy_mod "${M}"
-              ;;
-            destroy-all)
-              for m in 06-control-plane 05-compute 04-database 03-storage 02-security 01-networking; do
-                destroy_mod "$m"
-              done
-              ;;
-            validate)
-              echo "Validation step already passed."
-              ;;
-          esac
+          python3 scripts/deploy_infra.py \
+            --environment "${ENV_NAME}" \
+            --action "${ACTION}" \
+            --module "${MODULE}" \
+            --region "${AWS_REGION}"
 
       - name: Smoke Test & Health Check
         id: smoke_test
+        env:
+          ENV_NAME: ${{ steps.target.outputs.env }}
+          AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
         run: |
-          ENV_NAME="${{ steps.target.outputs.env }}"
-          ALB_DNS=$(aws ssm get-parameter --name "/nextcloud/${ENV_NAME}/infra/alb-dns" --query 'Parameter.Value' --output text 2>/dev/null || echo "")
-
-          if [ -n "${ALB_DNS}" ] && [ "${ALB_DNS}" != "None" ]; then
-            echo "Checking Nextcloud ALB health: http://${ALB_DNS}/status.php"
-            curl --max-time 15 --retry 3 --retry-delay 10 -I "http://${ALB_DNS}/status.php" || echo "⚠️ ALB is initializing..."
-          else
-            echo "ALB DNS not found in SSM or not yet deployed."
-          fi
+          python3 -c "
+          import os, boto3, urllib.request, ssl
+          env_name = os.environ.get('ENV_NAME', 'dev')
+          region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+          ssm = boto3.client('ssm', region_name=region)
+          try:
+              param = ssm.get_parameter(Name=f'/nextcloud/{env_name}/infra/alb-dns')
+              alb_dns = param['Parameter']['Value']
+              url = f'http://{alb_dns}/status.php'
+              print(f'Checking Nextcloud ALB health: {url}')
+              req = urllib.request.Request(url, headers={'User-Agent': 'CI-Smoke-Check'})
+              ctx = ssl.create_default_context()
+              with urllib.request.urlopen(req, timeout=15, context=ctx) as res:
+                  print(f'ALB Response HTTP {res.status}')
+          except Exception as e:
+              print(f'ALB check: {e}')
+          "
 
       - name: Automated Tenant Provisioning Verification
         if: ${{ inputs.provision_smoke_tenant == true }}
