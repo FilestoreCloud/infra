@@ -9,7 +9,7 @@ import requests
 
 # Ensure control plane lambda module is importable for direct unit testing
 LAMBDA_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../infra/modules/06-control-plane")
+    os.path.join(os.path.dirname(__file__), "../infra/modules/06-superadmin")
 )
 if LAMBDA_DIR not in sys.path:
     sys.path.insert(0, LAMBDA_DIR)

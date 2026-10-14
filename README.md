@@ -36,8 +36,7 @@ FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular Cloud
 │   │   ├── 03-storage/        # Amazon EFS & S3 Vault
 │   │   ├── 04-database/       # Amazon RDS PostgreSQL 16 Cluster
 │   │   ├── 05-compute/        # Amazon ECS Fargate Cluster & ALB
-│   │   ├── 06-observability/  # CloudWatch Alarms & Operational Dashboards
-│   │   └── 06-control-plane/  # DynamoDB Tenant Registry & SSM Operator
+│   │   └── 06-superadmin/     # DynamoDB Tenant Registry, SuperAdmin API, SSM Operator
 │   ├── environments/          # Environment parameters (dev.yaml, staging.yaml, prod.yaml)
 │   └── root.yaml              # Root nested stack orchestrator
 ├── scripts/                   # Operational automation (fleet rollout, setup-hooks)

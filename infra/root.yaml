@@ -140,7 +140,7 @@ Resources:
   ControlPlaneStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: ./modules/06-control-plane/template.yaml
+      TemplateURL: ./modules/06-superadmin/template.yaml
       Parameters:
         EnvironmentName: !Ref EnvironmentName
         S3VaultBucketArn: !GetAtt StorageStack.Outputs.S3VaultBucketArn

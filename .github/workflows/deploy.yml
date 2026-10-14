@@ -31,7 +31,7 @@ on:
           - storage
           - security
           - networking
-          - control-plane
+          - superadmin
 
 permissions:
   id-token: write # Required for AWS OIDC authentication
@@ -173,12 +173,12 @@ jobs:
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_NAMED_IAM
 
-      - name: Deploy 06-Control-Plane Stack
-        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '06-control-plane' || steps.target.outputs.module == 'control-plane'
+      - name: Deploy 06-SuperAdmin Stack
+        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '06-superadmin' || steps.target.outputs.module == 'superadmin' || steps.target.outputs.module == '06-control-plane' || steps.target.outputs.module == 'control-plane'
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
-          name: ${{ steps.target.outputs.env }}-nextcloud-06-control-plane
-          template: infra/modules/06-control-plane/template.yaml
+          name: ${{ steps.target.outputs.env }}-nextcloud-06-superadmin
+          template: infra/modules/06-superadmin/template.yaml
           parameter-overrides: "EnvironmentName=${{ steps.target.outputs.env }}"
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_NAMED_IAM
