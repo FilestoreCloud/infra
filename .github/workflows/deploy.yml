@@ -44,6 +44,21 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Verification (01-Networking)
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          cd tests/terratest
+          go test -v -run "^TestInPlaceNetworking$" -timeout 5m
+
   deploy-security:
     name: Deploy 02-Security
     needs: [deploy-networking]
@@ -67,6 +82,21 @@ jobs:
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Verification (02-Security)
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          cd tests/terratest
+          go test -v -run "^TestInPlaceSecurity$" -timeout 5m
 
   deploy-storage:
     name: Deploy 03-Storage
@@ -92,6 +122,21 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Verification (03-Storage)
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          cd tests/terratest
+          go test -v -run "^TestInPlaceStorage$" -timeout 5m
+
   deploy-database:
     name: Deploy 04-Database
     needs: [deploy-security, deploy-storage]
@@ -115,6 +160,21 @@ jobs:
           parameter-overrides: "EnvironmentName=${{ inputs.environment }},DBPassword=${{ secrets.DB_PASSWORD }}"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Verification (04-Database)
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          cd tests/terratest
+          go test -v -run "^TestInPlaceDatabase$" -timeout 5m
 
   deploy-compute:
     name: Deploy 05-Compute
@@ -147,6 +207,21 @@ jobs:
           parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Verification (05-Compute & Resilience)
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          cd tests/terratest
+          go test -v -run "^(TestInPlaceCompute|TestInPlaceResilience_ECSFargateSelfHealing)$" -timeout 10m
 
   deploy-superadmin:
     name: Deploy 06-SuperAdmin
@@ -218,6 +293,21 @@ jobs:
             fi
           fi
 
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Verification (06-SuperAdmin)
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          cd tests/terratest
+          go test -v -run "^TestInPlaceSuperAdmin$" -timeout 5m
+
   deploy-observability:
     name: Deploy 07-Observability
     needs: [deploy-compute]
@@ -242,14 +332,6 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
-  verify-terratest:
-    name: Terratest In-Place Verification
-    needs: [deploy-superadmin, deploy-observability]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
       - name: Setup Go for Terratest
         uses: actions/setup-go@v5
         with:
@@ -257,24 +339,17 @@ jobs:
           cache: true
           cache-dependency-path: tests/terratest/go.sum
 
-      - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
-          aws-region: ${{ vars.AWS_REGION }}
-          audience: sts.amazonaws.com
-
-      - name: Run Terratest In-Place Infrastructure Verification
+      - name: Run Terratest In-Place Verification (07-Observability)
         env:
           ENV: ${{ inputs.environment }}
           AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           cd tests/terratest
-          go test -v -run "TestInPlace" -timeout 15m
+          go test -v -run "^TestInPlaceObservability$" -timeout 5m
 
   verify-first-time-acceptance:
     name: First-Time Deployment Acceptance (SuperAdmin & Dev Tenant Verification)
-    needs: [verify-terratest]
+    needs: [deploy-superadmin, deploy-observability]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
