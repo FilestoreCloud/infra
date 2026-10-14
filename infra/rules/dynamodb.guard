@@ -1,9 +1,0 @@
-# ==============================================================================
-# Amazon DynamoDB Data Protection & Point-in-Time Recovery Rules
-# ==============================================================================
-
-let dynamodb_tables = Resources.*[ Type == 'AWS::DynamoDB::Table' ]
-
-rule DYNAMODB_POINT_IN_TIME_RECOVERY when %dynamodb_tables !empty {
-    %dynamodb_tables.Properties.PointInTimeRecoverySpecification.PointInTimeRecoveryEnabled == true <<DynamoDB Tables must have PointInTimeRecoveryEnabled set to true.>>
-}

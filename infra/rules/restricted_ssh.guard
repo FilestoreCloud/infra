@@ -1,0 +1,47 @@
+#
+#####################################
+##           Gherkin               ##
+#####################################
+# Rule Identifier:
+#    INCOMING_SSH_DISABLED
+#
+# Description:
+#    Checks if incoming SSH traffic for security groups is restricted (disallows 0.0.0.0/0 on port 22).
+#
+# Reports on:
+#    AWS::EC2::SecurityGroup
+#
+# Evaluates:
+#    AWS CloudFormation
+#
+# Rule Parameters:
+#    NA
+#
+# Scenarios:
+# a) SKIP: when no Security Group resources are present
+# b) SKIP: when no SSH ingress is defined (port 22)
+# c) PASS: when all Security Group resources restrict incoming SSH traffic
+# d) FAIL: when a Security Group allows SSH traffic from any IP address (0.0.0.0/0)
+# e) SKIP: when metadata includes the suppression for rule INCOMING_SSH_DISABLED
+
+#
+# Select all Security Group resources from incoming template (payload)
+#
+let aws_security_groups_restricted_ssh = Resources.*[
+  Type == 'AWS::EC2::SecurityGroup'
+  some Properties.SecurityGroupIngress[*] {
+    ToPort == 22
+    FromPort == 22
+    IpProtocol == "tcp"
+  }
+  Metadata.guard.SuppressedRules not exists or
+  Metadata.guard.SuppressedRules.* != "INCOMING_SSH_DISABLED"
+]
+
+rule INCOMING_SSH_DISABLED when %aws_security_groups_restricted_ssh !empty {
+  %aws_security_groups_restricted_ssh.Properties.SecurityGroupIngress[*] != {CidrIp:"0.0.0.0/0", ToPort:22, FromPort:22, IpProtocol:"tcp"}
+  <<
+    Violation: Incoming SSH traffic (port 22) in security groups must not be open to 0.0.0.0/0.
+    Fix: Set SecurityGroupIngress.CidrIp property to a restrictive CIDR or remove public port 22 access.
+  >>
+}

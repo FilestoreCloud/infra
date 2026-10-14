@@ -1,0 +1,56 @@
+#
+#####################################
+##           Gherkin               ##
+#####################################
+# Rule Identifier:
+#    ECS_TASK_FARGATE_AND_AWSVPC
+#
+# Description:
+#    Checks whether Amazon ECS Task Definitions use awsvpc network mode, Fargate launch type, and have explicit CPU/Memory and logging.
+#
+# Reports on:
+#    AWS::ECS::TaskDefinition
+#
+# Evaluates:
+#    AWS CloudFormation
+#
+# Rule Parameters:
+#    NA
+#
+# Scenarios:
+# a) SKIP: when there are no ECS Task Definitions present
+# b) PASS: when all ECS Task Definitions use awsvpc and FARGATE
+# c) FAIL: when an ECS Task Definition is not using awsvpc or FARGATE
+# d) SKIP: when metadata includes the suppression for rule ECS_TASK_FARGATE_AND_AWSVPC
+
+let aws_ecs_task_definitions = Resources.*[ Type == 'AWS::ECS::TaskDefinition'
+  Metadata.guard.SuppressedRules not exists or
+  Metadata.guard.SuppressedRules.* != "ECS_TASK_FARGATE_AND_AWSVPC"
+]
+
+rule ECS_TASK_FARGATE_AND_AWSVPC when %aws_ecs_task_definitions !empty {
+  %aws_ecs_task_definitions.Properties.NetworkMode == 'awsvpc'
+  <<
+    Violation: ECS Task Definitions must use 'awsvpc' network mode.
+    Fix: Set Properties.NetworkMode to 'awsvpc'.
+  >>
+
+  %aws_ecs_task_definitions.Properties.RequiresCompatibilities[*] in ['FARGATE']
+  <<
+    Violation: ECS Task Definitions must require FARGATE compatibility.
+    Fix: Add 'FARGATE' to Properties.RequiresCompatibilities list.
+  >>
+
+  %aws_ecs_task_definitions.Properties.Cpu !empty
+  %aws_ecs_task_definitions.Properties.Memory !empty
+  <<
+    Violation: ECS Task Definitions must have explicit Cpu and Memory values defined.
+    Fix: Specify Properties.Cpu and Properties.Memory in the Task Definition.
+  >>
+
+  %aws_ecs_task_definitions.Properties.ContainerDefinitions[*].LogConfiguration exists
+  <<
+    Violation: ECS Task Definitions must specify LogConfiguration for centralized logging.
+    Fix: Configure Properties.ContainerDefinitions with a valid LogConfiguration.
+  >>
+}

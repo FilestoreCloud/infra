@@ -1,0 +1,43 @@
+#
+#####################################
+##           Gherkin               ##
+#####################################
+# Rule Identifier:
+#    RDS_INSTANCE_PUBLIC_ACCESS_CHECK
+#
+# Description:
+#    Checks if an RDS instance has PubliclyAccessible set to false.
+#
+# Reports on:
+#    AWS::RDS::DBInstance
+#
+# Evaluates:
+#    AWS CloudFormation
+#
+# Rule Parameters:
+#    NA
+#
+# Scenarios:
+# a) SKIP: when there are no RDS instances present
+# b) PASS: when all RDS instances have PubliclyAccessible set to false
+# c) FAIL: when all RDS instances have PubliclyAccessible set to true
+# d) FAIL: when there are RDS instances where PubliclyAccessible property is not present
+# e) SKIP: when metadata includes the suppression for rule RDS_INSTANCE_PUBLIC_ACCESS_CHECK
+
+#
+# Select all RDS instance resources from incoming template (payload)
+#
+let aws_rds_instances_not_public = Resources.*[ Type == 'AWS::RDS::DBInstance'
+  Metadata.cfn_nag.rules_to_suppress not exists or
+  Metadata.cfn_nag.rules_to_suppress.*.id != "F22"
+  Metadata.guard.SuppressedRules not exists or
+  Metadata.guard.SuppressedRules.* != "RDS_INSTANCE_PUBLIC_ACCESS_CHECK"
+]
+
+rule RDS_INSTANCE_PUBLIC_ACCESS_CHECK when %aws_rds_instances_not_public !empty {
+  %aws_rds_instances_not_public.Properties.PubliclyAccessible == false
+  <<
+    Violation: All RDS instances must not be publicly accessible.
+    Fix: Explicitly set the PubliclyAccessible property to false.
+  >>
+}

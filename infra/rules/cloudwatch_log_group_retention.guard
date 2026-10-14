@@ -1,0 +1,37 @@
+#
+#####################################
+##           Gherkin               ##
+#####################################
+# Rule Identifier:
+#    CLOUDWATCH_LOGGROUP_RETENTION_PERIOD_CHECK
+#
+# Description:
+#    Checks whether Amazon CloudWatch Log Groups have a finite retention period configured to prevent unbounded storage costs.
+#
+# Reports on:
+#    AWS::Logs::LogGroup
+#
+# Evaluates:
+#    AWS CloudFormation
+#
+# Rule Parameters:
+#    NA
+#
+# Scenarios:
+# a) SKIP: when there are no CloudWatch Log Groups present
+# b) PASS: when all Log Groups have RetentionInDays >= 1
+# c) FAIL: when a Log Group does not define RetentionInDays
+# d) SKIP: when metadata includes the suppression for rule CLOUDWATCH_LOGGROUP_RETENTION_PERIOD_CHECK
+
+let aws_cloudwatch_log_groups = Resources.*[ Type == 'AWS::Logs::LogGroup'
+  Metadata.guard.SuppressedRules not exists or
+  Metadata.guard.SuppressedRules.* != "CLOUDWATCH_LOGGROUP_RETENTION_PERIOD_CHECK"
+]
+
+rule CLOUDWATCH_LOGGROUP_RETENTION_PERIOD_CHECK when %aws_cloudwatch_log_groups !empty {
+  %aws_cloudwatch_log_groups.Properties.RetentionInDays >= 1
+  <<
+    Violation: CloudWatch Log Groups must have an explicit RetentionInDays period to prevent unbounded storage costs.
+    Fix: Set Properties.RetentionInDays to a finite positive number (e.g. 30, 90, 365).
+  >>
+}

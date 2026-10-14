@@ -1,9 +1,0 @@
-# ==============================================================================
-# Amazon CloudWatch Logs Retention & Observability Rules
-# ==============================================================================
-
-let log_groups = Resources.*[ Type == 'AWS::Logs::LogGroup' ]
-
-rule CLOUDWATCH_LOG_GROUP_RETENTION when %log_groups !empty {
-    %log_groups.Properties.RetentionInDays >= 1 <<CloudWatch Log Groups must define a finite RetentionInDays period to prevent unbounded storage costs.>>
-}

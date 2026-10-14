@@ -443,6 +443,16 @@ Resources:
       PolicyDocument:
         Version: "2012-10-17"
         Statement:
+          - Sid: EnforceTLSOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !Sub "arn:aws:s3:::${AdminWebBucket}"
+              - !Sub "arn:aws:s3:::${AdminWebBucket}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
           - Sid: AllowCloudFrontServicePrincipalReadOnly
             Effect: Allow
             Principal:
