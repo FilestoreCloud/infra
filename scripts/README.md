@@ -54,8 +54,5 @@ python3 scripts/rollout_tenant_image.py \
 
 ## 3. Operational Utilities
 
-- **`run_occ_command.py`**: Dispatches OCC commands directly into a tenant's running ECS Fargate container.
-- **`reset_tenant_admin_password.py`**: Safely updates and rotates Nextcloud administrative credentials via AWS Secrets Manager.
-- **`serve_control_panel.py`**: Local development server for the control panel management API.
 - **`generate_aws_architecture_diagram.py`**: Architecture-as-Code visual diagram generator using the Python `diagrams` library.
-- **`test_live_security.py` / `test_tenant_login.py`**: Live validation utilities for verifying ALB endpoints and security enforcement post-deployment.
+- **`setup-hooks.sh`**: Installs pre-commit hygiene and Conventional Commits git hooks locally.

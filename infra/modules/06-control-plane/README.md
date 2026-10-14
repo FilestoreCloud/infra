@@ -61,12 +61,13 @@ The Super Admin Web Control Panel is hosted on AWS using a decoupled **Amazon S3
 | **TenantOperator**  | `ops@png261.dev`     | `OperatorPassword123!` | Fleet operations (Provision, Suspend, Resume); **Delete Forbidden** |
 | **SecurityAuditor** | `auditor@png261.dev` | `AuditorPassword123!`  | Read-only compliance & telemetry; **All Mutations Forbidden**       |
 
-### Local Startup (Development)
+### Web Console Development
 
-Run the server runner from the repository root:
+The Super Admin Web Console is decoupled and maintained in the dedicated repository:
+👉 [**`FilestoreCloud/console`**](https://github.com/FilestoreCloud/console)
 
 ```bash
-python3 scripts/serve_control_panel.py
+cd control-panel
+npm install
+npm run dev
 ```
-
-Then navigate to: **`http://localhost:8080`**
