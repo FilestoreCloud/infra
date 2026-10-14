@@ -3,12 +3,13 @@
 Fleet deployment and operational utilities for Nextcloud Multi-Tenant SaaS on AWS.
 
 > [!NOTE]
-> All infrastructure provisioning, tenant instances, and full teardowns are managed strictly via **Native GitHub Actions CI/CD workflows** and **CloudFormation IaC templates**:
+> All infrastructure provisioning and teardowns are managed strictly via **Native GitHub Actions CI/CD workflows**:
 >
 > - Full Infrastructure Deploy: [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)
-> - Tenant CloudFormation Provisioning: [`.github/workflows/provision.yml`](../.github/workflows/provision.yml) (using [`infra/modules/tenant-instance/template.yaml`](../infra/modules/tenant-instance/template.yaml))
 > - Full Infrastructure Destruction: [`.github/workflows/destroy.yml`](../.github/workflows/destroy.yml)
 > - Fleet Rollout Automation: [`.github/workflows/fleet-rollout.yml`](../.github/workflows/fleet-rollout.yml)
+>
+> Tenant instances are provisioned and managed dynamically through the **Super Admin Console** via the Control Plane Lambda & SSM Automation Runbook.
 
 ---
 

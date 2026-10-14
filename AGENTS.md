@@ -72,7 +72,7 @@ cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W300
 # Done via GitHub Actions CI/CD (.github/workflows/deploy.yml / destroy.yml)
 
 # Provision a dedicated tenant:
-# Done via GitHub Actions CI/CD (.github/workflows/provision.yml) or Super Admin Console
+# Done dynamically via Super Admin Console (/api/tenants with action PROVISION)
 ```
 
 ---

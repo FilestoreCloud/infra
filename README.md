@@ -65,10 +65,9 @@ All infrastructure deployments and destructions are executed via **Native GitHub
 
 ### Provision a Dedicated Tenant
 
-Tenant provisioning is managed via:
+Tenant provisioning is managed dynamically through the **Super Admin Console**:
 
-1. **GitHub Actions Workflow**: Trigger [`.github/workflows/provision.yml`](.github/workflows/provision.yml) with parameters (`tenant_id`, `tenant_domain`).
-2. **Super Admin Console**: Use the Web Console UI or API Gateway endpoint (`/api/tenants` with action `PROVISION`).
+- Use the Web Console UI ([`FilestoreCloud/console`](https://github.com/FilestoreCloud/console)) or API Gateway endpoint (`/api/tenants` with action `PROVISION`) to create, configure, suspend, or delete tenants.
 
 ---
 

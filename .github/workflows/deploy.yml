@@ -36,11 +36,6 @@ on:
           - security
           - networking
           - control-plane
-      provision_smoke_tenant:
-        description: "Run automated tenant provisioning smoke test after deploy"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   id-token: write # Required for AWS OIDC authentication
@@ -215,17 +210,3 @@ jobs:
           except Exception as e:
               print(f'ALB check: {e}')
           "
-
-      - name: Automated Tenant Provisioning Verification
-        if: ${{ inputs.provision_smoke_tenant == true }}
-        uses: aws-actions/aws-cloudformation-github-deploy@v2
-        with:
-          name: ${{ steps.target.outputs.env }}-nextcloud-tenant-smoke
-          template: infra/modules/tenant-instance/template.yaml
-          no-fail-on-empty-changeset: "1"
-          capabilities: CAPABILITY_NAMED_IAM
-          parameter-overrides: >-
-            EnvironmentName=${{ steps.target.outputs.env }},
-            TenantId=smoke,
-            TenantDomain=smoke.${{ steps.target.outputs.env }}.nextcloud.local,
-            AdminPassword=${{ secrets.SMOKE_TENANT_ADMIN_PASSWORD || 'SmokeNextcloud2026!' }}
