@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -133,7 +134,7 @@ func TestInPlaceSuperAdmin(t *testing.T) {
 				Method:    "POST",
 				Url:       funcURL,
 				TlsConfig: tlsConfig,
-				Body:      `{"action": "HEALTH"}`,
+				Body:      strings.NewReader(`{"action": "HEALTH"}`),
 				Headers: map[string]string{
 					"Content-Type": "application/json",
 				},
