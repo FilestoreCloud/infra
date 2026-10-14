@@ -4,7 +4,6 @@ Description: "Nextcloud Multi-Tenant SaaS - Module 01: Networking (VPC, Subnets,
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
   VpcCidr:

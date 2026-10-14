@@ -6,7 +6,6 @@ on:
       environment:
         description: "Target Deployment Environment"
         required: true
-        default: "dev"
         type: choice
         options:
           - dev
@@ -73,8 +72,8 @@ jobs:
         id: aws-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
       - name: Verify AWS Identity
@@ -114,7 +113,7 @@ jobs:
         with:
           name: ${{ inputs.environment }}-nextcloud-04-database
           template: infra/modules/04-database/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},DBPassword=${{ secrets.DB_PASSWORD || 'NextCloudSecurePass2026!' }}"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},DBPassword=${{ secrets.DB_PASSWORD }}"
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -123,7 +122,7 @@ jobs:
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD || 'AdminSuperSecurePass2026!' }}"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }}"
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -145,26 +144,16 @@ jobs:
           no-fail-on-empty-changeset: "1"
           capabilities: CAPABILITY_NAMED_IAM
 
-      - name: Smoke Test & Health Check
-        id: smoke_test
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Infrastructure Verification
         env:
-          ENV_NAME: ${{ inputs.environment }}
-          AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
-          python3 -c "
-          import os, boto3, urllib.request, ssl
-          env_name = os.environ.get('ENV_NAME', 'dev')
-          region = os.environ.get('AWS_REGION', 'ap-southeast-1')
-          ssm = boto3.client('ssm', region_name=region)
-          try:
-              param = ssm.get_parameter(Name=f'/nextcloud/{env_name}/infra/alb-dns')
-              alb_dns = param['Parameter']['Value']
-              url = f'http://{alb_dns}/status.php'
-              print(f'Checking Nextcloud ALB health: {url}')
-              req = urllib.request.Request(url, headers={'User-Agent': 'CI-Smoke-Check'})
-              ctx = ssl.create_default_context()
-              with urllib.request.urlopen(req, timeout=15, context=ctx) as res:
-                  print(f'ALB Response HTTP {res.status}')
-          except Exception as e:
-              print(f'ALB check: {e}')
-          "
+          cd tests/terratest
+          go test -v -run "TestInPlace" -timeout 15m

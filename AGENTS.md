@@ -43,8 +43,8 @@ Enterprise multi-tenant cloud platform deployed on AWS using a **Zero-Code-Modif
 # Run unit & integration test suite
 pytest tests/ -v
 
-# Run specific test file
-pytest tests/console-backend/test_control_panel.py -v
+# Run Terratest In-Place infrastructure & control plane suite
+cd tests/terratest && go test -v -run "TestInPlace" -timeout 15m && cd ../..
 ```
 
 ### Linters & DevSecOps Static Analysis (AWS Labs Template)

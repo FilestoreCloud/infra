@@ -4,7 +4,6 @@ Description: "Nextcloud Multi-Tenant SaaS - Module 05: Compute & Ingress Platfor
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
   VpcId:
@@ -55,7 +54,6 @@ Parameters:
   AdminPassword:
     Type: String
     NoEcho: true
-    Default: "AdminSuperSecurePass2026!"
     Description: Initial admin password for Nextcloud
 
   TaskCpu:

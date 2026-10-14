@@ -4,7 +4,6 @@ Description: "Nextcloud Multi-Tenant SaaS - Module 04: Database (RDS PostgreSQL 
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
   PrivateSubnet1Id:
@@ -50,7 +49,6 @@ Parameters:
   DBPassword:
     Type: String
     NoEcho: true
-    Default: "NextCloudSecurePass2026!"
     Description: Master password for RDS PostgreSQL
 
 Conditions:

@@ -4,7 +4,6 @@ Description: "Nextcloud Multi-Tenant SaaS - Root Orchestrator (Nested Stacks for
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
   DBPassword:

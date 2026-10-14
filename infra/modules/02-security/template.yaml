@@ -4,7 +4,6 @@ Description: "Nextcloud Multi-Tenant SaaS - Module 02: Security (ALB, ECS, RDS S
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
   VpcId:
