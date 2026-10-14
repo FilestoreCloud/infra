@@ -498,7 +498,7 @@ Resources:
             - "sh"
             - "-c"
           Command:
-            - "mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html/data && exec /entrypoint.sh apache2-foreground"
+            - "cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html && exec /entrypoint.sh apache2-foreground"
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
