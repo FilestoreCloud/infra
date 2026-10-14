@@ -32,46 +32,32 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install Validation Tools
-        run: pip install cfn-lint yamllint pyyaml
+        run: |
+          pip install --upgrade pip
+          pip install cfn-lint yamllint pyyaml
 
       - name: Validate Templates
         run: |
           cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
           echo "✓ All CloudFormation templates validated cleanly."
 
-  deploy:
-    name: Deploy to AWS
+  deploy-networking:
+    name: Deploy 01-Networking
     needs: [validate]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install Python Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install boto3 pyyaml
-
       - name: Configure AWS Credentials via OIDC
-        id: aws-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
-
-      - name: Verify AWS Identity
-        run: |
-          echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
-          echo "🚀 Deploying infrastructure to: ${{ inputs.environment }}"
 
       - name: Deploy 01-Networking Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -79,8 +65,23 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-01-networking
           template: infra/modules/01-networking/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
-          no-fail-on-empty-changeset: "1"
+          fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-security:
+    name: Deploy 02-Security
+    needs: [deploy-networking]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Deploy 02-Security Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -88,8 +89,23 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-02-security
           template: infra/modules/02-security/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
-          no-fail-on-empty-changeset: "1"
+          fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-storage:
+    name: Deploy 03-Storage
+    needs: [deploy-networking]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Deploy 03-Storage Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -97,8 +113,23 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-03-storage
           template: infra/modules/03-storage/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
-          no-fail-on-empty-changeset: "1"
+          fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-database:
+    name: Deploy 04-Database
+    needs: [deploy-security, deploy-storage]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Deploy 04-Database Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -106,8 +137,23 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-04-database
           template: infra/modules/04-database/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }},DBPassword=${{ secrets.DB_PASSWORD }}"
-          no-fail-on-empty-changeset: "1"
+          fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-compute:
+    name: Deploy 05-Compute
+    needs: [deploy-database]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Deploy 05-Compute Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -115,8 +161,23 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }}"
-          no-fail-on-empty-changeset: "1"
+          fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-superadmin:
+    name: Deploy 06-SuperAdmin
+    needs: [deploy-compute]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Deploy 06-SuperAdmin Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -124,8 +185,23 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-06-superadmin
           template: infra/modules/06-superadmin/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
-          no-fail-on-empty-changeset: "1"
+          fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-observability:
+    name: Deploy 07-Observability
+    needs: [deploy-compute]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Deploy 07-Observability Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -133,14 +209,30 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-07-observability
           template: infra/modules/07-observability/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
-          no-fail-on-empty-changeset: "1"
+          fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+  verify-terratest:
+    name: Terratest In-Place Verification
+    needs: [deploy-superadmin, deploy-observability]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Setup Go for Terratest
         uses: actions/setup-go@v5
         with:
           go-version: "1.26"
+          cache: true
           cache-dependency-path: tests/terratest/go.sum
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Run Terratest In-Place Infrastructure Verification
         env:
