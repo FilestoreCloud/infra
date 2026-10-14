@@ -476,33 +476,32 @@ Resources:
                 return None
             def resp(st,d):return {"statusCode":st,"headers":CORS,"body":json.dumps(d,default=d2j)}
             def lambda_handler(event,context):
-                try:
-                    m=event.get("httpMethod") or event.get("requestContext",{}).get("http",{}).get("method","GET")
-                    if m=="OPTIONS":return resp(200,{})
-                    b=event.get("body") or {}
-                    if isinstance(b,str):
-                        try:b=json.loads(b)
-                        except:b={}
-                    q=event.get("queryStringParameters") or {}
-                    act=(b.get("action") or q.get("action") or "").upper()
-                    if act=="LOGIN":
-                        if not KEY: return resp(503,{"status":"AUTH_FAILED","error":"Authentication service signing keys unavailable. Fail-closed."})
-                        u=(b.get("username") or b.get("email") or "").strip().lower()
-                        p=b.get("password") or ""
-                        if (u in ("nhphuong.code@gmail.com","admin") or "@" in u) and (p and p == KEY):
-                            tok=make_tok({"user":u,"typ":"mfa","exp":time.time()+300})
-                            return resp(200,{"status":"MFA_REQUIRED","challenge_token":tok,"user":u,"role":"SuperAdmin"})
-                        return resp(401,{"error":"Invalid administrative credentials."})
-                    if act=="VERIFY_MFA":
-                        if not KEY: return resp(503,{"status":"AUTH_FAILED","error":"Authentication service signing keys unavailable. Fail-closed."})
-                        ch=b.get("challenge_token") or ""
-                        code=b.get("mfa_code") or b.get("totp_code") or ""
-                        p=verify_tok(ch)
-                        if not p or p.get("typ")!="mfa":return resp(401,{"error":"Invalid or expired challenge token."})
-                        if not verify_totp("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",code):return resp(401,{"error":"Invalid 6-digit verification code."})
-                        tok=make_tok({"user":p["user"],"role":"SuperAdmin","exp":time.time()+86400})
-                        return resp(200,{"status":"OK","token":tok,"user":p["user"],"role":"SuperAdmin"})
-                    dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                m=event.get("httpMethod") or event.get("requestContext",{}).get("http",{}).get("method","GET")
+                if m=="OPTIONS":return resp(200,{})
+                b=event.get("body") or {}
+                if isinstance(b,str):
+                    try:b=json.loads(b)
+                    except:b={}
+                q=event.get("queryStringParameters") or {}
+                act=(b.get("action") or q.get("action") or "").upper()
+                if act=="LOGIN":
+                    if not KEY: return resp(503,{"status":"AUTH_FAILED","error":"Authentication service signing keys unavailable. Fail-closed."})
+                    u=(b.get("username") or b.get("email") or "").strip().lower()
+                    p=b.get("password") or ""
+                    if (u in ("nhphuong.code@gmail.com","admin") or "@" in u) and (p and p == KEY):
+                        tok=make_tok({"user":u,"typ":"mfa","exp":time.time()+300})
+                        return resp(200,{"status":"MFA_REQUIRED","challenge_token":tok,"user":u,"role":"SuperAdmin"})
+                    return resp(401,{"error":"Invalid administrative credentials."})
+                if act=="VERIFY_MFA":
+                    if not KEY: return resp(503,{"status":"AUTH_FAILED","error":"Authentication service signing keys unavailable. Fail-closed."})
+                    ch=b.get("challenge_token") or ""
+                    code=b.get("mfa_code") or b.get("totp_code") or ""
+                    p=verify_tok(ch)
+                    if not p or p.get("typ")!="mfa":return resp(401,{"error":"Invalid or expired challenge token."})
+                    if not verify_totp("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",code):return resp(401,{"error":"Invalid 6-digit verification code."})
+                    tok=make_tok({"user":p["user"],"role":"SuperAdmin","exp":time.time()+86400})
+                    return resp(200,{"status":"OK","token":tok,"user":p["user"],"role":"SuperAdmin"})
+                dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
                 tbl=dynamo.Table(TBL)
                 if act=="PROVISION":
                     tid=b.get("tenant_id")

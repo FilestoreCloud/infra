@@ -21,6 +21,16 @@ Parameters:
     Default: ""
     Description: Public Subnet 2 ID for ALB and ECS public IP (Leave blank to import from Module 01)
 
+  PrivateSubnet1Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 1 ID for ECS tasks (Leave blank to import from Module 01)
+
+  PrivateSubnet2Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 2 ID for ECS tasks (Leave blank to import from Module 01)
+
   ALBSecurityGroupId:
     Type: String
     Default: ""
@@ -127,6 +137,8 @@ Conditions:
   HasVpcId: !Not [!Equals [!Ref VpcId, ""]]
   HasPublicSubnet1Id: !Not [!Equals [!Ref PublicSubnet1Id, ""]]
   HasPublicSubnet2Id: !Not [!Equals [!Ref PublicSubnet2Id, ""]]
+  HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
+  HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
   HasALBSecurityGroupId: !Not [!Equals [!Ref ALBSecurityGroupId, ""]]
   HasECSSecurityGroupId: !Not [!Equals [!Ref ECSSecurityGroupId, ""]]
   HasS3VaultBucketName: !Not [!Equals [!Ref S3VaultBucketName, ""]]
@@ -498,7 +510,7 @@ Resources:
             - "sh"
             - "-c"
           Command:
-            - "sed -i \"s/'overwriteprotocol' => 'https'/'overwriteprotocol' => 'http'/g\" /var/www/html/config/config.php 2>/dev/null || true; sed -i \"s/\\\"overwriteprotocol\\\" => \\\"https\\\"/\\\"overwriteprotocol\\\" => \\\"http\\\"/g\" /var/www/html/config/config.php 2>/dev/null || true; cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html && exec /entrypoint.sh apache2-foreground"
+            - "sed -i \"s/'overwriteprotocol' => 'https'/'overwriteprotocol' => 'http'/g\" /var/www/html/config/config.php 2>/dev/null || true; sed -i \"s/\\\"overwriteprotocol\\\" => \\\"https\\\"/\\\"overwriteprotocol\\\" => \\\"http\\\"/g\" /var/www/html/config/config.php 2>/dev/null || true; cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && exec /entrypoint.sh apache2-foreground"
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
@@ -511,7 +523,7 @@ Resources:
             - Name: HOME
               Value: /var/www
             - Name: PGSSLMODE
-              Value: prefer
+              Value: require
             - Name: POSTGRES_HOST
               Value:
                 Fn::If:
@@ -609,16 +621,16 @@ Resources:
           Rollback: true
       NetworkConfiguration:
         AwsvpcConfiguration:
-          AssignPublicIp: ENABLED
+          AssignPublicIp: DISABLED
           Subnets:
             - Fn::If:
-                - HasPublicSubnet1Id
-                - !Ref PublicSubnet1Id
-                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet1Id"
+                - HasPrivateSubnet1Id
+                - !Ref PrivateSubnet1Id
+                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
             - Fn::If:
-                - HasPublicSubnet2Id
-                - !Ref PublicSubnet2Id
-                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet2Id"
+                - HasPrivateSubnet2Id
+                - !Ref PrivateSubnet2Id
+                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
           SecurityGroups:
             - Fn::If:
                 - HasECSSecurityGroupId
