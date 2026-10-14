@@ -124,7 +124,7 @@ test.describe("SuperAdmin Web Console E2E", () => {
     await expect(provisionBtn).toBeVisible({ timeout: 10000 });
   });
 
-  test("5. Should open and cancel Tenant Provisioning Modal", async ({
+  test("5. Should provision a new tenant from UI and verify it appears in Fleet table", async ({
     page,
   }) => {
     await page.goto(`${CONSOLE_URL}/login`);
@@ -149,12 +149,32 @@ test.describe("SuperAdmin Web Console E2E", () => {
     const modal = page.locator(".ant-modal");
     await expect(modal.first()).toBeVisible({ timeout: 5000 });
 
-    // Close Modal via Cancel button
-    const cancelBtn = modal.locator('button:has-text("Cancel")').first();
-    if (await cancelBtn.isVisible()) {
-      await cancelBtn.click();
-      await expect(modal).not.toBeVisible({ timeout: 5000 });
+    // Fill form
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const newTenantId = `e2e-tenant-${randomSuffix}`;
+
+    const tenantIdInput = modal.locator('input#tenant_id, input[placeholder*="acme-corp"]').first();
+    await tenantIdInput.fill(newTenantId);
+
+    const emailInput = modal.locator('input#admin_email, input[placeholder*="admin@"]').first();
+    await emailInput.fill(`admin@${newTenantId}.com`);
+
+    // Submit modal
+    const submitBtn = modal.locator('button:has-text("Launch Tenant Instance")').first();
+    await submitBtn.click();
+
+    // Verify modal closes
+    await expect(modal).not.toBeVisible({ timeout: 15000 });
+
+    // Search for newly created tenant
+    const searchInput = page.getByPlaceholder(/Search by Tenant ID/i).or(page.locator('input[placeholder*="Search"]')).first();
+    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await searchInput.fill(newTenantId);
     }
+
+    // Verify tenant row appears in the table!
+    const newTenantRow = page.locator(`text="${newTenantId}"`);
+    await expect(newTenantRow.first()).toBeVisible({ timeout: 15000 });
   });
 
   test("6. Should navigate across Control Plane sections (Audit Logs, Telemetry, Webhooks)", async ({
