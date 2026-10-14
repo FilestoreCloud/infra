@@ -116,6 +116,7 @@ Parameters:
 
 Conditions:
   HasEFS: !Not [!Equals [!Ref EFSFileSystemId, ""]]
+  HasDefaultEFSAccessPointId: !Not [!Equals [!Ref DefaultEFSAccessPointId, ""]]
   HasVpcId: !Not [!Equals [!Ref VpcId, ""]]
   HasPublicSubnet1Id: !Not [!Equals [!Ref PublicSubnet1Id, ""]]
   HasPublicSubnet2Id: !Not [!Equals [!Ref PublicSubnet2Id, ""]]
@@ -514,16 +515,22 @@ Resources:
       NetworkMode: awsvpc
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
       TaskRoleArn: !GetAtt ECSTaskRole.Arn
-      Volumes: !If
-        - HasEFS
-        - - Name: nextcloud-config
-            EFSVolumeConfiguration:
-              FilesystemId: !Ref EFSFileSystemId
-              TransitEncryption: ENABLED
-              AuthorizationConfig:
-                AccessPointId: !Ref DefaultEFSAccessPointId
-                IAM: ENABLED
-        - !Ref "AWS::NoValue"
+      Volumes:
+        - Name: nextcloud-config
+          EFSVolumeConfiguration:
+            FilesystemId:
+              Fn::If:
+                - HasEFS
+                - !Ref EFSFileSystemId
+                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-EFSFileSystemId"
+            TransitEncryption: ENABLED
+            AuthorizationConfig:
+              AccessPointId:
+                Fn::If:
+                  - HasDefaultEFSAccessPointId
+                  - !Ref DefaultEFSAccessPointId
+                  - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DefaultEFSAccessPointId"
+              IAM: ENABLED
       ContainerDefinitions:
         - Name: nextcloud
           Image: !Ref ContainerImage
@@ -531,12 +538,10 @@ Resources:
             - ContainerPort: 80
               HostPort: 80
               Protocol: tcp
-          MountPoints: !If
-            - HasEFS
-            - - SourceVolume: nextcloud-config
-                ContainerPath: /var/www/html/config
-                ReadOnly: false
-            - !Ref "AWS::NoValue"
+          MountPoints:
+            - SourceVolume: nextcloud-config
+              ContainerPath: /var/www/html/config
+              ReadOnly: false
           Environment:
             - Name: POSTGRES_HOST
               Value:
