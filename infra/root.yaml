@@ -52,7 +52,7 @@ Parameters:
   ACMCertificateArn:
     Type: String
     Description: ARN of an ACM TLS certificate for the HTTPS listener
-    Default: "arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME"
+    Default: ""
 
 Resources:
   # ============================================================================

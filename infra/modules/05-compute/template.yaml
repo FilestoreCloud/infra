@@ -92,7 +92,7 @@ Parameters:
   ACMCertificateArn:
     Type: String
     Description: ARN of an ACM TLS certificate for the HTTPS listener
-    Default: "arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME"
+    Default: ""
 
   EFSFileSystemId:
     Type: String
@@ -125,6 +125,14 @@ Conditions:
   HasS3VaultBucketArn: !Not [!Equals [!Ref S3VaultBucketArn, ""]]
   HasDatabaseEndpoint: !Not [!Equals [!Ref DatabaseEndpoint, ""]]
   HasDBSecretArn: !Not [!Equals [!Ref DBSecretArn, ""]]
+  HasTlsCertificate: !And
+    - !Not [!Equals [!Ref ACMCertificateArn, ""]]
+    - !Not [
+        !Equals [
+          !Ref ACMCertificateArn,
+          "arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME",
+        ],
+      ]
 
 Resources:
   NextcloudECRRepository:
@@ -325,18 +333,22 @@ Resources:
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-      DefaultActions:
-        - Type: redirect
-          RedirectConfig:
-            Protocol: HTTPS
-            Port: "443"
-            StatusCode: HTTP_301
+      DefaultActions: !If
+        - HasTlsCertificate
+        - - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              StatusCode: HTTP_301
+        - - Type: forward
+            TargetGroupArn: !Ref ALBTargetGroup
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
 
   ALBHTTPSListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasTlsCertificate
     Properties:
       DefaultActions:
         - Type: forward
@@ -350,6 +362,7 @@ Resources:
 
   HSTSResponseHeaderPolicy:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: HasTlsCertificate
     Properties:
       ListenerArn: !Ref ALBHTTPSListener
       Priority: 50000
@@ -758,6 +771,7 @@ Resources:
 
   SSMALBHTTPSListenerArn:
     Type: AWS::SSM::Parameter
+    Condition: HasTlsCertificate
     Properties:
       Name: !Sub "/nextcloud/${EnvironmentName}/infra/alb-https-listener-arn"
       Type: String
@@ -808,8 +822,11 @@ Resources:
 
 Outputs:
   LoadBalancerURL:
-    Description: Public URL of the Nextcloud Application Load Balancer (HTTPS)
-    Value: !Sub "https://${ApplicationLoadBalancer.DNSName}"
+    Description: Public URL of the Nextcloud Application Load Balancer
+    Value: !If
+      - HasTlsCertificate
+      - !Sub "https://${ApplicationLoadBalancer.DNSName}"
+      - !Sub "http://${ApplicationLoadBalancer.DNSName}"
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-LoadBalancerURL"
 
@@ -832,6 +849,7 @@ Outputs:
       Name: !Sub "${EnvironmentName}-nextcloud-TargetGroupFullName"
 
   ALBHTTPSListenerArn:
+    Condition: HasTlsCertificate
     Description: ALB HTTPS Listener ARN
     Value: !Ref ALBHTTPSListener
     Export:
