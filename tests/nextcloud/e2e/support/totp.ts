@@ -4,7 +4,7 @@ import crypto from "crypto";
  * Generate 6-digit RFC 6238 TOTP verification code from Base32 secret.
  */
 export function generateTotp(
-  secret: string = process.env.SUPERADMIN_TOTP_SECRET || "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+  secret: string = process.env.SUPERADMIN_TOTP_SECRET!
 ): string {
   const b32alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = "";

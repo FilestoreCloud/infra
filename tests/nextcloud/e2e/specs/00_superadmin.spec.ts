@@ -11,15 +11,12 @@ import { generateTotp } from "../support/totp.ts";
 
 const CONSOLE_URL =
   process.env.CONSOLE_URL ||
-  process.env.SUPERADMIN_CONSOLE_URL ||
-  "https://d12jxu8xpkp8ik.cloudfront.net";
+  process.env.SUPERADMIN_CONSOLE_URL!;
 
-const ADMIN_EMAIL =
-  process.env.SUPERADMIN_USERNAME || "nhphuong.code@gmail.com";
+const ADMIN_EMAIL = process.env.SUPERADMIN_USERNAME!;
 const ADMIN_PASSWORD =
   process.env.SUPERADMIN_PASSWORD ||
-  process.env.NEXTCLOUD_PASSWORD ||
-  "StorixAdmin2026!Secure";
+  process.env.NEXTCLOUD_PASSWORD!;
 
 test.describe("SuperAdmin Web Console E2E", () => {
   test("1. Should render SuperAdmin login portal entrypoint", async ({

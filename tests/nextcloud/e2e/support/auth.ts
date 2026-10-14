@@ -7,8 +7,8 @@ import { Page, expect } from "@playwright/test";
 
 export async function loginNextcloud(
   page: Page,
-  username: string = process.env.NEXTCLOUD_USER || "admin",
-  password: string = process.env.NEXTCLOUD_PASSWORD || "admin",
+  username: string = process.env.NEXTCLOUD_USER!,
+  password: string = process.env.NEXTCLOUD_PASSWORD!,
 ) {
   await page.goto("/index.php/login");
 

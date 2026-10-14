@@ -76,8 +76,8 @@ def get_lambda_name() -> str:
 
 def test_superadmin_auth_and_provision(lambda_name: str) -> tuple[str, dict]:
     """Test SuperAdmin LOGIN, MFA, and PROVISION actions."""
-    admin_user = os.environ.get("SUPERADMIN_USERNAME", "nhphuong.code@gmail.com")
-    admin_pass = os.environ.get("SUPERADMIN_PASSWORD", "StorixAdmin2026!Secure")
+    admin_user = os.environ["SUPERADMIN_USERNAME"]
+    admin_pass = os.environ["SUPERADMIN_PASSWORD"]
     login_event = {
         "httpMethod": "POST",
         "body": json.dumps(
@@ -95,7 +95,7 @@ def test_superadmin_auth_and_provision(lambda_name: str) -> tuple[str, dict]:
     assert body.get("status") == "MFA_REQUIRED", f"Unexpected login response: {body}"
 
     challenge_token = body["challenge_token"]
-    totp_secret = body.get("demo_totp_secret", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
+    totp_secret = body.get("demo_totp_secret") or os.environ["SUPERADMIN_TOTP_SECRET"]
     mfa_code = generate_totp(totp_secret)
 
     mfa_event = {
@@ -202,9 +202,8 @@ def resolve_console_url() -> str:
         dist_id = p["Parameter"]["Value"]
         dist = cf.get_distribution(Id=dist_id)
         return f"https://{dist['Distribution']['DomainName']}"
-    except Exception:
-        pass
-    return "https://d12jxu8xpkp8ik.cloudfront.net"
+    except Exception as exc:
+        raise RuntimeError(f"Unable to resolve CloudFront Console URL: {exc}")
 
 
 def test_nextcloud_tenant_features(alb_dns: str):
@@ -242,8 +241,9 @@ def test_nextcloud_tenant_features(alb_dns: str):
     log("✅ Nextcloud public status endpoint is reachable through ALB.")
 
     log(f"🔹 [Stage 2.2] Testing WebDAV capabilities for Tenant '{TENANT_ID}'...")
-    admin_pass = os.environ.get("SUPERADMIN_PASSWORD", "StorixAdmin2026!Secure")
-    auth_bytes = base64.b64encode(f"admin:{admin_pass}".encode("utf-8")).decode("ascii")
+    admin_user = os.environ.get("NEXTCLOUD_USER", "admin")
+    admin_pass = os.environ["SUPERADMIN_PASSWORD"]
+    auth_bytes = base64.b64encode(f"{admin_user}:{admin_pass}".encode("utf-8")).decode("ascii")
     dav_headers = {
         "Authorization": f"Basic {auth_bytes}",
         "OCS-APIRequest": "true",
