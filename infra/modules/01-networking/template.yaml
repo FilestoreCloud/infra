@@ -174,6 +174,88 @@ Resources:
         - !Ref PublicRouteTable
         - !Ref PrivateRouteTable
 
+  VPCEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for VPC Interface Endpoints in private subnets
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidr
+          Description: Inbound HTTPS from VPC tasks
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-vpce-sg"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  ECRAPIVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  ECRDKRVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  LogsVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  SecretsManagerVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
+  EFSVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VPC
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.elasticfilesystem"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref VPCEndpointSecurityGroup
+
   # SSM Parameter Store exports
   SSMVpcId:
     Type: AWS::SSM::Parameter
@@ -247,3 +329,9 @@ Outputs:
     Value: !Sub "${PrivateSubnet1},${PrivateSubnet2}"
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-PrivateSubnetIds"
+
+  VPCEndpointSecurityGroupId:
+    Description: Security Group ID for VPC Interface Endpoints
+    Value: !Ref VPCEndpointSecurityGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-VPCEndpointSecurityGroupId"
