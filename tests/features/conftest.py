@@ -180,6 +180,85 @@ class NextcloudClient:
         url = f"{self.ocs_v2_base}/apps/files_sharing/api/v1/shares/{share_id}"
         return self.session.delete(url, timeout=15)
 
+    def ocs_update_share(
+        self,
+        share_id: str | int,
+        permissions: Optional[int] = None,
+        password: Optional[str] = None,
+        expire_date: Optional[str] = None,
+    ) -> requests.Response:
+        """Update existing share permissions or credentials."""
+        url = f"{self.ocs_v2_base}/apps/files_sharing/api/v1/shares/{share_id}"
+        data: Dict[str, Any] = {}
+        if permissions is not None:
+            data["permissions"] = permissions
+        if password is not None:
+            data["password"] = password
+        if expire_date is not None:
+            data["expireDate"] = expire_date
+        return self.session.put(url, data=data, timeout=15)
+
+    def ocs_create_internal_share(
+        self,
+        path: str,
+        share_with: str,
+        share_type: int = 0,  # 0 = User, 1 = Group
+        permissions: int = 31,  # 31 = Read, Update, Create, Delete, Share
+    ) -> requests.Response:
+        """Share a file or folder with an internal tenant user or group."""
+        url = f"{self.ocs_v2_base}/apps/files_sharing/api/v1/shares"
+        data = {
+            "path": f"/{path.strip('/')}",
+            "shareType": share_type,
+            "shareWith": share_with,
+            "permissions": permissions,
+        }
+        return self.session.post(url, data=data, timeout=15)
+
+    def dav_lock(self, path: str, timeout: int = 300) -> requests.Response:
+        """Lock file via WebDAV LOCK (RFC 4918)."""
+        url = f"{self.dav_files_base}/{path.strip('/')}"
+        headers = {
+            "Timeout": f"Second-{timeout}",
+            "Content-Type": "application/xml; charset=utf-8",
+        }
+        body = (
+            '<?xml version="1.0" encoding="utf-8" ?>\n'
+            '<D:lockinfo xmlns:D="DAV:">\n'
+            "  <D:lockscope><D:exclusive/></D:lockscope>\n"
+            "  <D:locktype><D:write/></D:locktype>\n"
+            f"  <D:owner><D:href>{self.username}</D:href></D:owner>\n"
+            "</D:lockinfo>"
+        )
+        return self.session.request("LOCK", url, headers=headers, data=body, timeout=15)
+
+    def dav_unlock(self, path: str, lock_token: str) -> requests.Response:
+        """Unlock file via WebDAV UNLOCK (RFC 4918)."""
+        url = f"{self.dav_files_base}/{path.strip('/')}"
+        headers = {"Lock-Token": f"<{lock_token}>"}
+        return self.session.request("UNLOCK", url, headers=headers, timeout=15)
+
+    def dav_trashbin_list(self) -> requests.Response:
+        """List files in WebDAV trashbin."""
+        url = f"{self.dav_trash_base}/"
+        headers = {"Depth": "1"}
+        return self.session.request("PROPFIND", url, headers=headers, timeout=15)
+
+    def dav_trashbin_delete(self, trash_id: str) -> requests.Response:
+        """Permanently delete file from trashbin."""
+        url = f"{self.dav_trash_base}/{trash_id.strip('/')}"
+        return self.session.delete(url, timeout=15)
+
+    def create_sub_client(self, username: str, password: str) -> NextcloudClient:
+        """Instantiate an authenticated client for a secondary tenant user."""
+        return NextcloudClient(
+            base_url=self.base_url,
+            domain=self.domain,
+            username=username,
+            password=password,
+            verify_ssl=self.session.verify,
+        )
+
     # --- OCS User Provisioning Operations ---
 
     def ocs_create_user(

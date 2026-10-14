@@ -20,13 +20,13 @@ The test suite validates:
 
 ## 2. Test Files
 
-| Test File                                          | Description                                                                                                     |
-| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| [`test_control_panel.py`](test_control_panel.py)   | Comprehensive E2E tests for the Control Panel UI, REST API, DynamoDB state transitions, and CloudWatch metrics  |
-| [`test_fleet_rollout.py`](test_fleet_rollout.py)   | Canary phased fleet rollout unit & dry-run tests                                                                |
-| [`test_tenant_storage.py`](test_tenant_storage.py) | WebDAV storage & WAF size exclusion integration tests                                                           |
-| [`features/`](features/)                           | **Nextcloud Official Feature Acceptance Suite:** Core status, WebDAV CRUD, OCS Sharing, User Quotas, Bedrock AI |
-| [`e2e/`](e2e/)                                     | **Nextcloud Official Playwright UI Suite:** Browser E2E automation for Auth, Files, Sharing, and Navigation     |
+| Test File                                          | Description                                                                                                                                                                                                                                        |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`test_control_panel.py`](test_control_panel.py)   | Comprehensive E2E tests for the Control Panel UI, REST API, DynamoDB state transitions, and CloudWatch metrics                                                                                                                                     |
+| [`test_fleet_rollout.py`](test_fleet_rollout.py)   | Canary phased fleet rollout unit & dry-run tests                                                                                                                                                                                                   |
+| [`test_tenant_storage.py`](test_tenant_storage.py) | WebDAV storage & WAF size exclusion integration tests                                                                                                                                                                                              |
+| [`features/`](features/)                           | **Nextcloud Deep Filestore & Permissions Suite:** WebDAV CRUD, Granular Cross-User Permissions (Bitmask 1-31), File Drop (Upload-only), Password/Expiry Shares, RFC 4918 File Locking, Trashbin, Quota Hard Enforcement (HTTP 507), and Bedrock AI |
+| [`e2e/`](e2e/)                                     | **Nextcloud Official Playwright UI Suite:** Browser E2E automation for Auth, Files, Sharing, and Navigation                                                                                                                                        |
 
 ---
 
