@@ -20,9 +20,13 @@ The test suite validates:
 
 ## 2. Test Files
 
-| Test File                                        | Description                                                                                                    |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| [`test_control_panel.py`](test_control_panel.py) | Comprehensive E2E tests for the Control Panel UI, REST API, DynamoDB state transitions, and CloudWatch metrics |
+| Test File                                          | Description                                                                                                     |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| [`test_control_panel.py`](test_control_panel.py)   | Comprehensive E2E tests for the Control Panel UI, REST API, DynamoDB state transitions, and CloudWatch metrics  |
+| [`test_fleet_rollout.py`](test_fleet_rollout.py)   | Canary phased fleet rollout unit & dry-run tests                                                                |
+| [`test_tenant_storage.py`](test_tenant_storage.py) | WebDAV storage & WAF size exclusion integration tests                                                           |
+| [`features/`](features/)                           | **Nextcloud Official Feature Acceptance Suite:** Core status, WebDAV CRUD, OCS Sharing, User Quotas, Bedrock AI |
+| [`e2e/`](e2e/)                                     | **Nextcloud Official Playwright UI Suite:** Browser E2E automation for Auth, Files, Sharing, and Navigation     |
 
 ---
 
@@ -47,14 +51,19 @@ export AWS_REGION="ap-southeast-1"
 ### Execute Tests
 
 ```bash
-# Run all tests with verbose output
-pytest -v
+# Run backend & API feature acceptance tests
+pytest tests/ -v
 
-# Run with stdout logging enabled
-pytest -v -s
+# Run specific Nextcloud feature suite for tenant
+TENANT_ID="acme" pytest tests/features/ -v
 
-# Run specific test function
-pytest -v tests/test_control_panel.py::test_control_panel_html_page
+# Run browser E2E Playwright tests (headless)
+cd tests/e2e
+npm install
+npx playwright test
+
+# Run Playwright tests with interactive UI
+npx playwright test --ui
 ```
 
 ---
