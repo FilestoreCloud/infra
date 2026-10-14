@@ -52,7 +52,9 @@ python3 scripts/rollout_tenant_image.py \
 
 ---
 
-## 3. Operational Utilities
+## 3. Developer & Environment Tooling
 
-- **`generate_aws_architecture_diagram.py`**: Architecture-as-Code visual diagram generator using the Python `diagrams` library.
 - **`setup-hooks.sh`**: Installs pre-commit hygiene and Conventional Commits git hooks locally.
+
+> [!TIP]
+> Architecture diagrams are maintained as code via **[AWS Diagram as Code (`awsdac`)](https://github.com/awslabs/diagram-as-code)** definitions in [`infra/diagrams/`](../infra/diagrams/).
