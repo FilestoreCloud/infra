@@ -22,6 +22,9 @@ Resources:
       ThumbprintList:
         - 6938fd4d98bab03faadb97b34396831e3780aea1
         - 1c5878a670016709fe07569416210b4b1b2c365f
+        - 06d927fecd0a84aeba28aad1d808139470fe95c3
+        - 2d74d6dfd96eea55ad7baafa0d3c6552b2dadc37
+        - ab9d0263244dd0326eb67015705a667e79cfe998
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -42,7 +45,12 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/runtime:*"
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOrg}/runtime:*"
+                  - "repo:FilestoreCloud/runtime:*"
+                  - "repo:filestorecloud/runtime:*"
+                  - "repo:FilestoreCloud@*/*:*"
+                  - "repo:filestorecloud@*/*:*"
       Policies:
         - PolicyName: ECRPushPolicy
           PolicyDocument:
@@ -89,7 +97,12 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/infra:*"
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOrg}/infra:*"
+                  - "repo:FilestoreCloud/infra:*"
+                  - "repo:filestorecloud/infra:*"
+                  - "repo:FilestoreCloud@*/*:*"
+                  - "repo:filestorecloud@*/*:*"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AdministratorAccess
       Tags:
@@ -114,7 +127,12 @@ Resources:
               StringEquals:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/console:*"
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOrg}/console:*"
+                  - "repo:FilestoreCloud/console:*"
+                  - "repo:filestorecloud/console:*"
+                  - "repo:FilestoreCloud@*/*:*"
+                  - "repo:filestorecloud@*/*:*"
       Policies:
         - PolicyName: ConsoleDeployPolicy
           PolicyDocument:
