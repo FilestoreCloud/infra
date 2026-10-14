@@ -85,8 +85,8 @@ Resources:
       TemplateURL: ./modules/03-storage/template.yaml
       Parameters:
         EnvironmentName: !Ref EnvironmentName
-        PublicSubnet1Id: !GetAtt NetworkingStack.Outputs.PublicSubnet1Id
-        PublicSubnet2Id: !GetAtt NetworkingStack.Outputs.PublicSubnet2Id
+        PrivateSubnet1Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet1Id
+        PrivateSubnet2Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet2Id
         EFSSecurityGroupId: !GetAtt SecurityStack.Outputs.EFSSecurityGroupId
 
   # ============================================================================

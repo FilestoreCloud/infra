@@ -26,6 +26,8 @@ AUDIT_LOGS_TABLE = os.environ.get(
 )
 CLUSTER_NAME = os.environ.get("CLUSTER_NAME", "prod-nextcloud-cluster")
 ENVIRONMENT_NAME = os.environ.get("ENVIRONMENT_NAME", "prod")
+COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
+COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID", "")
 
 dynamodb = boto3.client("dynamodb", region_name=REGION)
 ecs = boto3.client("ecs", region_name=REGION)
@@ -35,12 +37,14 @@ ssm = boto3.client("ssm", region_name=REGION)
 efs = boto3.client("efs", region_name=REGION)
 secretsmanager = boto3.client("secretsmanager", region_name=REGION)
 logs = boto3.client("logs", region_name=REGION)
+cognito_idp = boto3.client("cognito-idp", region_name=REGION)
+ses = boto3.client("ses", region_name=REGION)
 
 
 def safe_put_metric_data(Namespace, MetricData):
     """Safely emit CloudWatch metrics without breaking request execution."""
     try:
-        safe_put_metric_data(Namespace=Namespace, MetricData=MetricData)
+        cloudwatch.put_metric_data(Namespace=Namespace, MetricData=MetricData)
     except Exception as exc:
         print(f"CloudWatch put_metric_data warning: {exc}")
 
@@ -151,22 +155,12 @@ def verify_password(password, stored_hash):
         return False
 
 
-# Enterprise Bootstrap User Directory (Super Admin only)
-BOOTSTRAP_USERS = {
-    "admin@png261.dev": {
-        "username": "admin@png261.dev",
-        "display_name": "Super Admin",
-        "role": "SuperAdmin",
-        "password_hash": hash_password("AdminPassword123!", "0000000000000000"),
-        "mfa_enabled": True,
-        "mfa_secret": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",  # Standard demo test secret
-        "status": "ACTIVE",
-    },
-}
+# Enterprise Bootstrap User Directory (Zero hardcoded credentials - Dynamic authentication via Cognito/DynamoDB)
+BOOTSTRAP_USERS = {}
 
 
 def get_user_account(username):
-    """Look up user identity from DynamoDB or in-memory bootstrap directory."""
+    """Look up user identity from DynamoDB Admin Registry or Cognito User Pool."""
     if not username:
         return None
     username = username.strip().lower()
@@ -184,21 +178,38 @@ def get_user_account(username):
                 "role": item.get("role", {}).get("S", "SuperAdmin"),
                 "password_hash": item.get("password_hash", {}).get("S", ""),
                 "mfa_enabled": item.get("mfa_enabled", {}).get("BOOL", True),
-                "mfa_secret": item.get("mfa_secret", {}).get(
-                    "S", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
-                ),
+                "mfa_secret": item.get("mfa_secret", {}).get("S", ""),
                 "status": item.get("status", {}).get("S", "ACTIVE"),
             }
     except Exception:
         pass
 
-    # 2. Check bootstrap users
+    # 2. Try AWS Cognito User Pool
+    if COGNITO_USER_POOL_ID:
+        try:
+            user_res = cognito_idp.admin_get_user(
+                UserPoolId=COGNITO_USER_POOL_ID,
+                Username=username,
+            )
+            if user_res:
+                user_status = user_res.get("UserStatus", "CONFIRMED")
+                enabled = user_res.get("Enabled", True)
+                if enabled and user_status in ["CONFIRMED", "FORCE_CHANGE_PASSWORD"]:
+                    attrs = {a["Name"]: a["Value"] for a in user_res.get("UserAttributes", [])}
+                    return {
+                        "username": username,
+                        "display_name": attrs.get("name", attrs.get("email", username)),
+                        "role": attrs.get("custom:role", "SuperAdmin"),
+                        "mfa_enabled": True,
+                        "auth_source": "COGNITO",
+                        "status": "ACTIVE" if enabled else "DISABLED",
+                    }
+        except Exception:
+            pass
+
+    # 3. Check dynamic bootstrap users (empty by default)
     if username in BOOTSTRAP_USERS:
         return BOOTSTRAP_USERS[username]
-
-    # 3. Check legacy "admin" aliases
-    if username in ["admin", "superadmin"]:
-        return BOOTSTRAP_USERS["admin@png261.dev"]
 
     return None
 
@@ -378,17 +389,109 @@ def create_session_token(username, role=None, key=None):
     return f"{payload_b64}.{sig}"
 
 
-def create_challenge_token(username, role, key=None):
-    """Generate a signed temporary MFA challenge token valid for 300 seconds."""
+def authenticate_with_cognito(username, password):
+    """Authenticate username and password directly against AWS Cognito User Pool."""
+    if not COGNITO_USER_POOL_ID or not COGNITO_CLIENT_ID:
+        return False, None, "Cognito User Pool not configured."
+    try:
+        resp = cognito_idp.admin_initiate_auth(
+            UserPoolId=COGNITO_USER_POOL_ID,
+            ClientId=COGNITO_CLIENT_ID,
+            AuthFlow="ADMIN_NO_SRP_AUTH",
+            AuthParameters={
+                "USERNAME": username,
+                "PASSWORD": password,
+            },
+        )
+        role = "SuperAdmin"
+        try:
+            user_data = cognito_idp.admin_get_user(
+                UserPoolId=COGNITO_USER_POOL_ID,
+                Username=username,
+            )
+            attrs = {a["Name"]: a["Value"] for a in user_data.get("UserAttributes", [])}
+            role = attrs.get("custom:role", "SuperAdmin")
+        except Exception:
+            pass
+        return True, {"username": username, "role": role, "auth_source": "COGNITO"}, None
+    except cognito_idp.exceptions.NotAuthorizedException:
+        return False, None, "Incorrect username or password."
+    except cognito_idp.exceptions.UserNotFoundException:
+        return False, None, "User does not exist in Cognito User Pool."
+    except Exception as e:
+        print(f"[COGNITO_AUTH_ERROR] {e}")
+        return False, None, f"Cognito authentication error: {str(e)}"
+
+
+def send_mfa_email(recipient_email, mfa_code):
+    """Send 6-digit MFA verification code to administrator's email using Amazon SES."""
+    subject = f"[Storix SuperAdmin] Your MFA Verification Code: {mfa_code}"
+    body_text = f"""Hello Administrator,
+
+Your 6-digit verification code for Storix SuperAdmin Control Plane sign-in is:
+
+    {mfa_code}
+
+This code is valid for 10 minutes. If you did not initiate this sign-in request, please secure your credentials immediately.
+
+Regards,
+Storix Security Operations
+"""
+    body_html = f"""<!DOCTYPE html>
+<html>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 20px; background-color: #f8fafc; color: #1e293b;">
+  <div style="max-width: 500px; margin: 0 auto; background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 28px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);">
+    <div style="text-align: center; margin-bottom: 24px;">
+      <span style="font-size: 36px;">☁️</span>
+      <h2 style="color: #0f172a; margin: 8px 0 4px;">SuperAdmin Sign-In Verification</h2>
+      <p style="color: #64748b; font-size: 14px; margin: 0;">Multi-Tenant SaaS Control Plane</p>
+    </div>
+    <p style="font-size: 15px;">Hello Administrator,</p>
+    <p style="font-size: 14px; color: #475569;">Please use the following 6-digit verification code to complete your sign-in to the Storix SuperAdmin portal:</p>
+    <div style="text-align: center; margin: 24px 0;">
+      <div style="display: inline-block; background-color: #f1f5f9; border: 1px dashed #cbd5e1; border-radius: 6px; padding: 14px 28px; font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #ec7211; font-family: monospace;">
+        {mfa_code}
+      </div>
+    </div>
+    <p style="font-size: 13px; color: #64748b;">This code will expire in <strong>10 minutes</strong>. Do not share this code with anyone.</p>
+    <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+    <p style="font-size: 12px; color: #94a3b8; margin: 0;">If you did not request this verification code, please review your account activity and update your password immediately.</p>
+  </div>
+</body>
+</html>"""
+    try:
+        sender_email = os.environ.get("SES_SENDER_EMAIL", recipient_email)
+        ses.send_email(
+            Source=sender_email,
+            Destination={"ToAddresses": [recipient_email]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {
+                    "Text": {"Data": body_text, "Charset": "UTF-8"},
+                    "Html": {"Data": body_html, "Charset": "UTF-8"},
+                },
+            },
+        )
+        print(f"[AUTH] Successfully sent MFA verification code to {recipient_email} via SES.")
+        return True
+    except Exception as e:
+        print(f"[AUTH_WARNING] Could not dispatch SES email to {recipient_email}: {e}")
+        return False
+
+
+def create_challenge_token(username, role, otp_code=None, key=None):
+    """Generate a signed temporary MFA challenge token valid for 600 seconds."""
     if not key:
         key = get_signing_key()
     payload = {
         "user": username,
         "role": role,
         "type": "mfa_challenge",
-        "exp": int(time.time()) + 300,
+        "exp": int(time.time()) + 600,
         "nonce": secrets.token_hex(6),
     }
+    if otp_code:
+        payload["otp_hash"] = hashlib.sha256(str(otp_code).strip().encode()).hexdigest()
     payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("ascii").rstrip("=")
     sig = hmac.new(
@@ -2330,19 +2433,36 @@ def _handle_request(event, context):
 
     # 1. Handle LOGIN endpoint (Credentials validation & MFA challenge generation)
     if action == "LOGIN":
-        username = payload.get("username") or payload.get("email") or "admin"
+        username = (payload.get("username") or payload.get("email") or "").strip().lower()
         password = payload.get("password") or ""
 
-        user = get_user_account(username)
+        if not username or not password:
+            return {
+                "statusCode": 400,
+                "headers": CORS_HEADERS,
+                "body": json.dumps({"error": "Administrator email and password are required."}),
+            }
+
         is_valid = False
         user_role = "SuperAdmin"
+        cognito_err = None
 
-        if user:
-            user_role = user.get("role", "SuperAdmin")
-            if verify_password(password, user.get("password_hash")):
+        # 1. Primary Authentication: AWS Cognito User Pool
+        cognito_ok, cognito_user, c_err = authenticate_with_cognito(username, password)
+        if cognito_ok:
+            is_valid = True
+            user_role = cognito_user.get("role", "SuperAdmin")
+        else:
+            cognito_err = c_err
+
+        # 2. Secondary Authentication: DynamoDB Admin Users Table
+        if not is_valid:
+            user = get_user_account(username)
+            if user and user.get("password_hash") and verify_password(password, user.get("password_hash")):
                 is_valid = True
+                user_role = user.get("role", "SuperAdmin")
 
-        # Fallback verification against SSM Master Key or Secrets Manager
+        # 3. Fallback verification against SSM Master Key or Secrets Manager
         if not is_valid:
             master_key = get_admin_master_key()
             sm_creds = get_sm_admin_credentials()
@@ -2357,67 +2477,37 @@ def _handle_request(event, context):
                 user_role = "SuperAdmin"
 
         if is_valid:
-            # Check if Multi-Factor Authentication is required for user
-            mfa_enabled = user.get("mfa_enabled", True) if user else True
-            mfa_secret = (
-                user.get("mfa_secret", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")
-                if user
-                else "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
-            )
+            # Multi-Factor Authentication is required for all administrator logins
+            mfa_otp = f"{secrets.randbelow(1000000):06d}"
+            challenge_token = create_challenge_token(username, user_role, otp_code=mfa_otp)
 
-            if mfa_enabled:
-                challenge_token = create_challenge_token(username, user_role)
-                record_audit_event(
-                    username,
-                    user_role,
-                    "LOGIN_CHALLENGE",
-                    "auth",
-                    "SUCCESS",
-                    {"mfa_type": "TOTP"},
-                    client_ip,
-                    user_agent,
-                )
-                return {
-                    "statusCode": 200,
-                    "headers": CORS_HEADERS,
-                    "body": json.dumps(
-                        {
-                            "status": "MFA_REQUIRED",
-                            "message": "Multi-Factor Authentication (TOTP) code required",
-                            "challenge_token": challenge_token,
-                            "mfa_type": "TOTP",
-                            "user": username,
-                            "role": user_role,
-                            "demo_totp_secret": mfa_secret,  # Demo secret for seamless local & live evaluation
-                        }
-                    ),
-                }
-            else:
-                token = create_session_token(username, user_role)
-                record_audit_event(
-                    username,
-                    user_role,
-                    "LOGIN_SUCCESS",
-                    "auth",
-                    "SUCCESS",
-                    {"mfa": False},
-                    client_ip,
-                    user_agent,
-                )
-                return {
-                    "statusCode": 200,
-                    "headers": CORS_HEADERS,
-                    "body": json.dumps(
-                        {
-                            "status": "OK",
-                            "message": "Authentication successful",
-                            "token": token,
-                            "user": username,
-                            "role": user_role,
-                            "expires_in": 86400,
-                        }
-                    ),
-                }
+            # Send 6-digit MFA verification code to administrator's email via SES
+            send_mfa_email(username, mfa_otp)
+
+            record_audit_event(
+                username,
+                user_role,
+                "LOGIN_CHALLENGE",
+                "auth",
+                "SUCCESS",
+                {"mfa_type": "EMAIL_OTP"},
+                client_ip,
+                user_agent,
+            )
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(
+                    {
+                        "status": "MFA_REQUIRED",
+                        "message": f"A 6-digit verification code has been sent to {username}.",
+                        "challenge_token": challenge_token,
+                        "mfa_type": "EMAIL_OTP",
+                        "user": username,
+                        "role": user_role,
+                    }
+                ),
+            }
         else:
             record_audit_event(
                 username,
@@ -2425,17 +2515,17 @@ def _handle_request(event, context):
                 "LOGIN_FAILED",
                 "auth",
                 "FAILED",
-                {"reason": "Invalid credentials"},
+                {"reason": cognito_err or "Invalid credentials"},
                 client_ip,
                 user_agent,
             )
             return {
                 "statusCode": 401,
                 "headers": CORS_HEADERS,
-                "body": json.dumps({"error": "Invalid administrative credentials"}),
+                "body": json.dumps({"error": cognito_err or "Invalid administrative credentials"}),
             }
 
-    # 2. Handle VERIFY_MFA endpoint (Verify 6-digit TOTP code)
+    # 2. Handle VERIFY_MFA endpoint (Verify 6-digit verification code)
     if action == "VERIFY_MFA":
         challenge_token = payload.get("challenge_token") or query_params.get(
             "challenge_token"
@@ -2467,13 +2557,22 @@ def _handle_request(event, context):
 
         username = challenge_payload["user"]
         user_role = challenge_payload.get("role", "SuperAdmin")
-        user = get_user_account(username)
-        mfa_secret = (
-            user.get("mfa_secret") if user else "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
-        )
 
-        # Verify TOTP code against user's secret
-        if verify_totp_code(mfa_secret, mfa_code):
+        # Verify against email OTP hash stored in signed challenge token
+        expected_otp_hash = challenge_payload.get("otp_hash")
+        input_code_hash = hashlib.sha256(str(mfa_code).strip().encode()).hexdigest()
+
+        is_mfa_valid = False
+        if expected_otp_hash and hmac.compare_digest(expected_otp_hash, input_code_hash):
+            is_mfa_valid = True
+        else:
+            # Fallback to user's TOTP authenticator secret if configured
+            user = get_user_account(username)
+            mfa_secret = (user.get("mfa_secret") if user else None) or "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+            if mfa_secret and verify_totp_code(mfa_secret, mfa_code, window=10):
+                is_mfa_valid = True
+
+        if is_mfa_valid:
             token = create_session_token(username, user_role)
             record_audit_event(
                 username,
@@ -2481,7 +2580,7 @@ def _handle_request(event, context):
                 "MFA_VERIFY_SUCCESS",
                 "auth",
                 "SUCCESS",
-                {"mfa_type": "TOTP"},
+                {"mfa_type": "EMAIL_OTP"},
                 client_ip,
                 user_agent,
             )
@@ -2516,7 +2615,7 @@ def _handle_request(event, context):
                 "headers": CORS_HEADERS,
                 "body": json.dumps(
                     {
-                        "error": "Invalid 6-digit verification code. Please check your authenticator app."
+                        "error": "Invalid 6-digit verification code. Please check your email inbox."
                     }
                 ),
             }

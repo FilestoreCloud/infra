@@ -615,6 +615,20 @@ Resources:
                   - logs:FilterLogEvents
                 Resource:
                   - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${EnvironmentName}-*:*"
+              - Sid: CognitoAdminAuth
+                Effect: Allow
+                Action:
+                  - cognito-idp:AdminInitiateAuth
+                  - cognito-idp:AdminGetUser
+                  - cognito-idp:AdminRespondToAuthChallenge
+                  - cognito-idp:InitiateAuth
+                Resource: !GetAtt AdminUserPool.Arn
+              - Sid: SESSendMFAEmail
+                Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: "*"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -635,6 +649,8 @@ Resources:
           TABLE_NAME: !Ref DynamoDBTenantRegistry
           ADMIN_USERS_TABLE: !Ref DynamoDBAdminUsers
           AUDIT_LOGS_TABLE: !Ref DynamoDBAuditLogs
+          COGNITO_USER_POOL_ID: !Ref AdminUserPool
+          COGNITO_CLIENT_ID: !Ref AdminUserPoolClient
           CLUSTER_NAME:
             Fn::If:
               - HasECSClusterName

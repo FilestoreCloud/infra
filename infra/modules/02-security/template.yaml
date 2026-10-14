@@ -80,8 +80,11 @@ Resources:
           ToPort: 5432
           SourceSecurityGroupId: !Ref ECSSecurityGroup
       SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 1024
+          ToPort: 65535
+          DestinationSecurityGroupId: !Ref ECSSecurityGroup
+          Description: Response traffic to ECS Fargate
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-rds-postgres-sg"
@@ -104,8 +107,11 @@ Resources:
           SourceSecurityGroupId: !Ref ECSSecurityGroup
           Description: NFS traffic from ECS Fargate
       SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 1024
+          ToPort: 65535
+          DestinationSecurityGroupId: !Ref ECSSecurityGroup
+          Description: NFS response traffic to ECS Fargate
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-efs-sg"

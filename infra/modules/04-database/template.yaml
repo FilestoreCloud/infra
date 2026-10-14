@@ -79,10 +79,10 @@ Resources:
   DBParameterGroup:
     Type: AWS::RDS::DBParameterGroup
     Properties:
-      Description: Parameter group for Nextcloud PostgreSQL 16 with SSL optional and connection tuning
+      Description: Parameter group for Nextcloud PostgreSQL 16 with SSL enforced and connection tuning
       Family: postgres16
       Parameters:
-        rds.force_ssl: "0"
+        rds.force_ssl: "1"
         idle_in_transaction_session_timeout: "60000"
         log_min_duration_statement: "2000"
       Tags:
