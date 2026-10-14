@@ -18,15 +18,24 @@ The test suite validates:
 
 ---
 
-## 2. Test Files
+## 2. Test Categories & Structure
 
-| Test File                                          | Description                                                                                                                                                                                                                                        |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`test_control_panel.py`](test_control_panel.py)   | Comprehensive E2E tests for the Control Panel UI, REST API, DynamoDB state transitions, and CloudWatch metrics                                                                                                                                     |
-| [`test_fleet_rollout.py`](test_fleet_rollout.py)   | Canary phased fleet rollout unit & dry-run tests                                                                                                                                                                                                   |
-| [`test_tenant_storage.py`](test_tenant_storage.py) | WebDAV storage & WAF size exclusion integration tests                                                                                                                                                                                              |
-| [`features/`](features/)                           | **Nextcloud Deep Filestore & Permissions Suite:** WebDAV CRUD, Granular Cross-User Permissions (Bitmask 1-31), File Drop (Upload-only), Password/Expiry Shares, RFC 4918 File Locking, Trashbin, Quota Hard Enforcement (HTTP 507), and Bedrock AI |
-| [`e2e/`](e2e/)                                     | **Nextcloud Official Playwright UI Suite:** Browser E2E automation for Auth, Files, Sharing, and Navigation                                                                                                                                        |
+The test suite is organized into distinct domain categories:
+
+### `console-backend/` (SuperAdmin Control Plane & Operations)
+
+| Test File                                                        | Description                                                                                                    |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| [`test_control_panel.py`](console-backend/test_control_panel.py) | Tests for SuperAdmin API Lambda backend (RBAC enforcement, MFA TOTP, DynamoDB transitions, SSM Runbooks, etc.) |
+| [`test_fleet_rollout.py`](console-backend/test_fleet_rollout.py) | Phased fleet rollout unit & dry-run tests                                                                      |
+
+### `nextcloud/` (Nextcloud Application, APIs & End-to-End)
+
+| Path                                                         | Description                                                                                                                                                                                                                                        |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`features/`](nextcloud/features/)                           | **Nextcloud Deep Filestore & Permissions Suite:** WebDAV CRUD, Granular Cross-User Permissions (Bitmask 1-31), File Drop (Upload-only), Password/Expiry Shares, RFC 4918 File Locking, Trashbin, Quota Hard Enforcement (HTTP 507), and Bedrock AI |
+| [`e2e/`](nextcloud/e2e/)                                     | **Nextcloud Playwright UI Suite:** Browser E2E automation for Auth, Files, Sharing, and Navigation                                                                                                                                                 |
+| [`test_tenant_storage.py`](nextcloud/test_tenant_storage.py) | WebDAV tenant storage & WAF size exclusion integration tests                                                                                                                                                                                       |
 
 ---
 
@@ -51,14 +60,17 @@ export AWS_REGION="ap-southeast-1"
 ### Execute Tests
 
 ```bash
-# Run backend & API feature acceptance tests
+# Run all tests across categories
 pytest tests/ -v
 
-# Run specific Nextcloud feature suite for tenant
-TENANT_ID="acme" pytest tests/features/ -v
+# Run SuperAdmin control plane backend tests only
+pytest tests/console-backend/ -v
+
+# Run Nextcloud feature acceptance tests
+TENANT_ID="acme" pytest tests/nextcloud/features/ -v
 
 # Run browser E2E Playwright tests (headless)
-cd tests/e2e
+cd tests/nextcloud/e2e
 npm install
 npx playwright test
 

@@ -9,7 +9,7 @@ import requests
 
 # Ensure control plane lambda module is importable for direct unit testing
 LAMBDA_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../infra/modules/06-superadmin")
+    os.path.join(os.path.dirname(__file__), "../../infra/modules/06-superadmin")
 )
 if LAMBDA_DIR not in sys.path:
     sys.path.insert(0, LAMBDA_DIR)
@@ -719,7 +719,7 @@ def test_control_panel_html_page():
 
     if not html:
         index_file = os.path.join(
-            os.path.dirname(__file__), "../control-panel/index.html"
+            os.path.dirname(__file__), "../../control-panel/index.html"
         )
         if os.path.exists(index_file):
             with open(index_file, "r", encoding="utf-8") as f:
@@ -735,7 +735,7 @@ def test_control_panel_html_page():
     assert 'id="root"' in html
 
     # Verify Refine SPA core architecture files exist
-    cp_dir = os.path.join(os.path.dirname(__file__), "../control-panel")
+    cp_dir = os.path.join(os.path.dirname(__file__), "../../control-panel")
     assert os.path.exists(os.path.join(cp_dir, "src/App.tsx")), "Refine App.tsx missing"
     assert os.path.exists(os.path.join(cp_dir, "src/providers/authProvider.ts")), (
         "Refine authProvider missing"

@@ -87,7 +87,7 @@ jobs:
 
       - name: Run Pytest (if tests exist)
         run: |
-          if ls tests/test_*.py 2>/dev/null | head -1 | grep -q .; then
+          if find tests/ -name "test_*.py" | head -1 | grep -q .; then
             pytest tests/ -v
           else
             echo "ℹ️ No test_*.py files in tests/ — skipping."
