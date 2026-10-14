@@ -80,15 +80,5 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify Fleet Rollout Script Syntax
-        run: |
-          python3 -m py_compile scripts/rollout_tenant_image.py
-          echo "✅ scripts/rollout_tenant_image.py syntax OK"
-
-      - name: Run Pytest (if tests exist)
-        run: |
-          if find tests/ -name "test_*.py" | head -1 | grep -q .; then
-            pytest tests/ -v
-          else
-            echo "ℹ️ No test_*.py files in tests/ — skipping."
-          fi
+      - name: Run Test Suite
+        run: pytest tests/ -v

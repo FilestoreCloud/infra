@@ -27,7 +27,6 @@ The test suite is organized into distinct domain categories:
 | Test File                                                        | Description                                                                                                    |
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | [`test_control_panel.py`](console-backend/test_control_panel.py) | Tests for SuperAdmin API Lambda backend (RBAC enforcement, MFA TOTP, DynamoDB transitions, SSM Runbooks, etc.) |
-| [`test_fleet_rollout.py`](console-backend/test_fleet_rollout.py) | Phased fleet rollout unit & dry-run tests                                                                      |
 
 ### `nextcloud/` (Nextcloud Application, APIs & End-to-End)
 

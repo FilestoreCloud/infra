@@ -12,19 +12,6 @@ on:
           - dev
           - staging
           - prod
-      scope:
-        description: "Scope of Destruction"
-        required: true
-        default: "all"
-        type: choice
-        options:
-          - all
-          - 06-superadmin
-          - 05-compute
-          - 04-database
-          - 03-storage
-          - 02-security
-          - 01-networking
       confirmation:
         description: "Safety Confirmation: Type DESTROY to proceed"
         required: true
@@ -50,7 +37,7 @@ jobs:
             echo "❌ Destruction aborted: You must type 'DESTROY' in the confirmation input to prevent accidental teardown."
             exit 1
           fi
-          echo "⚠️ Confirmation verified. Proceeding with destruction of ${{ inputs.environment }} (scope: ${{ inputs.scope }})..."
+          echo "⚠️ Confirmation verified. Proceeding with destruction of ${{ inputs.environment }}..."
 
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -68,42 +55,36 @@ jobs:
           echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
 
       - name: Destroy 06-SuperAdmin
-        if: inputs.scope == 'all' || inputs.scope == '06-superadmin' || inputs.scope == '06-control-plane'
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-06-superadmin
           region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
 
       - name: Destroy 05-Compute
-        if: inputs.scope == 'all' || inputs.scope == '05-compute'
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-05-compute
           region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
 
       - name: Destroy 04-Database
-        if: inputs.scope == 'all' || inputs.scope == '04-database'
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-04-database
           region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
 
       - name: Destroy 03-Storage
-        if: inputs.scope == 'all' || inputs.scope == '03-storage'
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-03-storage
           region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
 
       - name: Destroy 02-Security
-        if: inputs.scope == 'all' || inputs.scope == '02-security'
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-02-security
           region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
 
       - name: Destroy 01-Networking
-        if: inputs.scope == 'all' || inputs.scope == '01-networking'
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-01-networking
@@ -114,5 +95,4 @@ jobs:
           echo "============================================================"
           echo "🎉 Infrastructure destruction completed successfully!"
           echo "Environment : ${{ inputs.environment }}"
-          echo "Scope       : ${{ inputs.scope }}"
           echo "============================================================"

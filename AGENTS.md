@@ -45,7 +45,7 @@ Enterprise multi-tenant cloud platform deployed on AWS using a **Zero-Code-Modif
 pytest tests/ -v
 
 # Run specific test file
-pytest tests/test_fleet_rollout.py -v
+pytest tests/console-backend/test_control_panel.py -v
 ```
 
 ### Linters & DevSecOps Static Analysis (AWS Labs Template)
