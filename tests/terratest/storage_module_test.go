@@ -45,8 +45,8 @@ func TestStorageModule(t *testing.T) {
 
 	DeployCloudFormationStack(t, region, storageStackName, storageTemplate, map[string]string{
 		"EnvironmentName":    envName,
-		"PublicSubnet1Id":    netOutputs["PublicSubnet1Id"],
-		"PublicSubnet2Id":    netOutputs["PublicSubnet2Id"],
+		"PrivateSubnet1Id":   netOutputs["PrivateSubnet1Id"],
+		"PrivateSubnet2Id":   netOutputs["PrivateSubnet2Id"],
 		"EFSSecurityGroupId": secOutputs["EFSSecurityGroupId"],
 	})
 
