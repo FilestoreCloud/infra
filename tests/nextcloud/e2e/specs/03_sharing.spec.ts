@@ -9,8 +9,8 @@ import { loginNextcloud } from "../support/auth.ts";
 test.describe("Nextcloud Sharing Sidebar E2E", () => {
   test.beforeEach(async ({ page }) => {
     await loginNextcloud(page);
-    await page.goto("/apps/files/");
-    await page.waitForURL(/apps\/files/);
+    await page.goto("/index.php/apps/files/");
+    await page.waitForURL(/\/apps\/files/);
   });
 
   test("Should open file sharing tab when clicking share action", async ({

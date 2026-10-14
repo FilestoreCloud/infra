@@ -9,20 +9,20 @@ import { loginNextcloud } from "../support/auth.ts";
 test.describe("Nextcloud Files UI Operations", () => {
   test.beforeEach(async ({ page }) => {
     await loginNextcloud(page);
-    await page.goto("/apps/files/");
-    await page.waitForURL(/apps\/files/);
+    await page.goto("/index.php/apps/files/");
+    await page.waitForURL(/\/apps\/files/);
   });
 
   test("Should display file list and breadcrumbs navigation", async ({
     page,
   }) => {
     // Verify navigation sidebar
-    const sidebar = page.locator("#app-navigation, .app-navigation");
-    await expect(sidebar.first()).toBeVisible();
+    const sidebar = page.locator("#app-navigation, .app-navigation, nav, [aria-label=\"Files\"]");
+    await expect(sidebar.first()).toBeVisible({ timeout: 15000 });
 
     // Verify main files content
-    const mainContent = page.locator("#app-content, main");
-    await expect(mainContent.first()).toBeVisible();
+    const mainContent = page.locator("#app-content, main, #app-content-vue, .files-list");
+    await expect(mainContent.first()).toBeVisible({ timeout: 15000 });
   });
 
   test("Should open new resource menu (New button)", async ({ page }) => {

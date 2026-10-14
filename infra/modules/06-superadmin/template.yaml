@@ -602,6 +602,15 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/${SSMTenantOperatorRunbook}:*"
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-execution/*"
+              - Sid: SSMParameterAccess
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/nextcloud/${EnvironmentName}*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/nextcloud/${EnvironmentName}/*"
               - Sid: CloudWatchTelemetry
                 Effect: Allow
                 Action:

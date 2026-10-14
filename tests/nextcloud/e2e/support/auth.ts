@@ -15,20 +15,20 @@ export async function loginNextcloud(
   // Wait for login form elements
   const userInput = page.locator('#user, input[name="user"]');
   const passInput = page.locator('#password, input[name="password"]');
-  const submitBtn = page.locator('#submit-form, button[type="submit"]');
+  const submitBtn = page.locator('#submit-form, button[type="submit"], button:has-text("Log in")');
 
   await expect(userInput).toBeVisible({ timeout: 15000 });
 
   await userInput.fill(username);
   await passInput.fill(password);
-  await submitBtn.click();
+  await submitBtn.first().click();
 
-  // Wait for redirect to dashboard or files
-  await page.waitForURL(/\/(apps\/(dashboard|files)|index\.php)/, {
-    timeout: 20000,
+  // Wait for redirect to dashboard, files, or index.php
+  await page.waitForURL(/\/(apps\/(dashboard|files)|index\.php\/(apps|core)|index\.php$)/, {
+    timeout: 25000,
   });
 
   // Verify authenticated header or navigation
-  const headerMenu = page.locator("#header, header, .app-navigation, #appmenu");
+  const headerMenu = page.locator("#header, header, .app-navigation, #appmenu, [role=\"navigation\"]");
   await expect(headerMenu.first()).toBeVisible({ timeout: 15000 });
 }

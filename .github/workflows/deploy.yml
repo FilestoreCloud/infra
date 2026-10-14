@@ -384,6 +384,41 @@ jobs:
           chmod +x tests/verify_first_time_deployment_acceptance.py
           python3 tests/verify_first_time_deployment_acceptance.py
 
+      - name: Setup Node.js for Playwright E2E Tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Playwright Dependencies & Chromium
+        run: |
+          cd tests/nextcloud/e2e
+          npm install
+          npx playwright install --with-deps chromium
+
+      - name: Run Playwright Nextcloud E2E Suite
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TENANT_ID: "dev-tenant"
+          NEXTCLOUD_USER: "admin"
+          NEXTCLOUD_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          ALB_DNS=$(aws ssm get-parameter --name "/nextcloud/${ENV}/infra/alb-dns-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          if [ -z "$ALB_DNS" ]; then
+            ALB_DNS=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, '${ENV}-nextcloud-alb')].DNSName" --output text)
+          fi
+          echo "Target ALB DNS for Playwright E2E: $ALB_DNS"
+          cd tests/nextcloud/e2e
+          TENANT_URL="http://${ALB_DNS}" npm test
+
+      - name: Upload Playwright Test Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-report
+          path: tests/nextcloud/e2e/playwright-report/
+          retention-days: 14
+
       - name: Trigger SuperAdmin Console Deployment in console repo
         if: env.GITOPS_TOKEN != ''
         env:

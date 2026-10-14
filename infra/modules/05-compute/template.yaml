@@ -498,7 +498,7 @@ Resources:
             - "sh"
             - "-c"
           Command:
-            - "cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html && exec /entrypoint.sh apache2-foreground"
+            - "sed -i \"/overwriteprotocol/d\" /var/www/html/config/config.php 2>/dev/null || true; cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html && exec /entrypoint.sh apache2-foreground"
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
@@ -539,7 +539,7 @@ Resources:
             - Name: OBJECTSTORE_S3_SSL
               Value: "true"
             - Name: NEXTCLOUD_TRUSTED_DOMAINS
-              Value: !Sub "${ApplicationLoadBalancer.DNSName} localhost 127.0.0.1 appleai.codes *.appleai.codes"
+              Value: !Sub "${ApplicationLoadBalancer.DNSName} localhost 127.0.0.1 appleai.codes *.appleai.codes dev-tenant.png261.dev *.png261.dev png261.dev"
             - Name: TRUSTED_PROXIES
               Value: 10.0.0.0/16
             - Name: NEXTCLOUD_ENABLE_AI
@@ -549,9 +549,9 @@ Resources:
             - Name: BEDROCK_DEFAULT_MODEL
               Value: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
             - Name: OVERWRITEPROTOCOL
-              Value: https
+              Value: ""
             - Name: OVERWRITECLIURL
-              Value: !Sub "https://${ApplicationLoadBalancer.DNSName}"
+              Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
             - Name: NC_maintenance_window_start
               Value: "2"
             - Name: NC_default_phone_region

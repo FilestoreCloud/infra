@@ -194,7 +194,7 @@ def test_nextcloud_tenant_features(alb_dns: str):
     log(f"🔹 [Stage 2.1] Probing Nextcloud status endpoint on ALB ({alb_dns})...")
     status_url = f"http://{alb_dns}/status.php"
 
-    headers = {"Host": TENANT_DOMAIN, "User-Agent": "Nextcloud-SaaS-Acceptance-Tester"}
+    headers = {"User-Agent": "Nextcloud-SaaS-Acceptance-Tester"}
 
     # Probe status.php with retries
     max_retries = 6
@@ -204,7 +204,7 @@ def test_nextcloud_tenant_features(alb_dns: str):
         try:
             req = urllib.request.Request(status_url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as r:
-                if r.status in (200, 503):
+                if r.status == 200:
                     content = r.read().decode("utf-8", errors="ignore")
                     log(f"   Response ({r.status}): {content[:100]}")
                     status_ok = True
@@ -212,7 +212,7 @@ def test_nextcloud_tenant_features(alb_dns: str):
         except urllib.error.HTTPError as e:
             content = e.read().decode("utf-8", errors="ignore")
             log(f"   Attempt {attempt}/{max_retries} HTTP {e.code}: {content[:100]}")
-            if e.code in (200, 503):
+            if e.code == 200:
                 status_ok = True
                 break
         except Exception as e:
@@ -220,32 +220,48 @@ def test_nextcloud_tenant_features(alb_dns: str):
             log(f"   Attempt {attempt}/{max_retries} error: {e}")
         time.sleep(5)
 
-    if not status_ok:
-        log(
-            f"⚠️ Nextcloud HTTP endpoint probe completed (Service initializing): {last_err}"
-        )
-    else:
-        log("✅ Nextcloud public status endpoint is reachable through ALB.")
+    assert status_ok, f"Nextcloud status endpoint failed on ALB {alb_dns}: {last_err}"
+    log("✅ Nextcloud public status endpoint is reachable through ALB.")
 
     log(f"🔹 [Stage 2.2] Testing WebDAV capabilities for Tenant '{TENANT_ID}'...")
-    # WebDAV File Storage CRUD simulation
-    auth_bytes = base64.b64encode(b"admin:AdminPassword123!").decode("ascii")
+    admin_pass = os.environ.get("SUPERADMIN_PASSWORD", "StorixAdmin2026!Secure")
+    auth_bytes = base64.b64encode(f"admin:{admin_pass}".encode("utf-8")).decode("ascii")
     dav_headers = {
         "Authorization": f"Basic {auth_bytes}",
-        "Host": TENANT_DOMAIN,
         "OCS-APIRequest": "true",
         "Accept": "application/json",
+        "User-Agent": "Nextcloud-SaaS-Acceptance-Tester",
     }
 
     # Capabilities check
     caps_url = f"http://{alb_dns}/ocs/v1.php/cloud/capabilities?format=json"
-    try:
-        req = urllib.request.Request(caps_url, headers=dav_headers)
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode("utf-8"))
-            log(f"   Capabilities response: status={r.status}")
-    except Exception as e:
-        log(f"   Capabilities check note: {e}")
+    req = urllib.request.Request(caps_url, headers=dav_headers)
+    with urllib.request.urlopen(req, timeout=10) as r:
+        assert r.status == 200, f"Capabilities check failed: HTTP {r.status}"
+        data = json.loads(r.read().decode("utf-8"))
+        assert data.get("ocs", {}).get("meta", {}).get("status") == "ok", f"Unexpected caps: {data}"
+        log(f"   Capabilities response: status={r.status} (OCS OK)")
+
+    # WebDAV CRUD Verification
+    log(f"🔹 [Stage 2.3] Testing WebDAV File CRUD for Tenant '{TENANT_ID}'...")
+    file_path = f"http://{alb_dns}/remote.php/dav/files/admin/acceptance_test.txt"
+    test_payload = b"Storix multi-tenant acceptance test: VERIFIED"
+    put_req = urllib.request.Request(file_path, data=test_payload, headers=dav_headers, method="PUT")
+    with urllib.request.urlopen(put_req, timeout=10) as r:
+        assert r.status in (200, 201, 204), f"WebDAV PUT failed: HTTP {r.status}"
+        log(f"   PUT file: HTTP {r.status} (Created)")
+
+    get_req = urllib.request.Request(file_path, headers=dav_headers)
+    with urllib.request.urlopen(get_req, timeout=10) as r:
+        assert r.status == 200, f"WebDAV GET failed: HTTP {r.status}"
+        content = r.read()
+        assert content == test_payload, f"Content mismatch: {content}"
+        log(f"   GET file: HTTP {r.status} (Verified content: '{content.decode()}')")
+
+    del_req = urllib.request.Request(file_path, headers=dav_headers, method="DELETE")
+    with urllib.request.urlopen(del_req, timeout=10) as r:
+        assert r.status in (200, 204), f"WebDAV DELETE failed: HTTP {r.status}"
+        log(f"   DELETE file: HTTP {r.status} (Cleaned up)")
 
     log(f"✅ Tenant '{TENANT_ID}' is fully configured and ready for live operation.")
 
