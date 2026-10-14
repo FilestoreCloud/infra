@@ -79,10 +79,18 @@ func TestInPlaceResilience_ECSFargateSelfHealing(t *testing.T) {
 	initialTaskArn := listTasksRes.TaskArns[0]
 	t.Logf("   -> Current healthy task ARN: %s", initialTaskArn)
 
-	// Quick check steady-state HTTP 200
-	statusCode, body := http_helper.HttpGet(t, statusEndpoint, tlsConfig)
-	require.Equal(t, 200, statusCode, "Steady state health endpoint must return 200 OK")
-	t.Logf("   -> Steady state verified: HTTP %d (Response: %s)", statusCode, strings.TrimSpace(body))
+	// Quick check steady-state HTTP 200 with retry for service readiness
+	http_helper.HttpGetWithRetryWithCustomValidation(
+		t,
+		statusEndpoint,
+		tlsConfig,
+		30,
+		5*time.Second,
+		func(statusCode int, body string) bool {
+			return statusCode == 200 && (strings.Contains(body, "installed") || strings.Contains(body, "version"))
+		},
+	)
+	t.Logf("   -> Steady state verified: HTTP 200 OK at %s", statusEndpoint)
 
 	// -------------------------------------------------------------
 	// Phase 2: Chaos Injection (Terminate active container)

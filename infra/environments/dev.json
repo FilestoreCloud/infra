@@ -25,6 +25,6 @@
   },
   {
     "ParameterKey": "ContainerImage",
-    "ParameterValue": "nextcloud:30.0.17-apache"
+    "ParameterValue": "649519997247.dkr.ecr.ap-southeast-1.amazonaws.com/dev-nextcloud-enterprise:dev"
   }
 ]

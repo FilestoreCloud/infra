@@ -63,19 +63,29 @@ func TestInPlaceCompute(t *testing.T) {
 	assert.Equal(t, "ACTIVE", *ecsSvc.Status, "ECS Service status must be ACTIVE")
 	assert.GreaterOrEqual(t, ecsSvc.RunningCount, int32(1), "ECS Service must have at least 1 running task")
 
-	// 2. Assert ALB Target Group Health (Container Healthy)
+	// 2. Assert ALB Target Group Health (Container Healthy) with retry loop for convergence
 	t.Logf("🎯 [In-Place] Validating ALB Target Health: %s", tgArn)
 	elbClient := elbv2.NewFromConfig(cfg.awsConfig)
-	healthRes, err := elbClient.DescribeTargetHealth(context.TODO(), &elbv2.DescribeTargetHealthInput{
-		TargetGroupArn: aws.String(tgArn),
-	})
-	require.NoError(t, err, "DescribeTargetHealth API call failed")
 	hasHealthyTarget := false
-	for _, target := range healthRes.TargetHealthDescriptions {
-		if target.TargetHealth != nil && target.TargetHealth.State == elbv2Types.TargetHealthStateEnumHealthy {
-			hasHealthyTarget = true
+	maxTgRetries := 30
+	for attempt := 1; attempt <= maxTgRetries; attempt++ {
+		healthRes, err := elbClient.DescribeTargetHealth(context.TODO(), &elbv2.DescribeTargetHealthInput{
+			TargetGroupArn: aws.String(tgArn),
+		})
+		if err == nil {
+			for _, target := range healthRes.TargetHealthDescriptions {
+				if target.TargetHealth != nil && target.TargetHealth.State == elbv2Types.TargetHealthStateEnumHealthy {
+					hasHealthyTarget = true
+					break
+				}
+			}
+		}
+		if hasHealthyTarget {
+			t.Logf("   -> Target converged to HEALTHY state on attempt %d", attempt)
 			break
 		}
+		t.Logf("   -> Awaiting target healthy state (attempt %d/%d)...", attempt, maxTgRetries)
+		time.Sleep(5 * time.Second)
 	}
 	assert.True(t, hasHealthyTarget, "At least 1 container target in the ALB Target Group must be HEALTHY")
 
@@ -84,7 +94,7 @@ func TestInPlaceCompute(t *testing.T) {
 	t.Logf("🌐 [In-Place] Testing live Nextcloud health endpoint: %s", statusEndpoint)
 
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
-	retries := 10
+	retries := 30
 	sleepBetweenRetries := 5 * time.Second
 
 	http_helper.HttpGetWithRetryWithCustomValidation(
