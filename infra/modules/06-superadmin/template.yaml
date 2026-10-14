@@ -440,6 +440,8 @@ Resources:
           STATE_MACHINE_SUSPEND_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Suspension"
           STATE_MACHINE_RESUME_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Resumption"
           STATE_MACHINE_DEPROVISION_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Deprovisioning"
+          STATE_MACHINE_SEED_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Seeding"
+          STATE_MACHINE_DEMO_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Demo-Provisioning"
       Code: !If
         - HasLambdaS3Code
         - S3Bucket: !Ref LambdaCodeBucket
@@ -694,6 +696,15 @@ Resources:
                 Resource:
                   - !GetAtt TenantOperatorLambda.Arn
                   - !Sub "${TenantOperatorLambda.Arn}:*"
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                  - states:DescribeExecution
+                  - states:StopExecution
+                  - events:PutTargets
+                  - events:PutRule
+                  - events:DescribeRule
+                Resource: "*"
 
   TenantProvisioningStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -821,31 +832,11 @@ Resources:
                   "#cs": "current_step"
                 },
                 "ExpressionAttributeValues": {
-                  ":p": { "N": "75" },
+                  ":p": { "N": "85" },
                   ":cs": { "S": "Fargate Container Healthy (/status.php 200 OK)" }
                 }
               },
               "ResultPath": "$.health_mark_result",
-              "Next": "SeedTenantData"
-            },
-            "SeedTenantData": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
-                "Payload": {
-                  "action": "SEED_TENANT_USERS_AND_FILES",
-                  "tenant_id.$": "$.TenantId"
-                }
-              },
-              "ResultPath": "$.seed_result",
-              "Catch": [
-                {
-                  "ErrorEquals": ["States.ALL"],
-                  "ResultPath": "$.seed_error",
-                  "Next": "MarkProvisionActive"
-                }
-              ],
               "Next": "MarkProvisionActive"
             },
             "MarkProvisionActive": {
@@ -1331,6 +1322,180 @@ Resources:
             }
           }
         }
+  TenantSeedingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Seeding"
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Demo Seeding (Admin Accounts & Sample Files)",
+          "StartAt": "MarkSeedingInProgress",
+          "States": {
+            "MarkSeedingInProgress": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "SEEDING" },
+                  ":p": { "N": "20" },
+                  ":cs": { "S": "Seeding admin users and default groups" }
+                }
+              },
+              "ResultPath": "$.ddb_result",
+              "Next": "SeedAdminUsers"
+            },
+            "SeedAdminUsers": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "SEED_ADMIN_USERS",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.seed_users_result",
+              "Next": "MarkUsersSeeded"
+            },
+            "MarkUsersSeeded": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":p": { "N": "60" },
+                  ":cs": { "S": "Seeding showcase documents, media & templates" }
+                }
+              },
+              "ResultPath": "$.ddb_result",
+              "Next": "SeedSampleFiles"
+            },
+            "SeedSampleFiles": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "SEED_SAMPLE_FILES",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.seed_files_result",
+              "Next": "MarkSeedComplete"
+            },
+            "MarkSeedComplete": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "ACTIVE" },
+                  ":p": { "N": "100" },
+                  ":cs": { "S": "Ready & Operational (Demo Seeded)" }
+                }
+              },
+              "ResultPath": "$.ddb_result",
+              "Next": "PublishSeedMetric"
+            },
+            "PublishSeedMetric": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Parameters": {
+                "Namespace": "Nextcloud/SaaS",
+                "MetricData": [
+                  {
+                    "MetricName": "TenantSeededStatus",
+                    "Dimensions": [
+                      {
+                        "Name": "TenantId",
+                        "Value.$": "$.TenantId"
+                      }
+                    ],
+                    "Value": 1.0,
+                    "Unit": "Count"
+                  }
+                ]
+              },
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
+  TenantDemoProvisioningStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Demo-Provisioning"
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions Orchestrator for Demo Tenant: Sequentially runs Tenant Provisioning then Tenant Seeding",
+          "StartAt": "RunTenantProvisioning",
+          "States": {
+            "RunTenantProvisioning": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Parameters": {
+                "StateMachineArn": "${TenantProvisioningStateMachine.Arn}",
+                "Input": {
+                  "TenantId.$": "$.TenantId",
+                  "StorageQuotaGB.$": "$.StorageQuotaGB",
+                  "CompanyDomain.$": "$.CompanyDomain",
+                  "AWS_STEP_FUNCTIONS_STARTED_BY_EXECUTION_ID.$": "$$.Execution.Id"
+                }
+              },
+              "ResultPath": "$.provision_result",
+              "Next": "RunTenantSeeding"
+            },
+            "RunTenantSeeding": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution.sync:2",
+              "Parameters": {
+                "StateMachineArn": "${TenantSeedingStateMachine.Arn}",
+                "Input": {
+                  "TenantId.$": "$.TenantId",
+                  "AWS_STEP_FUNCTIONS_STARTED_BY_EXECUTION_ID.$": "$$.Execution.Id"
+                }
+              },
+              "ResultPath": "$.seed_result",
+              "End": true
+            }
+          }
+        }
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -1343,6 +1508,18 @@ Outputs:
     Value: !Ref TenantProvisioningStateMachine
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-TenantProvisioningStateMachineArn"
+
+  TenantSeedingStateMachineArn:
+    Description: Step Functions Tenant Seeding State Machine ARN
+    Value: !Ref TenantSeedingStateMachine
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantSeedingStateMachineArn"
+
+  TenantDemoProvisioningStateMachineArn:
+    Description: Step Functions Tenant Demo Provisioning State Machine ARN
+    Value: !Ref TenantDemoProvisioningStateMachine
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantDemoProvisioningStateMachineArn"
 
   TenantSuspensionStateMachineArn:
     Description: Step Functions Tenant Suspension State Machine ARN

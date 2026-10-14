@@ -54,6 +54,8 @@ func TestInPlaceStepFunctions(t *testing.T) {
 		{OutputKey: "TenantSuspensionStateMachineArn", Name: "TenantSuspensionStateMachine"},
 		{OutputKey: "TenantResumptionStateMachineArn", Name: "TenantResumptionStateMachine"},
 		{OutputKey: "TenantDeprovisioningStateMachineArn", Name: "TenantDeprovisioningStateMachine"},
+		{OutputKey: "TenantSeedingStateMachineArn", Name: "TenantSeedingStateMachine"},
+		{OutputKey: "TenantDemoProvisioningStateMachineArn", Name: "TenantDemoProvisioningStateMachine"},
 	}
 
 	sfnClient := sfn.NewFromConfig(cfg.awsConfig)
