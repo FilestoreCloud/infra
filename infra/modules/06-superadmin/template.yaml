@@ -150,18 +150,6 @@ Resources:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_ADMIN_USER_PASSWORD_AUTH
 
-  SuperAdminUser:
-    Type: AWS::Cognito::UserPoolUser
-    Properties:
-      UserPoolId: !Ref AdminUserPool
-      Username: "nhphuong.code@gmail.com"
-      UserAttributes:
-        - Name: email
-          Value: "nhphuong.code@gmail.com"
-        - Name: email_verified
-          Value: "true"
-      MessageAction: SUPPRESS
-
   SSMAutomationRole:
     Type: AWS::IAM::Role
     Properties:
