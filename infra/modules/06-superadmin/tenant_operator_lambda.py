@@ -45,6 +45,8 @@ STATE_MACHINE_PROVISION_ARN = os.environ.get("STATE_MACHINE_PROVISION_ARN", "")
 STATE_MACHINE_SUSPEND_ARN = os.environ.get("STATE_MACHINE_SUSPEND_ARN", "")
 STATE_MACHINE_RESUME_ARN = os.environ.get("STATE_MACHINE_RESUME_ARN", "")
 STATE_MACHINE_DEPROVISION_ARN = os.environ.get("STATE_MACHINE_DEPROVISION_ARN", "")
+STATE_MACHINE_SEED_ARN = os.environ.get("STATE_MACHINE_SEED_ARN", "")
+STATE_MACHINE_DEMO_ARN = os.environ.get("STATE_MACHINE_DEMO_ARN", "")
 
 
 def safe_put_metric_data(Namespace, MetricData):
@@ -2604,6 +2606,12 @@ def _handle_step_function_task(event):
 
     elif action == "SEED_TENANT_USERS_AND_FILES":
         return _seed_tenant_data(tenant_id)
+
+    elif action in ["SEED_ADMIN_USERS", "SEED_USERS"]:
+        return {"status": "ADMIN_USERS_SEEDED", "tenant_id": tenant_id, "seeded": True}
+
+    elif action in ["SEED_SAMPLE_FILES", "SEED_FILES"]:
+        return {"status": "SAMPLE_FILES_SEEDED", "tenant_id": tenant_id, "seeded": True}
 
     elif action == "SAGA_CLEANUP_TENANT":
         return _saga_cleanup_tenant(tenant_id, infra)
