@@ -8,10 +8,8 @@ Modern, lightweight single-page management application for SaaS Super Admins to 
 
 - **Tenant Registry Management:** Real-time visibility into all registered tenants stored in Amazon DynamoDB (`${EnvironmentName}-nextcloud-tenant-registry`).
 - **Multi-Factor Authentication (RFC 6238 TOTP):** Native two-step authentication supporting standard authenticator apps (Google Authenticator, 1Password, Authy) with zero external pip dependencies.
-- **Granular Role-Based Access Control (RBAC):**
-  - `SuperAdmin`: Unrestricted administrative lifecycle and system configuration.
-  - `TenantOperator`: Tenant fleet provisioning, scaling, suspension, and resumption (destructive deletion forbidden).
-  - `SecurityAuditor`: Read-only telemetry, tenant registry inspection, and compliance audit trail analysis (all mutations prohibited).
+- **Role-Based Access Control (RBAC):**
+  - `SuperAdmin`: Unrestricted administrative lifecycle, fleet operations, incident management, and system configuration.
 - **Immutable Cloud Audit Trail:**
   - Chronological ledger stored in Amazon DynamoDB (`${EnvironmentName}-nextcloud-audit-logs`) with 1-year compliance TTL.
   - Structured JSON audit streaming to Amazon CloudWatch Logs (`/aws/audit/${EnvironmentName}-nextcloud-control-plane`) with 365-day retention.
@@ -53,13 +51,11 @@ The Super Admin Web Control Panel is hosted on AWS using a decoupled **Amazon S3
   - Second-Factor: RFC 6238 TOTP with ±30s drift window tolerance.
   - Session Tokens: Signed HMAC-SHA256 tokens with embedded user persona and RBAC claims.
 
-### Enterprise Demo Personas (Local & Staging Evaluation)
+### Enterprise Demo Persona (Local & Staging Evaluation)
 
-| Persona Role        | Email                | Password               | Allowed Capabilities                                                |
-| ------------------- | -------------------- | ---------------------- | ------------------------------------------------------------------- |
-| **SuperAdmin**      | `admin@png261.dev`   | `AdminPassword123!`    | Full access (Provision, Suspend, Resume, Delete, Audit Logs)        |
-| **TenantOperator**  | `ops@png261.dev`     | `OperatorPassword123!` | Fleet operations (Provision, Suspend, Resume); **Delete Forbidden** |
-| **SecurityAuditor** | `auditor@png261.dev` | `AuditorPassword123!`  | Read-only compliance & telemetry; **All Mutations Forbidden**       |
+| Persona Role   | Email              | Password            | Allowed Capabilities                                         |
+| -------------- | ------------------ | ------------------- | ------------------------------------------------------------ |
+| **SuperAdmin** | `admin@png261.dev` | `AdminPassword123!` | Full access (Provision, Suspend, Resume, Delete, Audit Logs) |
 
 ### Web Console Development
 

@@ -54,70 +54,10 @@ _CACHED_SM_ADMIN_TIME = 0
 # ==============================================================================
 ROLES = {
     "SUPER_ADMIN": "SuperAdmin",
-    "TENANT_OPERATOR": "TenantOperator",
-    "SECURITY_AUDITOR": "SecurityAuditor",
 }
 
 RBAC_PERMISSIONS = {
     "SuperAdmin": {"*"},  # Full administrative control
-    "TenantOperator": {  # Operational lifecycle and incident response
-        "LIST",
-        "GET_TENANTS",
-        "GET_TENANT",
-        "GET_TENANT_DETAIL",
-        "METRICS",
-        "GET_CLOUDWATCH_METRICS",
-        "WIDGET",
-        "GET_CLOUDWATCH_WIDGET",
-        "PROVISION",
-        "SUSPEND",
-        "RESUME",
-        "DASHBOARD",
-        "MFA_SETUP",
-        "AUDIT_LOGS",
-        "GET_AUDIT_LOGS",
-        "RESTART_AGENT",
-        "RESTART_TENANT_AGENT",
-        "UPDATE_INCIDENT_STATUS",
-        "REPORT_INCIDENT",
-        "GET_TENANT_ACCOUNTS",
-        "LIST_TENANT_ACCOUNTS",
-        "CREATE_TENANT_ACCOUNT",
-        "UPDATE_TENANT_ACCOUNT",
-        "RESET_TENANT_PASSWORD",
-        "RESET_TENANT_ACCOUNT_PASSWORD",
-        "EXECUTE_OCC_COMMAND",
-        "GET_CONTAINER_LOGS",
-        "CLONE_TENANT",
-        "FORK_TENANT",
-        "GET_WEBHOOK_CONFIG",
-        "SAVE_WEBHOOK_CONFIG",
-        "TEST_WEBHOOK",
-        "ROLLOUT_IMAGE",
-        "UPGRADE_FLEET_IMAGE",
-        "GET_TENANT_METRICS",
-        "TENANT_METRICS",
-    },
-    "SecurityAuditor": {  # Read-only telemetry, audit trail, accounts inspection, and compliance views; zero mutations
-        "LIST",
-        "GET_TENANTS",
-        "GET_TENANT",
-        "GET_TENANT_DETAIL",
-        "METRICS",
-        "GET_CLOUDWATCH_METRICS",
-        "WIDGET",
-        "GET_CLOUDWATCH_WIDGET",
-        "DASHBOARD",
-        "AUDIT_LOGS",
-        "GET_AUDIT_LOGS",
-        "MFA_SETUP",
-        "GET_TENANT_ACCOUNTS",
-        "LIST_TENANT_ACCOUNTS",
-        "GET_CONTAINER_LOGS",
-        "GET_WEBHOOK_CONFIG",
-        "GET_TENANT_METRICS",
-        "TENANT_METRICS",
-    },
 }
 
 
@@ -202,7 +142,7 @@ def verify_password(password, stored_hash):
         return False
 
 
-# Enterprise Bootstrap User Directory (3 distinct RBAC personas & demo MFA secrets)
+# Enterprise Bootstrap User Directory (Super Admin only)
 BOOTSTRAP_USERS = {
     "admin@png261.dev": {
         "username": "admin@png261.dev",
@@ -211,24 +151,6 @@ BOOTSTRAP_USERS = {
         "password_hash": hash_password("AdminPassword123!", "0000000000000000"),
         "mfa_enabled": True,
         "mfa_secret": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",  # Standard demo test secret
-        "status": "ACTIVE",
-    },
-    "ops@png261.dev": {
-        "username": "ops@png261.dev",
-        "display_name": "Platform Operator",
-        "role": "TenantOperator",
-        "password_hash": hash_password("OperatorPassword123!", "1111111111111111"),
-        "mfa_enabled": True,
-        "mfa_secret": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXQ",
-        "status": "ACTIVE",
-    },
-    "auditor@png261.dev": {
-        "username": "auditor@png261.dev",
-        "display_name": "Security Auditor",
-        "role": "SecurityAuditor",
-        "password_hash": hash_password("AuditorPassword123!", "2222222222222222"),
-        "mfa_enabled": True,
-        "mfa_secret": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXR",
         "status": "ACTIVE",
     },
 }
@@ -250,7 +172,7 @@ def get_user_account(username):
             return {
                 "username": item["username"]["S"],
                 "display_name": item.get("display_name", {}).get("S", username),
-                "role": item.get("role", {}).get("S", "SecurityAuditor"),
+                "role": item.get("role", {}).get("S", "SuperAdmin"),
                 "password_hash": item.get("password_hash", {}).get("S", ""),
                 "mfa_enabled": item.get("mfa_enabled", {}).get("BOOL", True),
                 "mfa_secret": item.get("mfa_secret", {}).get(
@@ -895,7 +817,7 @@ def get_all_tenants():
                 "root_cause": "Large PDF document chunking in Claude 3.5 Sonnet sidecar exceeded 800MB heap.",
                 "action_taken": "Rolling restarted task container, optimized chunk size to 2MB.",
                 "status": "MITIGATING",
-                "reported_by": "TenantOperator",
+                "reported_by": "SuperAdmin",
                 "reported_at": "2026-10-11T16:20:00Z",
             },
             "created_at": "2026-03-10T00:00:00Z",
@@ -2407,7 +2329,7 @@ def _handle_request(event, context):
         user_role = "SuperAdmin"
 
         if user:
-            user_role = user.get("role", "SecurityAuditor")
+            user_role = user.get("role", "SuperAdmin")
             if verify_password(password, user.get("password_hash")):
                 is_valid = True
 
@@ -2630,7 +2552,7 @@ def _handle_request(event, context):
                     {"error": "Unauthorized: valid session token required"}
                 ),
             }
-        user_role = user_info.get("role", "SecurityAuditor")
+        user_role = user_info.get("role", "SuperAdmin")
         if not check_rbac_permission(user_role, "AUDIT_LOGS"):
             record_audit_event(
                 user_info.get("user"),
@@ -2766,7 +2688,7 @@ def _handle_request(event, context):
             "body": json.dumps({"error": "Unauthorized: valid session token required"}),
         }
 
-    user_role = user_info.get("role", "SecurityAuditor")
+    user_role = user_info.get("role", "SuperAdmin")
 
     if action in ["LIST", "GET_TENANTS"]:
         tenants = get_all_tenants()

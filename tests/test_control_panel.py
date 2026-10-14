@@ -192,7 +192,7 @@ def test_jwt_session_signing_and_verification():
 # UNIT TESTS: RBAC AUTHORIZATION MATRIX (Requirement 4)
 # ==============================================================================
 def test_rbac_matrix_permissions():
-    """Verify role permission boundaries for SuperAdmin, TenantOperator, and SecurityAuditor."""
+    """Verify role permission boundaries for SuperAdmin (full access) and reject unauthorized roles."""
     # 1. SuperAdmin has unrestricted access
     assert tol.check_rbac_permission("SuperAdmin", "LIST")
     assert tol.check_rbac_permission("SuperAdmin", "PROVISION")
@@ -201,33 +201,12 @@ def test_rbac_matrix_permissions():
     assert tol.check_rbac_permission("SuperAdmin", "DELETE")
     assert tol.check_rbac_permission("SuperAdmin", "AUDIT_LOGS")
 
-    # 2. TenantOperator can operate fleet but CANNOT delete
-    assert tol.check_rbac_permission("TenantOperator", "LIST")
-    assert tol.check_rbac_permission("TenantOperator", "PROVISION")
-    assert tol.check_rbac_permission("TenantOperator", "SUSPEND")
-    assert tol.check_rbac_permission("TenantOperator", "RESUME")
-    assert tol.check_rbac_permission("TenantOperator", "AUDIT_LOGS")
-    assert not tol.check_rbac_permission("TenantOperator", "DELETE"), (
-        "TenantOperator must be forbidden from DELETE"
-    )
-
-    # 3. SecurityAuditor is strictly read-only
-    assert tol.check_rbac_permission("SecurityAuditor", "LIST")
-    assert tol.check_rbac_permission("SecurityAuditor", "AUDIT_LOGS")
-    assert tol.check_rbac_permission("SecurityAuditor", "METRICS")
-    assert not tol.check_rbac_permission("SecurityAuditor", "PROVISION"), (
-        "SecurityAuditor must be forbidden from PROVISION"
-    )
-    assert not tol.check_rbac_permission("SecurityAuditor", "SUSPEND"), (
-        "SecurityAuditor must be forbidden from SUSPEND"
-    )
-    assert not tol.check_rbac_permission("SecurityAuditor", "RESUME"), (
-        "SecurityAuditor must be forbidden from RESUME"
-    )
-    assert not tol.check_rbac_permission("SecurityAuditor", "DELETE"), (
-        "SecurityAuditor must be forbidden from DELETE"
-    )
-    print("  ✅ RBAC authorization matrix verified successfully.")
+    # 2. Any other / unknown role is rejected
+    assert not tol.check_rbac_permission("Guest", "LIST")
+    assert not tol.check_rbac_permission("Guest", "PROVISION")
+    assert not tol.check_rbac_permission("TenantOperator", "DELETE")
+    assert not tol.check_rbac_permission("SecurityAuditor", "PROVISION")
+    print("  ✅ SuperAdmin-only RBAC authorization verified successfully.")
 
 
 # ==============================================================================
@@ -290,37 +269,19 @@ def test_lambda_login_mfa_challenge_flow():
 
 
 def test_lambda_rbac_enforcement():
-    """Verify that SecurityAuditor and TenantOperator get 403 Forbidden on disallowed operations."""
-    # 1. Token for SecurityAuditor
-    auditor_token = tol.create_session_token(
-        "auditor@png261.dev", role="SecurityAuditor"
-    )
-    # Auditor attempting PROVISION must return 403
+    """Verify that non-SuperAdmin roles get 403 Forbidden on restricted operations."""
+    unauth_token = tol.create_session_token("guest@png261.dev", role="Guest")
     prov_event = {
         "httpMethod": "POST",
-        "headers": {"authorization": f"Bearer {auditor_token}"},
+        "headers": {"authorization": f"Bearer {unauth_token}"},
         "body": json.dumps({"action": "PROVISION", "tenant_id": "test-forbidden"}),
     }
     resp = tol.lambda_handler(prov_event, None)
     assert resp["statusCode"] == 403, (
-        f"Expected 403 Forbidden for SecurityAuditor PROVISION, got {resp['statusCode']}"
+        f"Expected 403 Forbidden for non-SuperAdmin PROVISION, got {resp['statusCode']}"
     )
     assert "Forbidden" in json.loads(resp["body"])["error"]
-
-    # 2. Token for TenantOperator
-    ops_token = tol.create_session_token("ops@png261.dev", role="TenantOperator")
-    # Operator attempting DELETE must return 403
-    del_event = {
-        "httpMethod": "POST",
-        "headers": {"authorization": f"Bearer {ops_token}"},
-        "body": json.dumps({"action": "DELETE", "tenant_id": "test-forbidden"}),
-    }
-    resp_del = tol.lambda_handler(del_event, None)
-    assert resp_del["statusCode"] == 403, (
-        f"Expected 403 Forbidden for TenantOperator DELETE, got {resp_del['statusCode']}"
-    )
-    assert "Forbidden" in json.loads(resp_del["body"])["error"]
-    print("  ✅ Lambda RBAC enforcement (HTTP 403 Forbidden on violations) passed.")
+    print("  ✅ Lambda RBAC enforcement (HTTP 403 Forbidden on non-SuperAdmin) passed.")
 
 
 def test_lambda_cors_preflight():
@@ -366,7 +327,7 @@ def test_immutable_audit_logging():
     assert len(evt_id) > 10
 
     # Query AUDIT_LOGS endpoint with authenticated session
-    token = tol.create_session_token("auditor@png261.dev", role="SecurityAuditor")
+    token = tol.create_session_token("admin@png261.dev", role="SuperAdmin")
     audit_event = {
         "httpMethod": "POST",
         "headers": {"authorization": f"Bearer {token}"},
@@ -426,10 +387,10 @@ def test_lambda_tenant_detail_endpoint():
 
 def test_lambda_agent_rolling_restart():
     """Verify RESTART_AGENT triggers ECS service update and records immutable audit log."""
-    operator_token = tol.create_session_token("ops@png261.dev", role="TenantOperator")
+    admin_token = tol.create_session_token("admin@png261.dev", role="SuperAdmin")
     event = {
         "httpMethod": "POST",
-        "headers": {"authorization": f"Bearer {operator_token}"},
+        "headers": {"authorization": f"Bearer {admin_token}"},
         "body": json.dumps({"action": "RESTART_AGENT", "tenant_id": "restart-test"}),
     }
     resp = tol.lambda_handler(event, None)
@@ -442,10 +403,10 @@ def test_lambda_agent_rolling_restart():
 
 def test_lambda_update_incident_status_and_circuit_breaker():
     """Verify UPDATE_INCIDENT_STATUS updates circuit breaker state, severity, root cause and records incident log."""
-    operator_token = tol.create_session_token("ops@png261.dev", role="TenantOperator")
+    admin_token = tol.create_session_token("admin@png261.dev", role="SuperAdmin")
     event = {
         "httpMethod": "POST",
-        "headers": {"authorization": f"Bearer {operator_token}"},
+        "headers": {"authorization": f"Bearer {admin_token}"},
         "body": json.dumps(
             {
                 "action": "UPDATE_INCIDENT_STATUS",

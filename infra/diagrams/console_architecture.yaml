@@ -18,23 +18,11 @@ Diagram:
       Type: AWS::Diagram::HorizontalStack
       Children:
         - SuperAdminActor
-        - TenantOperatorActor
-        - SecurityAuditorActor
 
     SuperAdminActor:
       Type: AWS::Diagram::Resource
       Preset: "User"
-      Title: "SaaS Super Admin\n(Role: SuperAdmin)\nFull Lifecycle & Deletion"
-
-    TenantOperatorActor:
-      Type: AWS::Diagram::Resource
-      Preset: "User"
-      Title: "Tenant Operator\n(Role: TenantOperator)\nFleet Ops & Scaling"
-
-    SecurityAuditorActor:
-      Type: AWS::Diagram::Resource
-      Preset: "User"
-      Title: "Security Auditor\n(Role: SecurityAuditor)\nRead-only Compliance"
+      Title: "SaaS Super Admin\n(Role: SuperAdmin)\nFull Lifecycle & Operations"
 
     # ─────────────────────────────────────────────────────────────
     # AWS CLOUD ENVIRONMENT
@@ -210,22 +198,6 @@ Diagram:
       SourcePosition: S
       Target: Route53DNS
       TargetPosition: N
-      TargetArrowHead:
-        Type: Open
-      Type: orthogonal
-
-    - Source: TenantOperatorActor
-      SourcePosition: S
-      Target: Route53DNS
-      TargetPosition: NNE
-      TargetArrowHead:
-        Type: Open
-      Type: orthogonal
-
-    - Source: SecurityAuditorActor
-      SourcePosition: S
-      Target: Route53DNS
-      TargetPosition: NE
       TargetArrowHead:
         Type: Open
       Type: orthogonal
