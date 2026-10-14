@@ -60,6 +60,8 @@ Resources:
       KeySchema:
         - AttributeName: tenant_id
           KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName

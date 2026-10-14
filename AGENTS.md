@@ -53,6 +53,9 @@ pytest tests/console-backend/test_control_panel.py -v
 # CloudFormation template linting (matching CI)
 cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
 
+# CloudFormation Guard policy-as-code compliance
+cfn-guard validate --rules infra/rules/ --data infra/modules/*/template.yaml --data infra/root.yaml --show-summary fail
+
 # Run complete AWS Labs DevSecOps pre-commit suite
 pre-commit run --all-files
 
@@ -100,5 +103,5 @@ Before concluding any implementation or opening a PR:
 
 1. [ ] **Pre-commit:** `pre-commit run --all-files` passes cleanly with zero errors.
 2. [ ] **Tests:** `pytest tests/ -v` passes.
-3. [ ] **IaC:** `cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005` passes cleanly.
+3. [ ] **IaC Lint & Policy:** `cfn-lint` and `cfn-guard validate` pass cleanly.
 4. [ ] **Git:** Staged changes committed to `dev` with Conventional Commit message.

@@ -38,6 +38,7 @@ infra/
 │   ├── dev.json
 │   ├── staging.json
 │   └── prod.json
+├── rules/                      # AWS CloudFormation Guard policy-as-code rules (.guard)
 └── root.yaml                   # Root Nested Stack orchestrator for 1-command bootstrap
 ```
 

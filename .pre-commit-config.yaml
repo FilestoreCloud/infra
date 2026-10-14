@@ -170,6 +170,15 @@ repos:
       - id: cfn-lint
         files: '^infra/(modules/[^/]+/template|root)\.ya?ml$'
 
+  - repo: local
+    hooks:
+      - id: cfn-guard
+        name: AWS CloudFormation Guard
+        entry: bash -c 'if command -v cfn-guard >/dev/null 2>&1; then cfn-guard validate --rules infra/rules/ --data "$@" --show-summary fail; else echo "cfn-guard not found in PATH, skipping local guard check"; fi' --
+        language: system
+        files: '^infra/(modules/[^/]+/template|root)\.ya?ml$'
+        pass_filenames: true
+
   # ============================================================================
   # LICENSE COMPLIANCE
   # ============================================================================

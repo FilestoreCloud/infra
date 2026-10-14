@@ -1,0 +1,21 @@
+# ==============================================================================
+# Amazon ECS Fargate & ECR Container Security Rules
+# ==============================================================================
+
+let ecs_tasks = Resources.*[ Type == 'AWS::ECS::TaskDefinition' ]
+let ecr_repos = Resources.*[ Type == 'AWS::ECR::Repository' ]
+
+rule ECS_TASK_FARGATE_AND_AWSVPC when %ecs_tasks !empty {
+    %ecs_tasks.Properties.NetworkMode == 'awsvpc' <<ECS Task Definitions must use 'awsvpc' network mode.>>
+    %ecs_tasks.Properties.RequiresCompatibilities[*] in ['FARGATE'] <<ECS Task Definitions must require FARGATE compatibility.>>
+    %ecs_tasks.Properties.Cpu !empty <<ECS Task Definitions must define CPU.>>
+    %ecs_tasks.Properties.Memory !empty <<ECS Task Definitions must define Memory.>>
+}
+
+rule ECS_CONTAINER_LOGGING when %ecs_tasks !empty {
+    %ecs_tasks.Properties.ContainerDefinitions[*].LogConfiguration !empty <<ECS Container Definitions must configure LogConfiguration for centralized audit logging.>>
+}
+
+rule ECR_IMAGE_SCAN_ON_PUSH when %ecr_repos !empty {
+    %ecr_repos.Properties.ImageScanningConfiguration.ScanOnPush == true <<ECR Repositories must have ScanOnPush enabled.>>
+}

@@ -1,0 +1,44 @@
+# ==============================================================================
+# Amazon EC2 Security Group Ingress Security Rules
+# ==============================================================================
+
+let security_groups = Resources.*[ Type == 'AWS::EC2::SecurityGroup' ]
+
+rule SECURITY_GROUP_NO_UNRESTRICTED_SSH when %security_groups !empty {
+    let sensitive_ssh_ingress = %security_groups.Properties.SecurityGroupIngress[
+        FromPort <= 22
+        ToPort >= 22
+        IpProtocol in ['tcp', '-1']
+    ]
+
+    let cidr_ssh_ingress = %sensitive_ssh_ingress[ CidrIp exists ]
+    when %cidr_ssh_ingress !empty {
+        %cidr_ssh_ingress.CidrIp != '0.0.0.0/0' <<Security Groups must not allow unrestricted SSH (port 22) from 0.0.0.0/0.>>
+    }
+}
+
+rule SECURITY_GROUP_NO_UNRESTRICTED_DB when %security_groups !empty {
+    let sensitive_db_ingress = %security_groups.Properties.SecurityGroupIngress[
+        FromPort <= 5432
+        ToPort >= 5432
+        IpProtocol in ['tcp', '-1']
+    ]
+
+    let cidr_db_ingress = %sensitive_db_ingress[ CidrIp exists ]
+    when %cidr_db_ingress !empty {
+        %cidr_db_ingress.CidrIp != '0.0.0.0/0' <<Security Groups must not allow unrestricted database access (port 5432) from 0.0.0.0/0.>>
+    }
+}
+
+rule SECURITY_GROUP_NO_UNRESTRICTED_EFS when %security_groups !empty {
+    let sensitive_efs_ingress = %security_groups.Properties.SecurityGroupIngress[
+        FromPort <= 2049
+        ToPort >= 2049
+        IpProtocol in ['tcp', '-1']
+    ]
+
+    let cidr_efs_ingress = %sensitive_efs_ingress[ CidrIp exists ]
+    when %cidr_efs_ingress !empty {
+        %cidr_efs_ingress.CidrIp != '0.0.0.0/0' <<Security Groups must not allow unrestricted EFS/NFS access (port 2049) from 0.0.0.0/0.>>
+    }
+}

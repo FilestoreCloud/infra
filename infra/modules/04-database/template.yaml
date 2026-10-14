@@ -115,6 +115,7 @@ Resources:
             - HasDBSecurityGroupId
             - !Ref DBSecurityGroupId
             - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecurityGroupId"
+      StorageEncrypted: true
       PubliclyAccessible: false
       MultiAZ: false
       BackupRetentionPeriod: 1
