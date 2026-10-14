@@ -2693,10 +2693,12 @@ def lambda_handler(event, context):
             "PROVISION_TENANT_RESOURCES",
             "CHECK_TENANT_HEALTH",
             "SEED_TENANT_USERS_AND_FILES",
+            "SEED_ADMIN_USERS",
+            "SEED_SAMPLE_FILES",
             "SAGA_CLEANUP_TENANT",
             "DEPROVISION_ECS",
             "DEPROVISION_STORAGE",
-        ] or (action in ["SUSPEND", "RESUME"] and not is_http):
+        ] or (action in ["SUSPEND", "RESUME", "SEED"] and not is_http):
             return _handle_step_function_task(event)
 
         return _alb_response(_handle_request(event, context))
@@ -3372,32 +3374,39 @@ def _handle_request(event, context):
     infra = get_infra_config()
 
     try:
-        if action == "PROVISION":
+        if action in ["PROVISION", "PROVISION_DEMO"]:
             domain = payload.get("domain") or f"{tenant_id}.png261.dev"
             quota_gb = str(payload.get("quota_gb", 100))
             admin_email = payload.get("admin_email", f"admin@{tenant_id}.com")
             clean_id = tenant_id.lower().replace("-", "_")
             db_name = f"nc_{clean_id}"
+            is_demo = action == "PROVISION_DEMO" or bool(payload.get("is_demo"))
 
-            if STATE_MACHINE_PROVISION_ARN:
+            chosen_sfn_arn = STATE_MACHINE_DEMO_ARN if (is_demo and STATE_MACHINE_DEMO_ARN) else STATE_MACHINE_PROVISION_ARN
+            if chosen_sfn_arn:
                 try:
+                    init_item = {
+                        "tenant_id": {"S": tenant_id},
+                        "status": {"S": "PROVISIONING"},
+                        "progress": {"N": "10"},
+                        "current_step": {
+                            "S": "Step Functions Demo Provisioning (Infra + Seed) Triggered" if is_demo else "Step Functions Provisioning Workflow Triggered"
+                        },
+                        "domain": {"S": domain},
+                        "quota_gb": {"N": quota_gb},
+                        "admin_email": {"S": admin_email},
+                        "created_at": {"S": now_iso},
+                        "last_updated": {"S": now_iso},
+                    }
+                    if is_demo:
+                        init_item["is_demo"] = {"BOOL": True}
                     dynamodb.put_item(
                         TableName=TABLE_NAME,
-                        Item={
-                            "tenant_id": {"S": tenant_id},
-                            "status": {"S": "PROVISIONING"},
-                            "progress": {"N": "10"},
-                            "current_step": {"S": "Step Functions Provisioning Workflow Triggered"},
-                            "domain": {"S": domain},
-                            "quota_gb": {"N": quota_gb},
-                            "admin_email": {"S": admin_email},
-                            "created_at": {"S": now_iso},
-                            "last_updated": {"S": now_iso},
-                        },
+                        Item=init_item,
                     )
                     sfn_resp = sfn.start_execution(
-                        stateMachineArn=STATE_MACHINE_PROVISION_ARN,
-                        name=f"provision-{tenant_id}-{int(time.time())}",
+                        stateMachineArn=chosen_sfn_arn,
+                        name=f"{('demo-provision' if is_demo else 'provision')}-{tenant_id}-{int(time.time())}",
                         input=json.dumps({
                             "TenantId": tenant_id,
                             "StorageQuotaGB": quota_gb,
@@ -3408,12 +3417,13 @@ def _handle_request(event, context):
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
                         "body": json.dumps({
-                            "message": f"Tenant {tenant_id} provisioning workflow initiated",
+                            "message": f"Tenant {tenant_id} {'demo ' if is_demo else ''}provisioning workflow initiated",
                             "executionArn": sfn_resp["executionArn"],
                             "tenant_id": tenant_id,
                             "status": "PROVISIONING",
                             "progress": 10,
-                            "current_step": "Step Functions Provisioning Workflow Triggered",
+                            "current_step": "Step Functions Demo Provisioning Triggered" if is_demo else "Step Functions Provisioning Workflow Triggered",
+                            "is_demo": is_demo,
                         }),
                     }
                 except Exception as e:
@@ -3598,6 +3608,73 @@ def _handle_request(event, context):
                         "current_step": "Ready & Operational",
                     }
                 ),
+            }
+
+        elif action == "SEED":
+            try:
+                dynamodb.update_item(
+                    TableName=TABLE_NAME,
+                    Key={"tenant_id": {"S": tenant_id}},
+                    UpdateExpression="SET #st = :s, #p = :p, #cs = :cs, #lu = :t",
+                    ExpressionAttributeNames={
+                        "#st": "status",
+                        "#p": "progress",
+                        "#cs": "current_step",
+                        "#lu": "last_updated",
+                    },
+                    ExpressionAttributeValues={
+                        ":s": {"S": "SEEDING"},
+                        ":p": {"N": "10"},
+                        ":cs": {"S": "Step Functions Seeding Workflow Triggered"},
+                        ":t": {"S": now_iso},
+                    },
+                )
+            except Exception as e:
+                print(f"Notice: initial SEEDING status write: {e}")
+
+            if STATE_MACHINE_SEED_ARN:
+                try:
+                    sfn_resp = sfn.start_execution(
+                        stateMachineArn=STATE_MACHINE_SEED_ARN,
+                        name=f"seed-{tenant_id}-{int(time.time())}",
+                        input=json.dumps({"TenantId": tenant_id}),
+                    )
+                    return {
+                        "statusCode": 200,
+                        "headers": CORS_HEADERS,
+                        "body": json.dumps({
+                            "message": f"Tenant {tenant_id} seeding workflow initiated",
+                            "executionArn": sfn_resp["executionArn"],
+                            "status": "SEEDING",
+                            "progress": 10,
+                            "current_step": "Step Functions Seeding Workflow Triggered",
+                        }),
+                    }
+                except Exception as e:
+                    print(f"Step Functions start_execution warning: {e}. Falling back to direct seed.")
+
+            _seed_tenant_data(tenant_id)
+            dynamodb.update_item(
+                TableName=TABLE_NAME,
+                Key={"tenant_id": {"S": tenant_id}},
+                UpdateExpression="SET #st = :s, #p = :p, #cs = :cs, #lu = :t",
+                ExpressionAttributeNames={"#st": "status", "#p": "progress", "#cs": "current_step", "#lu": "last_updated"},
+                ExpressionAttributeValues={
+                    ":s": {"S": "ACTIVE"},
+                    ":p": {"N": "100"},
+                    ":cs": {"S": "Ready & Operational (Demo Seeded)"},
+                    ":t": {"S": now_iso},
+                },
+            )
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps({
+                    "message": f"Tenant {tenant_id} seeded successfully",
+                    "status": "ACTIVE",
+                    "progress": 100,
+                    "current_step": "Ready & Operational (Demo Seeded)",
+                }),
             }
 
         elif action == "SUSPEND":
