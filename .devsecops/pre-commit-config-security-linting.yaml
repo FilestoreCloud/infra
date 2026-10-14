@@ -1,0 +1,198 @@
+repos:
+  # ============================================================================
+  # GENERAL CODE QUALITY & FORMATTING
+  # ============================================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ["--maxkb=102400"] # 100MB = 102400KB
+      - id: check-json
+        exclude: '(package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|cdk\.context\.json$|\.vscode/|\.idea/|\.terraform/)'
+      - id: check-yaml
+        args: ["--unsafe", "--allow-multiple-documents"]
+      - id: debug-statements
+      - id: detect-private-key
+        exclude: '(\.terraform/|node_modules/|\.venv/|venv/|\.virtualenv/|vendor/|Pods/)'
+      - id: end-of-file-fixer
+        exclude: '(\.min\.(js|css)$|\.bundle\.(js|css)$|package-lock\.json$|yarn\.lock$|\.terraform\.lock\.hcl$|.*\.pyc$|.*\.pyo$)'
+      - id: name-tests-test
+        args: ["--pytest-test-first"]
+      - id: no-commit-to-branch
+        args: ["--branch", "main", "--branch", "master"]
+        stages: [pre-commit]
+      - id: requirements-txt-fixer
+      - id: trailing-whitespace
+        exclude: '(\.min\.(js|css)$|\.bundle\.(js|css)$|package-lock\.json$|yarn\.lock$|\.terraform\.lock\.hcl$)'
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.3
+    hooks:
+      - id: codespell
+        verbose: true
+        # Must be ONE argument. `[--ignore-words-list=ehr, ser]` is a YAML flow
+        # sequence, so it splits into two args and "ser" becomes a stray
+        # positional filename instead of an ignored word. "ser" occurs inside
+        # the reddit regex `u(?:ser)?` in .devsecops/ferret-scan.yaml.
+        args: ["--ignore-words-list=ehr,ser"]
+        exclude: '(^reports/|\.drawio$)'
+
+  # ============================================================================
+  # LANGUAGE-SPECIFIC: PYTHON
+  # ============================================================================
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.3
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/psf/black
+    rev: 26.5.1
+    hooks:
+      - id: black
+        files: '\.py$'
+        exclude: '(\.venv/|venv/|\.virtualenv/|__pycache__/|\.pytest_cache/|\.mypy_cache/|\.ruff_cache/|\.tox/|.*\.pyc$|.*\.pyo$)'
+
+  - repo: https://github.com/pypa/pip-audit
+    rev: v2.10.1
+    hooks:
+      - id: pip-audit
+        args: ["-r", "requirements.txt"]
+        files: requirements\.txt$
+
+  # ============================================================================
+  # LANGUAGE-SPECIFIC: GO
+  # ============================================================================
+  - repo: https://github.com/TekWizely/pre-commit-golang
+    rev: v1.0.0-rc.4
+    hooks:
+      - id: go-fmt
+        args: [-w]
+        files: '\.go$'
+      - id: go-vet
+        args: [-v]
+        files: '\.go$'
+      - id: go-imports
+        args: [-w]
+        files: '\.go$'
+      - id: go-mod-tidy
+        files: 'go\.(mod|sum)$'
+
+  # ============================================================================
+  # LANGUAGE-SPECIFIC: JAVASCRIPT/TYPESCRIPT
+  # ============================================================================
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v10.8.1
+    hooks:
+      - id: eslint
+        args:
+          [
+            --fix,
+            --no-eslintrc,
+            --config,
+            .devsecops/eslintrc.json,
+            --ignore-path,
+            .devsecops/eslintignore,
+          ]
+        files: '\.(js|jsx|ts|tsx|mjs|cjs)$'
+        exclude: '(node_modules/|dist/|build/|\.next/|\.nuxt/|\.svelte-kit/|\.turbo/|coverage/|\.cache/|\.ash/|static/|\.min\.js$|\.bundle\.js$)'
+        additional_dependencies:
+          - eslint@8.57.1
+          - eslint-plugin-security@3.0.1
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
+    hooks:
+      - id: prettier
+        args: [--no-cache]
+        files: '\.(js|jsx|ts|tsx|json|css|md|yaml|yml)$'
+        exclude: '(node_modules/|dist/|build/|\.next/|\.nuxt/|\.svelte-kit/|\.turbo/|coverage/|\.min\.(js|css)$|\.bundle\.(js|css)$|package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|cdk\.context\.json$)'
+
+  # ============================================================================
+  # LANGUAGE-SPECIFIC: JAVA & KOTLIN
+  # ============================================================================
+  - repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+    rev: v2.16.0
+    hooks:
+      - id: pretty-format-java
+        args: [--autofix]
+        files: '\.java$'
+      - id: pretty-format-kotlin
+        args: [--autofix]
+        files: '\.(kt|kts)$'
+
+  # ============================================================================
+  # INFRASTRUCTURE AS CODE: TERRAFORM
+  # ============================================================================
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.108.1
+    hooks:
+      - id: terraform_fmt
+        files: '\.tf$'
+      - id: terraform_tflint
+        files: '\.tf$'
+        verbose: true
+        args:
+          - --args=--format=compact --force
+
+  # ============================================================================
+  # SECURITY SCANNING
+  # ============================================================================
+  - repo: https://github.com/awslabs/automated-security-helper
+    rev: v3.5.9
+    hooks:
+      - id: ash-simple-scan
+        stages: [manual]
+
+  - repo: https://github.com/awslabs/ferret-scan
+    rev: v2.3.2
+    hooks:
+      - id: ferret-scan
+        name: Ferret Scan Security Check
+        args:
+          [
+            "--pre-commit-mode",
+            "--confidence",
+            "medium,high",
+            "--checks",
+            "CLOUD_RESOURCES,EMAIL,INTELLECTUAL_PROPERTY,IP_ADDRESS,OTP,SECRETS,SOCIAL_MEDIA",
+            "--disable-ip-types",
+            "trademark,copyright,trade_secret",
+            "--config",
+            ".devsecops/ferret-scan.yaml",
+          ]
+        files: '\.(go|java|json|kt|kts|md|py|sh|sql|swift|txt|xml|yaml|yml)$'
+        exclude: '(^\.git/|\.ash/|\.cache/|\.devsecops/|\.dsr/|\.idea/|\.kiro/|\.venv/|\.virtualenv/|__pycache__/|\.pytest_cache/|\.mypy_cache/|\.ruff_cache/|\.tox/|\.terraform/|\.next/|\.nuxt/|\.svelte-kit/|\.turbo/|\.docusaurus/|_build/|site/|bin/|cdk\.out/|dist/|node_modules/|\.pnpm-store/|\.yarn/|bower_components/|\.vscode/|out/|\.output/|\.nyc_output/|test-results/|reports/|tmp/|temp/|logs/|setup\.sh|vendor/|Pods/|venv/|test_|_test\.|^README\.md$|\.DS_Store$|Thumbs\.db$|.*\.pyc$|.*\.pyo$|.*\.swp$|.*\.swo$|.*\.log$|package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|poetry\.lock$|Pipfile\.lock$|Gemfile\.lock$|\.terraform\.lock\.hcl$|terraform\.tfstate$|cdk\.context\.json$)'
+        pass_filenames: true
+
+  # ============================================================================
+  # INFRASTRUCTURE SECURITY
+  # ============================================================================
+  - repo: https://github.com/aws-cloudformation/cfn-lint
+    rev: v1.55.1
+    hooks:
+      - id: cfn-lint
+        files: '^infra/.*\.ya?ml$'
+        exclude: '(^infra/diagrams/|^infra/modules/06-superadmin/runbook\.yaml)'
+
+  # ============================================================================
+  # LICENSE COMPLIANCE
+  # ============================================================================
+  # DO NOT bump to 2026.x — `pre-commit autoupdate` will try to. Two regressions
+  # break template consumers:
+  #   1. No pyproject.toml -> hard crash "RuntimeError: All resolvers failed".
+  #      The CLI's hardcoded requirements_paths default ("pyproject.toml")
+  #      overrides the value set in licensecheck.toml, so a project using
+  #      requirements.txt still crashes. Passing --requirements-paths works
+  #      around it, but every path listed must exist or it crashes again.
+  #   2. A project with zero dependencies exits 3 instead of 0.
+  # 2025.1.0 prints "No packages" and exits 0 in both cases.
+  - repo: https://github.com/FHPythonUtils/LicenseCheck
+    rev: "2025.1.0"
+    hooks:
+      - id: licensecheck
+        name: License Compliance Check
+        args: ["--format", "ansi", "--zero"]
+        # Note: licensecheck will automatically detect pyproject.toml or requirements.txt
+        # Configure allowed/blocked licenses in licensecheck.toml

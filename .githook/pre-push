@@ -32,8 +32,10 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   # Check if pushing to protected branch
   if is_protected_branch "$remote_branch"; then
     if [ "${ALLOW_DIRECT_PUSH:-0}" != "1" ]; then
-      log_warn "Notice: You are pushing to protected branch '$remote_branch'."
-      printf "  ${COLOR_GRAY}Ensure your commits have passed CI, peer review, and security testing.${COLOR_RESET}\n"
+      log_error "Direct push to protected branch '$remote_branch' is forbidden!"
+      printf "\n"
+      printf "  ${COLOR_BOLD}Rule:${COLOR_RESET} You must commit to ${COLOR_CYAN}'dev'${COLOR_RESET} and merge into ${COLOR_CYAN}'main'${COLOR_RESET} via Pull Request.\n\n"
+      exit 1
     fi
   fi
 done

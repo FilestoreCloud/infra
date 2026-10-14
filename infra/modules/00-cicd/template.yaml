@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Module 00: GitHub Actions OIDC Provider & CI/CD IAM Roles"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Environment prefix (dev, staging, prod)
+
+  GitHubOrg:
+    Type: String
+    Default: FilestoreCloud
+    Description: GitHub Organization name for OIDC trust policies
+
+Resources:
+  GitHubOIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c5878a670016709fe07569416210b4b1b2c365f
+        - 06d927fecd0a84aeba28aad1d808139470fe95c3
+        - 2d74d6dfd96eea55ad7baafa0d3c6552b2dadc37
+        - ab9d0263244dd0326eb67015705a667e79cfe998
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RuntimeDeployerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-runtime-deployer-role"
+      Description: "Role for FilestoreCloud/runtime CI/CD to build and push Docker images to ECR"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !GetAtt GitHubOIDCProvider.Arn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOrg}/runtime:*"
+                  - "repo:FilestoreCloud/runtime:*"
+                  - "repo:filestorecloud/runtime:*"
+                  - "repo:FilestoreCloud@*/*:*"
+                  - "repo:filestorecloud@*/*:*"
+      Policies:
+        - PolicyName: ECRPushPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ECRAuthToken
+                Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                Resource: "*"
+              - Sid: ECRPushOps
+                Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:DescribeRepositories
+                  - ecr:ListImages
+                  - ecr:CreateRepository
+                Resource: "*"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Service
+          Value: Runtime-CI-CD
+
+  InfraDeployerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-infra-deployer-role"
+      Description: "Role for FilestoreCloud/infra CI/CD to deploy CloudFormation stacks and infrastructure"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !GetAtt GitHubOIDCProvider.Arn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOrg}/infra:*"
+                  - "repo:FilestoreCloud/infra:*"
+                  - "repo:filestorecloud/infra:*"
+                  - "repo:FilestoreCloud@*/*:*"
+                  - "repo:filestorecloud@*/*:*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Service
+          Value: Infra-CI-CD
+
+  ConsoleDeployerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-console-deployer-role"
+      Description: "Role for FilestoreCloud/console CI/CD to deploy web assets to S3 and invalidate CloudFront"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !GetAtt GitHubOIDCProvider.Arn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub:
+                  - !Sub "repo:${GitHubOrg}/console:*"
+                  - "repo:FilestoreCloud/console:*"
+                  - "repo:filestorecloud/console:*"
+                  - "repo:FilestoreCloud@*/*:*"
+                  - "repo:filestorecloud@*/*:*"
+      Policies:
+        - PolicyName: ConsoleDeployPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3ConsoleAccess
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource: "*"
+              - Sid: CloudFrontInvalidation
+                Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetInvalidation
+                  - cloudfront:GetDistribution
+                Resource: "*"
+              - Sid: SSMRead
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: "*"
+              - Sid: LambdaInvoke
+                Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                Resource: "*"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Service
+          Value: Console-CI-CD
+
+Outputs:
+  GitHubOIDCProviderArn:
+    Description: GitHub Actions OIDC Provider ARN
+    Value: !GetAtt GitHubOIDCProvider.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-GitHubOIDCProviderArn"
+
+  RuntimeDeployerRoleArn:
+    Description: Runtime Deployer Role ARN
+    Value: !GetAtt RuntimeDeployerRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-RuntimeDeployerRoleArn"
+
+  InfraDeployerRoleArn:
+    Description: Infra Deployer Role ARN
+    Value: !GetAtt InfraDeployerRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-InfraDeployerRoleArn"
+
+  ConsoleDeployerRoleArn:
+    Description: Console Deployer Role ARN
+    Value: !GetAtt ConsoleDeployerRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-ConsoleDeployerRoleArn"

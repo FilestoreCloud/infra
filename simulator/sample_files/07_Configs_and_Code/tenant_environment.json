@@ -1,0 +1,13 @@
+{
+  "platform": "Storix Multi-Tenant Nextcloud",
+  "version": "2.0.0",
+  "ai_bridge": {
+    "endpoint": "http://127.0.0.1:4000/v1",
+    "model": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+    "provider": "amazon_bedrock"
+  },
+  "storage": {
+    "engine": "EFS_ACCESS_POINT_AND_S3",
+    "quota_soft_limit_pct": 85
+  }
+}

@@ -120,3 +120,8 @@ ferret-scan-results.sarif
 # DevSecOps - Tool cache directories
 .ruff_cache/
 .mypy_cache/
+
+# Playwright Test artifacts
+playwright-report/
+test-results/
+

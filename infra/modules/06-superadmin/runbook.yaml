@@ -1,0 +1,183 @@
+description: Native AWS Automation Runbook for Nextcloud Tenant Lifecycle Management (Provision, Suspend, Resume, Deprovision)
+schemaVersion: "0.3"
+assumeRole: "arn:aws:iam::123456789012:role/prod-nextcloud-ssm-automation-role"
+parameters:
+  TenantId:
+    type: String
+    description: Unique Identifier for the Tenant (e.g. acme-corp, globex-corp)
+  Action:
+    type: String
+    allowedValues:
+      - PROVISION
+      - SUSPEND
+      - RESUME
+      - DEPROVISION
+    description: Tenant Lifecycle State Transition
+  StorageQuotaGB:
+    type: String
+    default: "100"
+    description: Storage quota in GB (Applicable when Action is PROVISION)
+  CompanyDomain:
+    type: String
+    default: "tenant.local"
+    description: Custom domain for the tenant (Applicable when Action is PROVISION)
+mainSteps:
+  - name: ChooseActionBranch
+    action: aws:branch
+    inputs:
+      Choices:
+        - NextStep: ProvisionTenantInDynamoDB
+          Variable: "{{ Action }}"
+          StringEquals: PROVISION
+        - NextStep: SuspendTenantInDynamoDB
+          Variable: "{{ Action }}"
+          StringEquals: SUSPEND
+        - NextStep: ResumeTenantInDynamoDB
+          Variable: "{{ Action }}"
+          StringEquals: RESUME
+        - NextStep: DeprovisionTenantInDynamoDB
+          Variable: "{{ Action }}"
+          StringEquals: DEPROVISION
+
+  # 1. PROVISION STEP: Create Tenant Record & Publish Initial Metric
+  - name: ProvisionTenantInDynamoDB
+    action: aws:executeAwsApi
+    inputs:
+      Service: dynamodb
+      Api: PutItem
+      TableName: prod-nextcloud-tenant-registry
+      Item:
+        tenant_id:
+          S: "{{ TenantId }}"
+        status:
+          S: ACTIVE
+        quota_gb:
+          N: "{{ StorageQuotaGB }}"
+        domain:
+          S: "{{ CompanyDomain }}"
+        created_at:
+          S: "{{ global:DATE_TIME }}"
+        last_updated:
+          S: "{{ global:DATE_TIME }}"
+      ConditionExpression: "attribute_not_exists(tenant_id)"
+    nextStep: PublishTenantActiveMetric
+
+  - name: PublishTenantActiveMetric
+    action: aws:executeAwsApi
+    inputs:
+      Service: cloudwatch
+      Api: PutMetricData
+      Namespace: Nextcloud/SaaS
+      MetricData:
+        - MetricName: TenantStorageUsedMB
+          Dimensions:
+            - Name: TenantId
+              Value: "{{ TenantId }}"
+          Value: 0.1
+          Unit: Megabytes
+        - MetricName: TenantActiveStatus
+          Dimensions:
+            - Name: TenantId
+              Value: "{{ TenantId }}"
+          Value: 1
+          Unit: Count
+    isEnd: true
+
+  # 2. SUSPEND STEP: Set Status SUSPENDED & TenantActiveStatus = 0
+  - name: SuspendTenantInDynamoDB
+    action: aws:executeAwsApi
+    inputs:
+      Service: dynamodb
+      Api: UpdateItem
+      TableName: prod-nextcloud-tenant-registry
+      Key:
+        tenant_id:
+          S: "{{ TenantId }}"
+      UpdateExpression: "SET #st = :s, #lu = :t"
+      ExpressionAttributeNames:
+        "#st": status
+        "#lu": last_updated
+      ExpressionAttributeValues:
+        ":s":
+          S: SUSPENDED
+        ":t":
+          S: "{{ global:DATE_TIME }}"
+    nextStep: PublishTenantSuspendedMetric
+
+  - name: PublishTenantSuspendedMetric
+    action: aws:executeAwsApi
+    inputs:
+      Service: cloudwatch
+      Api: PutMetricData
+      Namespace: Nextcloud/SaaS
+      MetricData:
+        - MetricName: TenantActiveStatus
+          Dimensions:
+            - Name: TenantId
+              Value: "{{ TenantId }}"
+          Value: 0
+          Unit: Count
+    isEnd: true
+
+  # 3. RESUME STEP: Restore Status ACTIVE & TenantActiveStatus = 1
+  - name: ResumeTenantInDynamoDB
+    action: aws:executeAwsApi
+    inputs:
+      Service: dynamodb
+      Api: UpdateItem
+      TableName: prod-nextcloud-tenant-registry
+      Key:
+        tenant_id:
+          S: "{{ TenantId }}"
+      UpdateExpression: "SET #st = :s, #lu = :t"
+      ExpressionAttributeNames:
+        "#st": status
+        "#lu": last_updated
+      ExpressionAttributeValues:
+        ":s":
+          S: ACTIVE
+        ":t":
+          S: "{{ global:DATE_TIME }}"
+    nextStep: PublishTenantResumedMetric
+
+  - name: PublishTenantResumedMetric
+    action: aws:executeAwsApi
+    inputs:
+      Service: cloudwatch
+      Api: PutMetricData
+      Namespace: Nextcloud/SaaS
+      MetricData:
+        - MetricName: TenantActiveStatus
+          Dimensions:
+            - Name: TenantId
+              Value: "{{ TenantId }}"
+          Value: 1
+          Unit: Count
+    isEnd: true
+
+  # 4. DEPROVISION STEP: Delete Record from DynamoDB & Mark Status = -1
+  - name: DeprovisionTenantInDynamoDB
+    action: aws:executeAwsApi
+    inputs:
+      Service: dynamodb
+      Api: DeleteItem
+      TableName: prod-nextcloud-tenant-registry
+      Key:
+        tenant_id:
+          S: "{{ TenantId }}"
+    nextStep: PublishTenantDeprovisionedMetric
+
+  - name: PublishTenantDeprovisionedMetric
+    action: aws:executeAwsApi
+    inputs:
+      Service: cloudwatch
+      Api: PutMetricData
+      Namespace: Nextcloud/SaaS
+      MetricData:
+        - MetricName: TenantActiveStatus
+          Dimensions:
+            - Name: TenantId
+              Value: "{{ TenantId }}"
+          Value: 0
+          Unit: Count
+    isEnd: true

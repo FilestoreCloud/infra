@@ -1,0 +1,52 @@
+#
+#####################################
+##           Gherkin               ##
+#####################################
+# Rule Identifier:
+#    RESTRICTED_INCOMING_TRAFFIC
+#
+# Description:
+#    Checks if security groups do not allow unrestricted incoming TCP traffic to sensitive ports [20, 21, 3389, 3306, 4333].
+#
+# Reports on:
+#    AWS::EC2::SecurityGroup
+#
+# Evaluates:
+#    AWS CloudFormation
+#
+# Rule Parameters:
+#    NA
+#
+# Scenarios:
+# a) SKIP: when there are no Security Groups present
+# b) SKIP: when there are no TCP or UDP ingress rules
+# c) PASS: when all Security Groups do not allow any of the restricted common ports
+# d) FAIL: when a Security Group allows any of the restricted common ports
+# e) SKIP: when metadata includes the suppression for rule RESTRICTED_INCOMING_TRAFFIC
+
+#
+# Select all Security Group resources from incoming template (payload)
+#
+let aws_security_groups_restricted_incoming_traffic = Resources.*[ Type == 'AWS::EC2::SecurityGroup'
+  some Properties.SecurityGroupIngress[*] {
+    IpProtocol in ['tcp', 'udp']
+  }
+  Metadata.guard.SuppressedRules not exists or
+  Metadata.guard.SuppressedRules.* != "RESTRICTED_INCOMING_TRAFFIC"
+]
+
+rule RESTRICTED_INCOMING_TRAFFIC when %aws_security_groups_restricted_incoming_traffic !empty {
+  let violations = %aws_security_groups_restricted_incoming_traffic[
+    Type == 'AWS::EC2::SecurityGroup'
+    some Properties.SecurityGroupIngress[*] {
+      FromPort in [ 20, 21, 3389, 3306, 4333 ]
+      ToPort in [ 20, 21, 3389, 3306, 4333 ]
+      CidrIp == "0.0.0.0/0"
+    }
+  ]
+  %violations empty
+  <<
+    Violation: Security groups must not allow unrestricted incoming TCP/UDP traffic from 0.0.0.0/0 to common sensitive ports [20, 21, 3389, 3306, 4333].
+    Fix: Restrict the CidrIp or remove public access to these sensitive ports.
+  >>
+}

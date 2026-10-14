@@ -1,23 +1,25 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Nextcloud Multi-Tenant SaaS - Module 03: Storage (S3 Multi-Tenant Vault & EFS Persistent Config Store)'
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Module 03: Storage (S3 Multi-Tenant Vault & EFS Persistent Config Store)"
 
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
-  PublicSubnet1Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Public Subnet 1 ID for EFS Mount Target
+  PrivateSubnet1Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 1 ID for EFS Mount Target (Leave blank to import from Module 01)
 
-  PublicSubnet2Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Public Subnet 2 ID for EFS Mount Target
+  PrivateSubnet2Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 2 ID for EFS Mount Target (Leave blank to import from Module 01)
 
   EFSSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: Security Group ID for EFS Mount Targets
+    Type: String
+    Default: ""
+    Description: Security Group ID for EFS Mount Targets (Leave blank to import from Module 02)
 
   TransitionToIADays:
     Type: Number
@@ -34,6 +36,11 @@ Parameters:
     Default: 365
     Description: Number of days before permanently deleting noncurrent file versions
 
+Conditions:
+  HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
+  HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
+  HasEFSSecurityGroupId: !Not [!Equals [!Ref EFSSecurityGroupId, ""]]
+
 Resources:
   # ── S3 Multi-Tenant Object Storage Vault ─────────────────────────────────────
   S3VaultBucket:
@@ -41,7 +48,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub '${EnvironmentName}-nextcloud-vault-${AWS::AccountId}-${AWS::Region}'
+      BucketName: !Sub "${EnvironmentName}-nextcloud-vault-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -69,7 +76,7 @@ Resources:
             ExpiredObjectDeleteMarker: true
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-s3-vault'
+          Value: !Sub "${EnvironmentName}-s3-vault"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -78,18 +85,18 @@ Resources:
     Properties:
       Bucket: !Ref S3VaultBucket
       PolicyDocument:
-        Version: '2012-10-17'
+        Version: "2012-10-17"
         Statement:
           - Sid: EnforceTLSOnly
             Effect: Deny
-            Principal: '*'
-            Action: 's3:*'
+            Principal: "*"
+            Action: "s3:*"
             Resource:
-              - !Sub '${S3VaultBucket.Arn}'
-              - !Sub '${S3VaultBucket.Arn}/*'
+              - !Sub "${S3VaultBucket.Arn}"
+              - !Sub "${S3VaultBucket.Arn}/*"
             Condition:
               Bool:
-                'aws:SecureTransport': 'false'
+                "aws:SecureTransport": "false"
 
   # ── Amazon EFS Shared Persistent Config Store (/var/www/html/config) ────────
   NextcloudEFS:
@@ -100,9 +107,10 @@ Resources:
       ThroughputMode: elastic
       LifecyclePolicies:
         - TransitionToIA: AFTER_30_DAYS
+        - TransitionToPrimaryStorageClass: AFTER_1_ACCESS
       FileSystemTags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-nextcloud-efs'
+          Value: !Sub "${EnvironmentName}-nextcloud-efs"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -110,34 +118,48 @@ Resources:
     Type: AWS::EFS::MountTarget
     Properties:
       FileSystemId: !Ref NextcloudEFS
-      SubnetId: !Ref PublicSubnet1Id
+      SubnetId:
+        Fn::If:
+          - HasPrivateSubnet1Id
+          - !Ref PrivateSubnet1Id
+          - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
       SecurityGroups:
-        - !Ref EFSSecurityGroupId
+        - Fn::If:
+            - HasEFSSecurityGroupId
+            - !Ref EFSSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-EFSSecurityGroupId"
 
   EFSMountTarget2:
     Type: AWS::EFS::MountTarget
     Properties:
       FileSystemId: !Ref NextcloudEFS
-      SubnetId: !Ref PublicSubnet2Id
+      SubnetId:
+        Fn::If:
+          - HasPrivateSubnet2Id
+          - !Ref PrivateSubnet2Id
+          - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
       SecurityGroups:
-        - !Ref EFSSecurityGroupId
+        - Fn::If:
+            - HasEFSSecurityGroupId
+            - !Ref EFSSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-EFSSecurityGroupId"
 
   DefaultEFSAccessPoint:
     Type: AWS::EFS::AccessPoint
     Properties:
       FileSystemId: !Ref NextcloudEFS
       PosixUser:
-        Uid: '33'
-        Gid: '33'
+        Uid: "33"
+        Gid: "33"
       RootDirectory:
-        Path: '/tenants/default/config'
+        Path: "/tenants/default/config"
         CreationInfo:
-          OwnerUid: '33'
-          OwnerGid: '33'
-          Permissions: '0755'
+          OwnerUid: "33"
+          OwnerGid: "33"
+          Permissions: "0755"
       AccessPointTags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-default-efs-ap'
+          Value: !Sub "${EnvironmentName}-default-efs-ap"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -145,7 +167,7 @@ Resources:
   SSMS3VaultBucket:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/s3-vault-bucket'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/s3-vault-bucket"
       Type: String
       Value: !Ref S3VaultBucket
       Description: S3 Vault Bucket Name
@@ -155,7 +177,7 @@ Resources:
   SSMS3VaultBucketArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/s3-vault-bucket-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/s3-vault-bucket-arn"
       Type: String
       Value: !GetAtt S3VaultBucket.Arn
       Description: S3 Vault Bucket ARN
@@ -165,7 +187,7 @@ Resources:
   SSMEFSFileSystemId:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/efs-id'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/efs-id"
       Type: String
       Value: !Ref NextcloudEFS
       Description: EFS File System ID for Nextcloud Persistent Config
@@ -175,7 +197,7 @@ Resources:
   SSMDefaultAccessPointId:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/default-access-point-id'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/default-access-point-id"
       Type: String
       Value: !Ref DefaultEFSAccessPoint
       Description: EFS Access Point ID for Default Tenant Config
@@ -187,28 +209,28 @@ Outputs:
     Description: S3 Vault Bucket Name
     Value: !Ref S3VaultBucket
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-S3VaultBucketName'
+      Name: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketName"
 
   S3VaultBucketArn:
     Description: S3 Vault Bucket ARN
     Value: !GetAtt S3VaultBucket.Arn
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-S3VaultBucketArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
 
   EFSFileSystemId:
     Description: EFS File System ID for Nextcloud Persistent Config
     Value: !Ref NextcloudEFS
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-EFSFileSystemId'
+      Name: !Sub "${EnvironmentName}-nextcloud-EFSFileSystemId"
 
   EFSFileSystemArn:
     Description: EFS File System ARN
     Value: !GetAtt NextcloudEFS.Arn
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-EFSFileSystemArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-EFSFileSystemArn"
 
   DefaultEFSAccessPointId:
     Description: EFS Access Point ID for Default Tenant
     Value: !Ref DefaultEFSAccessPoint
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-DefaultEFSAccessPointId'
+      Name: !Sub "${EnvironmentName}-nextcloud-DefaultEFSAccessPointId"

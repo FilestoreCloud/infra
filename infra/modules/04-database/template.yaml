@@ -1,23 +1,25 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: 'Nextcloud Multi-Tenant SaaS - Module 04: Database (RDS PostgreSQL 16 & Secrets Manager)'
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Module 04: Database (RDS PostgreSQL 16 & Secrets Manager)"
 
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
   PrivateSubnet1Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Private Subnet 1 ID for RDS Subnet Group
+    Type: String
+    Default: ""
+    Description: Private Subnet 1 ID for RDS Subnet Group (Leave blank to import from Module 01)
 
   PrivateSubnet2Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Private Subnet 2 ID for RDS Subnet Group
+    Type: String
+    Default: ""
+    Description: Private Subnet 2 ID for RDS Subnet Group (Leave blank to import from Module 01)
 
   DBSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: Security Group ID for RDS PostgreSQL
+    Type: String
+    Default: ""
+    Description: Security Group ID for RDS PostgreSQL (Leave blank to import from Module 02)
 
   DBInstanceClass:
     Type: String
@@ -26,7 +28,7 @@ Parameters:
 
   DBAllocatedStorage:
     Type: String
-    Default: '20'
+    Default: "20"
     Description: Allocated storage in GB
 
   MaxAllocatedStorage:
@@ -49,30 +51,43 @@ Parameters:
     NoEcho: true
     Description: Master password for RDS PostgreSQL
 
+Conditions:
+  HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
+  HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
+  HasDBSecurityGroupId: !Not [!Equals [!Ref DBSecurityGroupId, ""]]
+
 Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
       DBSubnetGroupDescription: Private Subnet Group for RDS PostgreSQL
       SubnetIds:
-        - !Ref PrivateSubnet1Id
-        - !Ref PrivateSubnet2Id
+        - Fn::If:
+            - HasPrivateSubnet1Id
+            - !Ref PrivateSubnet1Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
+        - Fn::If:
+            - HasPrivateSubnet2Id
+            - !Ref PrivateSubnet2Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-db-subnet-group'
+          Value: !Sub "${EnvironmentName}-db-subnet-group"
         - Key: Environment
           Value: !Ref EnvironmentName
 
   DBParameterGroup:
     Type: AWS::RDS::DBParameterGroup
     Properties:
-      Description: Parameter group for Nextcloud PostgreSQL 16 with SSL optional
+      Description: Parameter group for Nextcloud PostgreSQL 16 with SSL enforced and connection tuning
       Family: postgres16
       Parameters:
-        rds.force_ssl: '0'
+        rds.force_ssl: "1"
+        idle_in_transaction_session_timeout: "60000"
+        log_min_duration_statement: "2000"
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-db-parameter-group'
+          Value: !Sub "${EnvironmentName}-db-parameter-group"
         - Key: Environment
           Value: !Ref EnvironmentName
 
@@ -81,9 +96,9 @@ Resources:
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
     Properties:
-      DBInstanceIdentifier: !Sub '${EnvironmentName}-nextcloud-db'
+      DBInstanceIdentifier: !Sub "${EnvironmentName}-nextcloud-db"
       Engine: postgres
-      EngineVersion: '16.10'
+      EngineVersion: "16.10"
       DBInstanceClass: !Ref DBInstanceClass
       AllocatedStorage: !Ref DBAllocatedStorage
       MaxAllocatedStorage: !Ref MaxAllocatedStorage
@@ -94,21 +109,25 @@ Resources:
       DBSubnetGroupName: !Ref DBSubnetGroup
       DBParameterGroupName: !Ref DBParameterGroup
       VPCSecurityGroups:
-        - !Ref DBSecurityGroupId
+        - Fn::If:
+            - HasDBSecurityGroupId
+            - !Ref DBSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecurityGroupId"
+      StorageEncrypted: true
       PubliclyAccessible: false
       MultiAZ: false
       BackupRetentionPeriod: 1
       DeleteAutomatedBackups: true
       Tags:
         - Key: Name
-          Value: !Sub '${EnvironmentName}-nextcloud-postgres'
+          Value: !Sub "${EnvironmentName}-nextcloud-postgres"
         - Key: Environment
           Value: !Ref EnvironmentName
 
   DBSecret:
     Type: AWS::SecretsManager::Secret
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/secrets/db-credentials'
+      Name: !Sub "/nextcloud/${EnvironmentName}/secrets/db-credentials"
       Description: Database credentials for Nextcloud RDS PostgreSQL
       SecretString: !Sub |
         {
@@ -127,7 +146,7 @@ Resources:
   SSMDBEndpoint:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/db-endpoint'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/db-endpoint"
       Type: String
       Value: !GetAtt RDSInstance.Endpoint.Address
       Description: RDS PostgreSQL Endpoint Address
@@ -137,7 +156,7 @@ Resources:
   SSMDBSecretArn:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/nextcloud/${EnvironmentName}/infra/db-secret-arn'
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/db-secret-arn"
       Type: String
       Value: !Ref DBSecret
       Description: Secrets Manager Secret ARN for Database Credentials
@@ -149,16 +168,16 @@ Outputs:
     Description: Private RDS PostgreSQL Endpoint Address
     Value: !GetAtt RDSInstance.Endpoint.Address
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-DatabaseEndpoint'
+      Name: !Sub "${EnvironmentName}-nextcloud-DatabaseEndpoint"
 
   DBSecretArn:
     Description: Secrets Manager Secret ARN for Database Credentials
     Value: !Ref DBSecret
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-DBSecretArn'
+      Name: !Sub "${EnvironmentName}-nextcloud-DBSecretArn"
 
   RDSInstanceIdentifier:
     Description: RDS Instance Identifier
     Value: !Ref RDSInstance
     Export:
-      Name: !Sub '${EnvironmentName}-nextcloud-RDSInstanceIdentifier'
+      Name: !Sub "${EnvironmentName}-nextcloud-RDSInstanceIdentifier"

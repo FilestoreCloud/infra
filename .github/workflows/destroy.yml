@@ -1,0 +1,119 @@
+name: Destroy Infra
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target Environment to Destroy"
+        required: true
+        type: choice
+        default: dev
+        options:
+          - dev
+          - staging
+          - prod
+      confirmation:
+        description: "Safety Confirmation: Type DESTROY to proceed"
+        required: true
+        type: string
+
+permissions:
+  id-token: write # Required for AWS OIDC authentication
+  contents: read # Required for repository checkout
+
+concurrency:
+  group: destroy-infra-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    name: Destroy Infrastructure Stacks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Safety Confirmation
+        run: |
+          if [ "${{ inputs.confirmation }}" != "DESTROY" ]; then
+            echo "❌ Destruction aborted: You must type 'DESTROY' in the confirmation input to prevent accidental teardown."
+            exit 1
+          fi
+          echo "⚠️ Confirmation verified. Proceeding with destruction of ${{ inputs.environment }}..."
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          audience: sts.amazonaws.com
+
+      - name: Verify AWS Identity
+        run: |
+          echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
+
+      - name: Destroy Nested Root (if deployed)
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-root
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destroy 07-Observability
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-07-observability
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destroy 06-SuperAdmin
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-06-superadmin
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destroy 05-Compute
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-05-compute
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destroy 04-Database
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-04-database
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destroy 03-Storage
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-03-storage
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destroy 02-Security
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-02-security
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destroy 01-Networking
+        continue-on-error: true
+        uses: go-to-k/delstack-action@v1
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-01-networking
+          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+
+      - name: Destruction Summary
+        run: |
+          echo "============================================================"
+          echo "🎉 Infrastructure destruction sequence completed!"
+          echo "Environment : ${{ inputs.environment }}"
+          echo "Region      : ${{ vars.AWS_REGION || 'ap-southeast-1' }}"
+          echo "Stacks targeted: 07-Observability, 06-SuperAdmin, 05-Compute, 04-Database, 03-Storage, 02-Security, 01-Networking, Root"
+          echo "============================================================"

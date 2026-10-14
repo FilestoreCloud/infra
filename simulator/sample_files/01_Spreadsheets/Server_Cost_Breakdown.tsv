@@ -1,0 +1,4 @@
+Service	Region	Monthly_USD	Environment
+Amazon ECS Fargate	ap-southeast-1	1250.00	Production
+Amazon RDS PostgreSQL	ap-southeast-1	680.50	Production
+Amazon EFS Standard	ap-southeast-1	240.80	Production

@@ -1,0 +1,16 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Storix Platform//Nextcloud Calendar//EN
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+BEGIN:VEVENT
+UID:storix-sprint-planning-20261015
+DTSTAMP:20261015T000000Z
+DTSTART:20261016T090000Z
+DTEND:20261016T103000Z
+SUMMARY:Storix Sprint 42 Planning & Architecture Review
+DESCRIPTION:Review Step Functions tenant provisioning state machine and live seeder integration.
+LOCATION:Virtual Nextcloud Talk Room
+STATUS:CONFIRMED
+END:VEVENT
+END:VCALENDAR

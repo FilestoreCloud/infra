@@ -1,0 +1,7 @@
+tenant_id,org_name,domain,admin_email,quota_gb,status,release_channel
+acme-corp,Acme Enterprise Solutions,acme-corp.png261.dev,admin@acme-corp.com,500,ACTIVE,STABLE
+fintech-zenith,Zenith Financial Group,zenith.png261.dev,admin@zenith.com,1000,ACTIVE,STABLE
+meditech-health,MediTech Clinical Labs,meditech.png261.dev,admin@meditech.com,300,INCIDENT,STABLE
+pixel-studios,Pixel Digital Creative,pixel.png261.dev,admin@pixel.com,2000,ACTIVE,BETA
+sandbox-trial,Startup Incubator Sandbox,sandbox.png261.dev,admin@sandbox.com,20,SUSPENDED,CANARY
+honda-vn,Honda Vietnam,honda-vn.png261.dev,admin@honda.com.vn,600,ACTIVE,STABLE

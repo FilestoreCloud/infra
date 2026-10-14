@@ -4,7 +4,6 @@ Description: "Nextcloud Multi-Tenant SaaS - Root Orchestrator (Nested Stacks for
 Parameters:
   EnvironmentName:
     Type: String
-    Default: prod
     Description: Environment prefix (prod, staging, dev)
 
   DBPassword:
@@ -53,7 +52,7 @@ Parameters:
   ACMCertificateArn:
     Type: String
     Description: ARN of an ACM TLS certificate for the HTTPS listener
-    Default: "arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME"
+    Default: ""
 
 Resources:
   # ============================================================================
@@ -86,8 +85,8 @@ Resources:
       TemplateURL: ./modules/03-storage/template.yaml
       Parameters:
         EnvironmentName: !Ref EnvironmentName
-        PublicSubnet1Id: !GetAtt NetworkingStack.Outputs.PublicSubnet1Id
-        PublicSubnet2Id: !GetAtt NetworkingStack.Outputs.PublicSubnet2Id
+        PrivateSubnet1Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet1Id
+        PrivateSubnet2Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet2Id
         EFSSecurityGroupId: !GetAtt SecurityStack.Outputs.EFSSecurityGroupId
 
   # ============================================================================
@@ -116,6 +115,8 @@ Resources:
         VpcId: !GetAtt NetworkingStack.Outputs.VpcId
         PublicSubnet1Id: !GetAtt NetworkingStack.Outputs.PublicSubnet1Id
         PublicSubnet2Id: !GetAtt NetworkingStack.Outputs.PublicSubnet2Id
+        PrivateSubnet1Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet1Id
+        PrivateSubnet2Id: !GetAtt NetworkingStack.Outputs.PrivateSubnet2Id
         ALBSecurityGroupId: !GetAtt SecurityStack.Outputs.ALBSecurityGroupId
         ECSSecurityGroupId: !GetAtt SecurityStack.Outputs.ECSSecurityGroupId
         S3VaultBucketName: !GetAtt StorageStack.Outputs.S3VaultBucketName
@@ -140,14 +141,27 @@ Resources:
   ControlPlaneStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: ./modules/06-control-plane/template.yaml
+      TemplateURL: ./modules/06-superadmin/template.yaml
       Parameters:
         EnvironmentName: !Ref EnvironmentName
         S3VaultBucketArn: !GetAtt StorageStack.Outputs.S3VaultBucketArn
         ApplicationLoadBalancerDNS: !GetAtt ComputeStack.Outputs.LoadBalancerDNS
+        ECSClusterName: !GetAtt ComputeStack.Outputs.ECSClusterName
+
+  # ============================================================================
+  # 7. OBSERVABILITY & MONITORING STACK
+  # ============================================================================
+  ObservabilityStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./modules/07-observability/template.yaml
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ApplicationLoadBalancerDNS: !GetAtt ComputeStack.Outputs.LoadBalancerDNS
         ApplicationLoadBalancerFullName: !GetAtt ComputeStack.Outputs.LoadBalancerFullName
         ECSClusterName: !GetAtt ComputeStack.Outputs.ECSClusterName
         ECSServiceName: !GetAtt ComputeStack.Outputs.ECSServiceName
+        RDSInstanceIdentifier: !GetAtt DatabaseStack.Outputs.RDSInstanceIdentifier
 
 Outputs:
   LoadBalancerURL:
@@ -178,10 +192,6 @@ Outputs:
     Description: Secrets Manager Secret ARN for Nextcloud Admin Credentials
     Value: !GetAtt ComputeStack.Outputs.AdminSecretArn
 
-  LiteLLMSecretArn:
-    Description: Secrets Manager Secret ARN for LiteLLM Bedrock Bridge API Key
-    Value: !GetAtt ComputeStack.Outputs.LiteLLMSecretArn
-
   ECRRepositoryUri:
     Description: Amazon ECR Golden Image Repository URI
     Value: !GetAtt ComputeStack.Outputs.ECRRepositoryUri
@@ -205,3 +215,31 @@ Outputs:
   AdminWebDistributionId:
     Description: CloudFront Distribution ID for Super Admin Web Console
     Value: !GetAtt ControlPlaneStack.Outputs.AdminWebDistributionId
+
+  RuntimeDeployerRoleArn:
+    Description: Least-privilege IAM Role ARN for FilestoreCloud/runtime repository CI/CD
+    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-runtime-deployer-role"
+
+  ConsoleDeployerRoleArn:
+    Description: Least-privilege IAM Role ARN for FilestoreCloud/console repository CI/CD
+    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-console-deployer-role"
+
+  TenantOperatorLambdaArn:
+    Description: Control Plane Tenant Operator Lambda Function ARN
+    Value: !GetAtt ControlPlaneStack.Outputs.TenantOperatorLambdaArn
+
+  TenantOperatorLambdaFunctionUrl:
+    Description: Control Plane Tenant Operator Lambda Function URL
+    Value: !GetAtt ControlPlaneStack.Outputs.TenantOperatorLambdaFunctionUrl
+
+  CloudWatchDashboardName:
+    Description: CloudWatch Dashboard Name
+    Value: !GetAtt ObservabilityStack.Outputs.CloudWatchDashboardName
+
+  CloudWatchDashboardURL:
+    Description: AWS Management Console URL for CloudWatch Operational Dashboard
+    Value: !GetAtt ObservabilityStack.Outputs.CloudWatchDashboardURL
+
+  ObservabilityNotificationTopicArn:
+    Description: SNS Topic ARN for Observability Metric Alarms
+    Value: !GetAtt ObservabilityStack.Outputs.ObservabilityNotificationTopicArn
