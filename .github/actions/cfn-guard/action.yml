@@ -1,0 +1,60 @@
+name: "AWS CloudFormation Guard"
+description: "Evaluates CloudFormation templates against AWS CloudFormation Guard Policy-as-Code rules"
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  version:
+    description: "Version of cfn-guard to install and use"
+    required: false
+    default: "3.2.1"
+  rules:
+    description: "Directory or file containing Guard policy rules (.guard)"
+    required: true
+    default: "infra/rules/"
+  data:
+    description: "CloudFormation template files to validate"
+    required: true
+    default: "infra/modules/*/template.yaml infra/root.yaml"
+  show-summary:
+    description: "Controls summary display: fail, pass, all, none"
+    required: false
+    default: "fail"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache cfn-guard binary
+      id: cache-guard
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/cfn-guard
+        key: cfn-guard-${{ runner.os }}-${{ runner.arch }}-v${{ inputs.version }}
+
+    - name: Install cfn-guard CLI
+      if: steps.cache-guard.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        ARCH="x86_64"
+        if [ "${{ runner.arch }}" = "ARM64" ]; then
+          ARCH="aarch64"
+        fi
+        TAR_URL="https://github.com/aws-cloudformation/cloudformation-guard/releases/download/${{ inputs.version }}/cfn-guard-v3-${ARCH}-ubuntu-latest.tar.gz"
+        echo "Downloading AWS CloudFormation Guard ${{ inputs.version }} (${ARCH})..."
+        curl -sL "$TAR_URL" -o /tmp/cfn-guard.tar.gz
+        tar -xzf /tmp/cfn-guard.tar.gz -C /tmp
+        DIR_NAME=$(find /tmp -maxdepth 1 -name "cfn-guard-v3-*-ubuntu-latest" -type d | head -n 1)
+        sudo mv "$DIR_NAME/cfn-guard" /usr/local/bin/cfn-guard
+        sudo chmod +x /usr/local/bin/cfn-guard
+        rm -rf /tmp/cfn-guard.tar.gz "$DIR_NAME"
+        cfn-guard --version
+
+    - name: Validate CloudFormation Templates
+      shell: bash
+      run: |
+        echo "Running cfn-guard validate..."
+        cfn-guard validate \
+          --rules ${{ inputs.rules }} \
+          --data ${{ inputs.data }} \
+          --show-summary ${{ inputs.show-summary }}

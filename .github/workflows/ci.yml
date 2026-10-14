@@ -35,27 +35,16 @@ jobs:
             infra/modules/ infra/root.yaml infra/environments/
 
       - name: CloudFormation Lint (cfn-lint)
-        run: |
-          echo "Linting all modular templates..."
-          cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
-
-      - name: Install CloudFormation Guard
-        run: |
-          echo "Installing AWS CloudFormation Guard CLI..."
-          curl -sL https://github.com/aws-cloudformation/cloudformation-guard/releases/download/3.2.1/cfn-guard-v3-ubuntu-latest.tar.gz -o cfn-guard.tar.gz
-          tar -xzf cfn-guard.tar.gz
-          sudo mv cfn-guard-v3-ubuntu-latest/cfn-guard /usr/local/bin/
-          rm -rf cfn-guard.tar.gz cfn-guard-v3-ubuntu-latest
-          cfn-guard --version
+        uses: ScottBrenner/cfn-lint-action@v2
+        with:
+          command: cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
 
       - name: CloudFormation Guard Policy-as-Code (cfn-guard)
-        run: |
-          echo "Evaluating CloudFormation Guard compliance rules..."
-          cfn-guard validate \
-            --rules infra/rules/ \
-            --data infra/modules/*/template.yaml \
-            --data infra/root.yaml \
-            --show-summary fail
+        uses: ./.github/actions/cfn-guard
+        with:
+          rules: "infra/rules/"
+          data: "infra/modules/*/template.yaml infra/root.yaml"
+          show-summary: "fail"
 
       - name: Validate Templates Syntax
         run: |
