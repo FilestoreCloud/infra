@@ -11,7 +11,7 @@ def test_user_provisioning_and_quota_lifecycle(tenant_fixture):
     suffix = uuid.uuid4().hex[:6]
     test_user = f"qa_user_{suffix}"
     test_password = f"SecureP@ss_{suffix}_2026!"
-    test_email = f"{test_user}@qa.png261.dev"
+    test_email = f"{test_user}@{tenant_fixture.domain}"
     test_quota = "1GB"
 
     # 1. Create User

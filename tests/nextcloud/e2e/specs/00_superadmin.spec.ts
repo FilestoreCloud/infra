@@ -16,7 +16,8 @@ const CONSOLE_URL =
 const ADMIN_EMAIL = process.env.SUPERADMIN_USERNAME!;
 const ADMIN_PASSWORD =
   process.env.SUPERADMIN_PASSWORD ||
-  process.env.NEXTCLOUD_PASSWORD!;
+  process.env.ADMIN_PASSWORD!;
+const TARGET_TENANT = process.env.TENANT_ID!;
 
 test.describe("SuperAdmin Web Console E2E", () => {
   test("1. Should render SuperAdmin login portal entrypoint", async ({
@@ -83,8 +84,8 @@ test.describe("SuperAdmin Web Console E2E", () => {
     const mainContent = page.locator("table, .ant-table, main, .ant-layout-content");
     await expect(mainContent.first()).toBeVisible({ timeout: 20000 });
 
-    // Verify registered dev-tenant exists in fleet view
-    const tenantCell = page.locator('text="dev-tenant"');
+    // Verify registered tenant exists in fleet view
+    const tenantCell = page.locator(`text="${TARGET_TENANT}"`);
     if (await tenantCell.isVisible({ timeout: 5000 }).catch(() => false)) {
       await expect(tenantCell.first()).toBeVisible();
     }
@@ -112,8 +113,8 @@ test.describe("SuperAdmin Web Console E2E", () => {
     // Verify search input is operational
     const searchInput = page.getByPlaceholder(/Search by Tenant ID/i).or(page.locator('input[placeholder*="Search"]')).first();
     if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await searchInput.fill("dev-tenant");
-      await expect(searchInput).toHaveValue("dev-tenant");
+      await searchInput.fill(TARGET_TENANT);
+      await expect(searchInput).toHaveValue(TARGET_TENANT);
     }
 
     // Verify Provision Dedicated Tenant button exists

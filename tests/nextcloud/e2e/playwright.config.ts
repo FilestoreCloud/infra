@@ -5,10 +5,9 @@
 
 import { defineConfig, devices } from "@playwright/test";
 
-const tenantId = process.env.TENANT_ID || "acme";
 const defaultBaseUrl =
   process.env.TENANT_URL ||
-  `https://${process.env.TENANT_DOMAIN || `${tenantId}.png261.dev`}`;
+  (process.env.TENANT_DOMAIN ? `https://${process.env.TENANT_DOMAIN}` : undefined);
 
 export default defineConfig({
   testDir: "./specs",

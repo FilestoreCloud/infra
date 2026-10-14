@@ -15,7 +15,6 @@ import (
 	dynamoTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	lambdaTypes "github.com/aws/aws-sdk-go-v2/service/lambda/types"
-	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -159,16 +158,19 @@ func TestInPlaceSuperAdmin(t *testing.T) {
 		t.Logf("ℹ️ CloudWatch Dashboard %s is optional or in dedicated observability stack", dashName)
 	}
 
-	// 7. Assert SSM Tenant Operator Runbook exists
-	ssmRunbookName, hasRunbook := outputs["SSMRunbookName"]
-	if hasRunbook && ssmRunbookName != "" {
-		t.Logf("📋 [In-Place] Validating SSM Runbook: %s", ssmRunbookName)
-		ssmClient := ssm.NewFromConfig(cfg.awsConfig)
-		docRes, err := ssmClient.DescribeDocument(context.TODO(), &ssm.DescribeDocumentInput{
-			Name: aws.String(ssmRunbookName),
-		})
-		require.NoError(t, err, fmt.Sprintf("Failed to describe SSM Document %s", ssmRunbookName))
-		assert.Equal(t, "Active", string(docRes.Document.Status), "SSM Document status must be Active")
+	// 7. Assert Modular Step Functions State Machines exist
+	sfnKeys := []string{
+		"TenantProvisioningStateMachineArn",
+		"TenantSuspensionStateMachineArn",
+		"TenantResumptionStateMachineArn",
+		"TenantDeprovisioningStateMachineArn",
+	}
+	for _, key := range sfnKeys {
+		arn, exists := outputs[key]
+		if exists && arn != "" {
+			t.Logf("⚙️ [In-Place] Validating Step Function ARN output %s: %s", key, arn)
+			assert.Contains(t, arn, "arn:aws:states:", fmt.Sprintf("%s must be a valid Step Function ARN", key))
+		}
 	}
 
 	// 8. Assert Web Admin CloudFront URL output

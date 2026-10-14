@@ -23,7 +23,7 @@ def _get_tenant_credentials(tenant_id: str) -> tuple[str, str]:
     prefix = f"TENANT_{tenant_id.upper()}"
     username = (
         os.environ.get(f"{prefix}_USER")
-        or os.environ.get("NEXTCLOUD_USER", "admin")
+        or os.environ.get("NEXTCLOUD_USER")
     )
     password = (
         os.environ.get(f"{prefix}_PASSWORD")
@@ -32,7 +32,7 @@ def _get_tenant_credentials(tenant_id: str) -> tuple[str, str]:
         or os.environ.get("SUPERADMIN_PASSWORD")
     )
 
-    if password:
+    if username and password:
         return username, password
 
     try:
@@ -44,7 +44,11 @@ def _get_tenant_credentials(tenant_id: str) -> tuple[str, str]:
         secret_id = f"/nextcloud/{ENV}/tenants/{tenant_id}/admin-credentials"
         sec_resp = sm.get_secret_value(SecretId=secret_id)
         creds = json.loads(sec_resp["SecretString"])
-        return creds.get("username", "admin"), creds.get("password", "")
+        resolved_user = username or creds.get("username")
+        resolved_pass = password or creds.get("password")
+        if not resolved_user or not resolved_pass:
+            raise ValueError(f"Incomplete credentials for tenant '{tenant_id}' in Secrets Manager")
+        return resolved_user, resolved_pass
     except Exception as exc:
         pytest.skip(f"Live credentials unavailable for tenant '{tenant_id}': {exc}")
 
@@ -299,10 +303,24 @@ class NextcloudClient:
 @pytest.fixture(scope="session")
 def tenant_fixture(request) -> NextcloudClient:
     """Fixture providing an authenticated Nextcloud client configured for the tenant."""
-    tenant_id = os.environ.get("TENANT_ID", "dev-tenant")
-    domain = os.environ.get(
-        f"TENANT_{tenant_id.upper()}_DOMAIN", f"{tenant_id}.png261.dev"
+    tenant_id = os.environ.get("TENANT_ID")
+    if not tenant_id:
+        pytest.skip("TENANT_ID environment variable not provided")
+
+    domain = (
+        os.environ.get("TENANT_DOMAIN")
+        or os.environ.get(f"TENANT_{tenant_id.upper()}_DOMAIN")
     )
+    if not domain:
+        try:
+            boto_kwargs: Dict[str, Any] = {"region_name": AWS_REGION}
+            if AWS_PROFILE:
+                boto_kwargs["profile_name"] = AWS_PROFILE
+            session = boto3.Session(**boto_kwargs)
+            ssm = session.client("ssm")
+            domain = ssm.get_parameter(Name=f"/nextcloud/{ENV}/tenants/{tenant_id}/domain")["Parameter"]["Value"]
+        except Exception:
+            domain = ""
 
     username, password = _get_tenant_credentials(tenant_id)
 
@@ -326,7 +344,7 @@ def tenant_fixture(request) -> NextcloudClient:
         base_url = tenant_url.rstrip("/")
     elif alb_dns:
         base_url = f"http://{alb_dns}"
-    elif _check_connectivity(domain, 443):
+    elif domain and _check_connectivity(domain, 443):
         base_url = f"https://{domain}"
     else:
         pytest.skip(

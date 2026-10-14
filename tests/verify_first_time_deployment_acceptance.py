@@ -25,10 +25,10 @@ import boto3
 
 ENV = os.environ.get("ENV", "dev")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
-TENANT_ID = os.environ.get("TENANT_ID", "dev-tenant")
-TENANT_DOMAIN = os.environ.get("TENANT_DOMAIN", f"{TENANT_ID}.png261.dev")
+TENANT_ID = os.environ["TENANT_ID"]
+TENANT_DOMAIN = os.environ.get("TENANT_DOMAIN", "")
 TENANT_QUOTA_GB = int(os.environ.get("TENANT_QUOTA_GB", "10"))
-TENANT_EMAIL = os.environ.get("TENANT_EMAIL", f"admin@{TENANT_ID}.com")
+TENANT_EMAIL = os.environ.get("TENANT_EMAIL", "")
 AWS_PROFILE = os.environ.get("AWS_PROFILE")
 
 boto_kwargs = {"region_name": AWS_REGION}
