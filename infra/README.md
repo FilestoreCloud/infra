@@ -32,8 +32,7 @@ infra/
 │   ├── 03-storage/             # S3 Multi-Tenant Vault Bucket & Amazon EFS Persistent Config Store
 │   ├── 04-database/            # RDS PostgreSQL 16 (Graviton2), DB Subnet/Parameter Groups, Secrets Manager
 │   ├── 05-compute/             # ALB Host Ingress, ECS Fargate Cluster, Default Fallback Service, ECR, IAM
-│   ├── 06-control-plane/       # DynamoDB Tenant Registry, SSM Lifecycle Runbook, CloudWatch Dashboard
-│   └── tenant-instance/        # Standalone CloudFormation module for dedicated container-per-tenant provisioning
+│   └── 06-control-plane/       # DynamoDB Tenant Registry, SSM Lifecycle Runbook, CloudWatch Dashboard
 ├── environments/               # Per-environment parameter overrides
 │   ├── dev.json
 │   ├── staging.json

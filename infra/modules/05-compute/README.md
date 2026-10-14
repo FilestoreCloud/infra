@@ -4,8 +4,7 @@
 
 Deploys the core scalable ingress and compute platform for Nextcloud Multi-Tenant SaaS on AWS:
 
-- **Application Load Balancer (ALB):** Multi-AZ internet-facing load balancer with HTTP to HTTPS 301 redirection, modern TLS 1.3 encryption, and HSTS response security header injection. Serves as the central host-based router directing traffic by subdomain (`<tenant_id>.domain.com`) to dedicated tenant target groups.
-- **Amazon ECS Fargate Cluster:** Serverless container cluster hosting the default platform service as well as independent dedicated tenant containers provisioned dynamically or declaratively via [`infra/modules/tenant-instance`](../tenant-instance/README.md).
+- **Amazon ECS Fargate Cluster:** Serverless container cluster hosting the default platform service as well as independent dedicated tenant containers provisioned dynamically via the Super Admin Console and Control Plane.
 - **Dual-Container Task Architecture:** Runs Nextcloud 30 Apache alongside a local LiteLLM Bedrock Bridge sidecar proxying Claude 3.5 Sonnet on Amazon Bedrock.
 - **Zero-NAT Placement:** ECS tasks are placed in public subnets with `AssignPublicIp: ENABLED` and their Security Group locked strictly to the ALB. This allows direct internet egress for ECR image pulls, CloudWatch logging, and Bedrock model invocations without requiring a costly NAT Gateway or expensive Interface VPC Endpoints.
 - **Amazon ECR Golden Image Repository:** Provisions `${EnvironmentName}-nextcloud-enterprise` with automated vulnerability scanning on push.

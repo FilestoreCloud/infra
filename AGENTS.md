@@ -26,8 +26,8 @@ Enterprise multi-tenant cloud platform deployed on AWS using a **Zero-Code-Modif
 ### Directory Layout
 
 ```
-├── infra/            # Modular CloudFormation IaC (modules 01-06, tenant-instance, root.yaml)
-├── scripts/          # Operational CLI automation (provisioning, deploy, OCC runners, fleet rollout)
+├── infra/            # Modular CloudFormation IaC (modules 01-06, root.yaml)
+├── scripts/          # Operational CLI automation (fleet rollout, environment setup)
 ├── tests/            # Automated integration & unit test suite (pytest)
 ├── .github/          # CI/CD deployment, canary rollouts, and branch protection workflows
 ├── .githook/         # Git hooks (Conventional Commits, branch protection, DevSecOps)
