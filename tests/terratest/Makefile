@@ -41,8 +41,9 @@ test-stage:
 		03|storage)    ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlaceStorage" ;; \
 		04|database)   ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlaceDatabase" ;; \
 		05|compute)    ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlaceCompute" ;; \
-		06|superadmin) ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlaceSuperAdmin" ;; \
+		06|superadmin) ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlace(SuperAdmin|StepFunctions|TenantOperator)" ;; \
 		07|observability) ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlaceObservability" ;; \
 		08|resilience) ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlaceResilience" ;; \
-		*) echo "❌ Unknown stage: $(STAGE). Valid values: 01, 02, 03, 04, 05, 06, 07, 08"; exit 1 ;; \
+		09|acceptance) ENV=$(ENV) AWS_REGION=$(AWS_REGION) go test -v -run "TestInPlaceDeploymentAcceptance" ;; \
+		*) echo "❌ Unknown stage: $(STAGE). Valid values: 01, 02, 03, 04, 05, 06, 07, 08, 09"; exit 1 ;; \
 	esac

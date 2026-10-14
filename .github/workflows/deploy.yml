@@ -262,7 +262,7 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
         run: |
           cd tests/terratest
-          go test -v -run "^TestInPlaceSuperAdmin$" -timeout 5m
+          go test -v -run "^TestInPlace(SuperAdmin|StepFunctions|TenantOperator)$" -timeout 10m
 
   deploy-observability:
     name: Deploy 07-Observability
@@ -329,17 +329,24 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
-      - name: Run Acceptance & Tenant Provisioning Verification
+      - name: Setup Go for Terratest
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest Acceptance & Tenant Provisioning Verification
         env:
           ENV: ${{ inputs.environment }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           TENANT_ID: ${{ vars.TENANT_ID }}
           SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
-          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
         run: |
-          chmod +x tests/verify_first_time_deployment_acceptance.py
-          python3 tests/verify_first_time_deployment_acceptance.py
+          cd tests/terratest
+          go test -v -run "^TestInPlaceDeploymentAcceptance$" -timeout 10m
 
       - name: Setup Node.js for Playwright E2E Tests
         uses: actions/setup-node@v4
