@@ -639,6 +639,16 @@ Resources:
                   - ses:SendEmail
                   - ses:SendRawEmail
                 Resource: "*"
+              - Sid: StepFunctionsControl
+                Effect: Allow
+                Action:
+                  - states:StartExecution
+                  - states:DescribeExecution
+                  - states:StopExecution
+                  - states:GetExecutionHistory
+                Resource:
+                  - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Lifecycle-Operator"
+                  - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${EnvironmentName}-Tenant-Lifecycle-Operator:*"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -667,6 +677,7 @@ Resources:
               - !Ref ECSClusterName
               - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
           SSM_RUNBOOK_NAME: !Ref SSMTenantOperatorRunbook
+          STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Lifecycle-Operator"
       Code: !If
         - HasLambdaS3Code
         - S3Bucket: !Ref LambdaCodeBucket
@@ -891,7 +902,369 @@ Resources:
       Tags:
         Environment: !Ref EnvironmentName
 
+  StepFunctionsExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-nextcloud-sfn-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: TenantLifecycleStatePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource:
+                  - !GetAtt DynamoDBTenantRegistry.Arn
+                  - !GetAtt DynamoDBAuditLogs.Arn
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt TenantOperatorLambda.Arn
+                  - !Sub "${TenantOperatorLambda.Arn}:*"
+
+  TenantLifecycleStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Lifecycle-Operator"
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Lifecycle with Saga Rollback",
+          "StartAt": "ChooseActionBranch",
+          "States": {
+            "ChooseActionBranch": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.Action",
+                  "StringEquals": "PROVISION",
+                  "Next": "ProvisionMarkDynamoDB"
+                },
+                {
+                  "Variable": "$.Action",
+                  "StringEquals": "SUSPEND",
+                  "Next": "SuspendScaleECS"
+                },
+                {
+                  "Variable": "$.Action",
+                  "StringEquals": "RESUME",
+                  "Next": "ResumeScaleECS"
+                },
+                {
+                  "Variable": "$.Action",
+                  "StringEquals": "DEPROVISION",
+                  "Next": "DeprovisionDeleteECS"
+                }
+              ],
+              "Default": "InvalidAction"
+            },
+            "InvalidAction": {
+              "Type": "Fail",
+              "Error": "InvalidActionError",
+              "Cause": "Action must be one of: PROVISION, SUSPEND, RESUME, DEPROVISION"
+            },
+            "ProvisionMarkDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Item": {
+                  "tenant_id": { "S.$": "$.TenantId" },
+                  "status": { "S": "PROVISIONING" },
+                  "quota_gb": { "N.$": "$.StorageQuotaGB" },
+                  "domain": { "S.$": "$.CompanyDomain" }
+                }
+              },
+              "ResultPath": "$.ddb_result",
+              "Next": "ProvisionTenantResources"
+            },
+            "ProvisionTenantResources": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "PROVISION_TENANT_RESOURCES",
+                  "tenant_id.$": "$.TenantId",
+                  "domain.$": "$.CompanyDomain",
+                  "quota_gb.$": "$.StorageQuotaGB"
+                }
+              },
+              "ResultPath": "$.provision_result",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "SagaRollback"
+                }
+              ],
+              "Next": "WaitForContainerHealthy"
+            },
+            "WaitForContainerHealthy": {
+              "Type": "Wait",
+              "Seconds": 15,
+              "Next": "CheckHealthStatus"
+            },
+            "CheckHealthStatus": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "CHECK_TENANT_HEALTH",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.health_check",
+              "Next": "IsContainerHealthy"
+            },
+            "IsContainerHealthy": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.health_check.Payload.healthy",
+                  "BooleanEquals": true,
+                  "Next": "SeedTenantData"
+                }
+              ],
+              "Default": "RetryHealthCheck"
+            },
+            "RetryHealthCheck": {
+              "Type": "Wait",
+              "Seconds": 10,
+              "Next": "CheckHealthStatus"
+            },
+            "SeedTenantData": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "SEED_TENANT_USERS_AND_FILES",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.seed_result",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.seed_error",
+                  "Next": "MarkProvisionActive"
+                }
+              ],
+              "Next": "MarkProvisionActive"
+            },
+            "MarkProvisionActive": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s",
+                "ExpressionAttributeNames": {
+                  "#st": "status"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "ACTIVE" }
+                }
+              },
+              "ResultPath": "$.active_result",
+              "Next": "PublishProvisionMetric"
+            },
+            "PublishProvisionMetric": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Parameters": {
+                "Namespace": "Nextcloud/SaaS",
+                "MetricData": [
+                  {
+                    "MetricName": "TenantActiveStatus",
+                    "Dimensions": [
+                      {
+                        "Name": "TenantId",
+                        "Value.$": "$.TenantId"
+                      }
+                    ],
+                    "Value": 1.0,
+                    "Unit": "Count"
+                  }
+                ]
+              },
+              "End": true
+            },
+            "SagaRollback": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "SAGA_CLEANUP_TENANT",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.rollback_result",
+              "Next": "MarkProvisionFailed"
+            },
+            "MarkProvisionFailed": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #err = :e",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#err": "last_error"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "FAILED" },
+                  ":e": { "S": "Provisioning failed during container/resource initialization" }
+                }
+              },
+              "Next": "ProvisionFailed"
+            },
+            "ProvisionFailed": {
+              "Type": "Fail",
+              "Error": "ProvisioningFailed",
+              "Cause": "Tenant provisioning failed and Saga compensation rolled back partial resources."
+            },
+            "SuspendScaleECS": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "SUSPEND",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.suspend_result",
+              "Next": "PublishSuspendMetric"
+            },
+            "PublishSuspendMetric": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Parameters": {
+                "Namespace": "Nextcloud/SaaS",
+                "MetricData": [
+                  {
+                    "MetricName": "TenantActiveStatus",
+                    "Dimensions": [
+                      {
+                        "Name": "TenantId",
+                        "Value.$": "$.TenantId"
+                      }
+                    ],
+                    "Value": 0.0,
+                    "Unit": "Count"
+                  }
+                ]
+              },
+              "End": true
+            },
+            "ResumeScaleECS": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "RESUME",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.resume_result",
+              "Next": "PublishResumeMetric"
+            },
+            "PublishResumeMetric": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Parameters": {
+                "Namespace": "Nextcloud/SaaS",
+                "MetricData": [
+                  {
+                    "MetricName": "TenantActiveStatus",
+                    "Dimensions": [
+                      {
+                        "Name": "TenantId",
+                        "Value.$": "$.TenantId"
+                      }
+                    ],
+                    "Value": 1.0,
+                    "Unit": "Count"
+                  }
+                ]
+              },
+              "End": true
+            },
+            "DeprovisionDeleteECS": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "DEPROVISION",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.deprovision_result",
+              "Next": "PublishDeprovisionMetric"
+            },
+            "PublishDeprovisionMetric": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Parameters": {
+                "Namespace": "Nextcloud/SaaS",
+                "MetricData": [
+                  {
+                    "MetricName": "TenantActiveStatus",
+                    "Dimensions": [
+                      {
+                        "Name": "TenantId",
+                        "Value.$": "$.TenantId"
+                      }
+                    ],
+                    "Value": 0.0,
+                    "Unit": "Count"
+                  }
+                ]
+              },
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
 Outputs:
+  TenantLifecycleStateMachineArn:
+    Description: Step Functions Tenant Lifecycle State Machine ARN
+    Value: !Ref TenantLifecycleStateMachine
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantLifecycleStateMachineArn"
   TenantRegistryTable:
     Description: DynamoDB Tenant Registry Table
     Value: !Ref DynamoDBTenantRegistry

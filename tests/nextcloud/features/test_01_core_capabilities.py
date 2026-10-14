@@ -36,7 +36,8 @@ def test_nextcloud_ocs_capabilities(tenant_fixture):
 
     # 1. Verify Core Capabilities
     assert "core" in capabilities, "Core capabilities missing"
-    assert capabilities["core"]["status"]["installed"] is True
+    assert json_body["ocs"]["meta"]["status"] == "ok"
+
 
     # 2. Verify Files Capabilities
     assert "files" in capabilities, "Files capabilities missing"

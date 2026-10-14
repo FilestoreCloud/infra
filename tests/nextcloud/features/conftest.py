@@ -13,6 +13,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
+ENV = os.environ.get("ENV", "dev")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 AWS_PROFILE = os.environ.get("AWS_PROFILE")
 
@@ -20,8 +21,16 @@ AWS_PROFILE = os.environ.get("AWS_PROFILE")
 def _get_tenant_credentials(tenant_id: str) -> tuple[str, str]:
     """Retrieve tenant admin credentials from environment or AWS Secrets Manager."""
     prefix = f"TENANT_{tenant_id.upper()}"
-    username = os.environ.get(f"{prefix}_USER", "admin")
-    password = os.environ.get(f"{prefix}_PASSWORD")
+    username = (
+        os.environ.get(f"{prefix}_USER")
+        or os.environ.get("NEXTCLOUD_USER", "admin")
+    )
+    password = (
+        os.environ.get(f"{prefix}_PASSWORD")
+        or os.environ.get("NEXTCLOUD_PASSWORD")
+        or os.environ.get("ADMIN_PASSWORD")
+        or os.environ.get("SUPERADMIN_PASSWORD")
+    )
 
     if password:
         return username, password
@@ -32,12 +41,13 @@ def _get_tenant_credentials(tenant_id: str) -> tuple[str, str]:
             boto_kwargs["profile_name"] = AWS_PROFILE
         session = boto3.Session(**boto_kwargs)
         sm = session.client("secretsmanager")
-        secret_id = f"/nextcloud/prod/tenants/{tenant_id}/admin-credentials"
+        secret_id = f"/nextcloud/{ENV}/tenants/{tenant_id}/admin-credentials"
         sec_resp = sm.get_secret_value(SecretId=secret_id)
         creds = json.loads(sec_resp["SecretString"])
         return creds.get("username", "admin"), creds.get("password", "")
     except Exception as exc:
         pytest.skip(f"Live credentials unavailable for tenant '{tenant_id}': {exc}")
+
 
 
 def _check_connectivity(host: str, port: int = 443, timeout: float = 3.0) -> bool:
@@ -74,14 +84,14 @@ class NextcloudClient:
         self.session.auth = (username, password)
 
         # Standard Nextcloud headers
-        self.session.headers.update(
-            {
-                "Host": self.domain,
-                "OCS-APIRequest": "true",
-                "Accept": "application/json",
-                "User-Agent": "Nextcloud-SaaS-Acceptance-Tester/1.0",
-            }
-        )
+        headers = {
+            "OCS-APIRequest": "true",
+            "Accept": "application/json",
+            "User-Agent": "Nextcloud-SaaS-Acceptance-Tester/1.0",
+        }
+        if "elb.amazonaws.com" not in self.base_url and "localhost" not in self.base_url:
+            headers["Host"] = self.domain
+        self.session.headers.update(headers)
 
         # Configure retries
         retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[502, 503, 504])
@@ -289,37 +299,40 @@ class NextcloudClient:
 @pytest.fixture(scope="session")
 def tenant_fixture(request) -> NextcloudClient:
     """Fixture providing an authenticated Nextcloud client configured for the tenant."""
-    tenant_id = os.environ.get("TENANT_ID", "acme")
+    tenant_id = os.environ.get("TENANT_ID", "dev-tenant")
     domain = os.environ.get(
         f"TENANT_{tenant_id.upper()}_DOMAIN", f"{tenant_id}.png261.dev"
     )
 
     username, password = _get_tenant_credentials(tenant_id)
 
-    # Check for direct ALB routing from SSM parameter if domain is not directly routed
-    boto_kwargs: Dict[str, Any] = {"region_name": AWS_REGION}
-    if AWS_PROFILE:
-        boto_kwargs["profile_name"] = AWS_PROFILE
+    tenant_url = os.environ.get("TENANT_URL")
+    alb_dns = os.environ.get("ALB_DNS")
 
-    connect_host = domain
-    try:
-        session = boto3.Session(**boto_kwargs)
-        ssm = session.client("ssm")
-        alb_dns = ssm.get_parameter(Name="/nextcloud/prod/infra/alb-dns")["Parameter"][
-            "Value"
-        ]
-        # If domain doesn't resolve/connect, fall back to ALB DNS
-        if not _check_connectivity(domain, 443):
-            connect_host = alb_dns
-    except Exception:
-        pass
+    if not alb_dns and not tenant_url:
+        boto_kwargs: Dict[str, Any] = {"region_name": AWS_REGION}
+        if AWS_PROFILE:
+            boto_kwargs["profile_name"] = AWS_PROFILE
+        try:
+            session = boto3.Session(**boto_kwargs)
+            ssm = session.client("ssm")
+            alb_dns = ssm.get_parameter(Name=f"/nextcloud/{ENV}/infra/alb-dns")[
+                "Parameter"
+            ]["Value"]
+        except Exception:
+            pass
 
-    if not _check_connectivity(connect_host, 443):
+    if tenant_url:
+        base_url = tenant_url.rstrip("/")
+    elif alb_dns:
+        base_url = f"http://{alb_dns}"
+    elif _check_connectivity(domain, 443):
+        base_url = f"https://{domain}"
+    else:
         pytest.skip(
-            f"Tenant live endpoint '{connect_host}' (Domain: {domain}) is unreachable via port 443."
+            f"Tenant live endpoint for '{tenant_id}' (Domain: {domain}) is unreachable."
         )
 
-    base_url = f"https://{connect_host}"
     return NextcloudClient(
         base_url=base_url,
         domain=domain,
@@ -327,3 +340,4 @@ def tenant_fixture(request) -> NextcloudClient:
         password=password,
         verify_ssl=False,
     )
+
