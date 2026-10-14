@@ -126,6 +126,23 @@ func TestInPlaceSuperAdmin(t *testing.T) {
 			},
 		)
 		t.Logf("✅ Lambda Function URL responds with HTTP 200 on OPTIONS")
+
+		http_helper.HTTPDoWithCustomValidationWithOptions(
+			t,
+			http_helper.HttpDoOptions{
+				Method:    "POST",
+				Url:       funcURL,
+				TlsConfig: tlsConfig,
+				Body:      `{"action": "HEALTH"}`,
+				Headers: map[string]string{
+					"Content-Type": "application/json",
+				},
+			},
+			func(statusCode int, body string) bool {
+				return statusCode == http.StatusOK
+			},
+		)
+		t.Logf("✅ Lambda Function URL responds with HTTP 200 on POST")
 	}
 
 	// 6. Assert CloudWatch Dashboard exists

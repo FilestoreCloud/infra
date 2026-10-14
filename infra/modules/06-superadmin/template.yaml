@@ -529,11 +529,11 @@ Resources:
           - ErrorCode: 403
             ResponseCode: 200
             ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 10
+            ErrorCachingMinTTL: 0
           - ErrorCode: 404
             ResponseCode: 200
             ResponsePagePath: /index.html
-            ErrorCachingMinTTL: 10
+            ErrorCachingMinTTL: 0
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -730,6 +730,13 @@ Resources:
       FunctionName: !Ref TenantOperatorLambda
       FunctionUrlAuthType: NONE
       Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+
+  TenantOperatorInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TenantOperatorLambda
+      Action: lambda:InvokeFunction
       Principal: "*"
 
   # SSM Parameter Store exports

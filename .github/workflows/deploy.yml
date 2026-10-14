@@ -263,6 +263,23 @@ jobs:
             --zip-file fileb:///tmp/tenant_operator.zip
           echo "✓ Lambda function code updated successfully."
 
+      - name: Ensure Lambda Function URL Invocation Permissions
+        run: |
+          echo "Ensuring Lambda Function URL public invocation permissions..."
+          aws lambda add-permission \
+            --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
+            --statement-id "FunctionURLPublicInvokeStatement" \
+            --action "lambda:InvokeFunctionUrl" \
+            --principal "*" \
+            --function-url-auth-type "NONE" 2>/dev/null || true
+          aws lambda add-permission \
+            --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
+            --statement-id "FunctionPublicInvokeStatement" \
+            --action "lambda:InvokeFunction" \
+            --principal "*" 2>/dev/null || true
+          echo "Lambda resource policy verified:"
+          aws lambda get-policy --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" || true
+
       - name: Ensure SuperAdmin User in Cognito User Pool
         env:
           ENV: ${{ inputs.environment }}
