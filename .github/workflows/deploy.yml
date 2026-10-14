@@ -408,8 +408,19 @@ jobs:
             ALB_DNS=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, '${ENV}-nextcloud-alb')].DNSName" --output text)
           fi
           echo "Target ALB DNS for Playwright E2E: $ALB_DNS"
+
+          CONSOLE_URL=$(aws ssm get-parameter --name "/nextcloud/${ENV}/control-plane/admin-web-url" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          if [ -z "$CONSOLE_URL" ]; then
+            DIST_ID=$(aws ssm get-parameter --name "/nextcloud/${ENV}/control-plane/cloudfront-distribution-id" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+            if [ -n "$DIST_ID" ]; then
+              CF_DOMAIN=$(aws cloudfront get-distribution --id "$DIST_ID" --query "Distribution.DomainName" --output text 2>/dev/null || echo "")
+              CONSOLE_URL="https://${CF_DOMAIN}"
+            fi
+          fi
+          echo "Target SuperAdmin Console URL: $CONSOLE_URL"
+
           cd tests/nextcloud/e2e
-          TENANT_URL="http://${ALB_DNS}" npm test
+          TENANT_URL="http://${ALB_DNS}" CONSOLE_URL="${CONSOLE_URL}" npm test
 
       - name: Upload Playwright Test Report
         if: always()

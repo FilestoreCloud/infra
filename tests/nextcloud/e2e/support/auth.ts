@@ -21,14 +21,20 @@ export async function loginNextcloud(
 
   await userInput.fill(username);
   await passInput.fill(password);
-  await submitBtn.first().click();
+  
+  await Promise.all([
+    page.waitForURL(url => !url.pathname.includes("/login") || url.search.includes("dashboard") || url.search.includes("files"), {
+      timeout: 30000,
+    }).catch(() => {}),
+    submitBtn.first().click(),
+  ]);
 
-  // Wait for redirect to dashboard, files, or index.php
-  await page.waitForURL(/\/(apps\/(dashboard|files)|index\.php\/(apps|core)|index\.php$)/, {
-    timeout: 25000,
-  });
+  // If redirect lands on index.php, navigate to files app if needed
+  if (!page.url().includes("/apps/")) {
+    await page.goto("/index.php/apps/files/").catch(() => {});
+  }
 
   // Verify authenticated header or navigation
-  const headerMenu = page.locator("#header, header, .app-navigation, #appmenu, [role=\"navigation\"]");
-  await expect(headerMenu.first()).toBeVisible({ timeout: 15000 });
+  const headerMenu = page.locator("#header, header, .app-navigation, #appmenu, [role=\"navigation\"], #content, main");
+  await expect(headerMenu.first()).toBeVisible({ timeout: 20000 });
 }

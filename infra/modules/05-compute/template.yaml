@@ -498,7 +498,7 @@ Resources:
             - "sh"
             - "-c"
           Command:
-            - "sed -i \"/overwriteprotocol/d\" /var/www/html/config/config.php 2>/dev/null || true; cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html && exec /entrypoint.sh apache2-foreground"
+            - "sed -i \"s/'overwriteprotocol' => 'https'/'overwriteprotocol' => 'http'/g\" /var/www/html/config/config.php 2>/dev/null || true; sed -i \"s/\\\"overwriteprotocol\\\" => \\\"https\\\"/\\\"overwriteprotocol\\\" => \\\"http\\\"/g\" /var/www/html/config/config.php 2>/dev/null || true; cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html && exec /entrypoint.sh apache2-foreground"
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
@@ -549,7 +549,7 @@ Resources:
             - Name: BEDROCK_DEFAULT_MODEL
               Value: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
             - Name: OVERWRITEPROTOCOL
-              Value: ""
+              Value: "http"
             - Name: OVERWRITECLIURL
               Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
             - Name: NC_maintenance_window_start
