@@ -6,7 +6,6 @@ on:
     paths:
       - "infra/**"
       - "tests/**"
-      - "scripts/**"
       - ".github/workflows/ci.yml"
   pull_request:
     branches: [main, dev]
@@ -56,7 +55,7 @@ jobs:
       - name: Scan for Hardcoded Secrets
         run: |
           echo "Scanning for hardcoded credentials..."
-          if grep -rnE "(AWS_SECRET_ACCESS_KEY|sk-saas-nextcloud-internal)" infra/ tests/ scripts/ 2>/dev/null; then
+          if grep -rnE "(AWS_SECRET_ACCESS_KEY|sk-saas-nextcloud-internal)" infra/ tests/ 2>/dev/null; then
             echo "❌ Potential secret found in repository files!"
             exit 1
           fi

@@ -19,17 +19,16 @@ Enterprise multi-tenant cloud platform deployed on AWS using a **Zero-Code-Modif
   - **Database (Amazon RDS PostgreSQL 16):** Dedicated physical database (`nc_<tenant_id>`) per tenant.
 - **Control Plane & Registry:** DynamoDB Tenant Registry, SSM Lifecycle Operator runbook (`Tenant-Lifecycle-Operator`), and CloudWatch Alarms.
 - **Multi-Repo Federation:**
-  - `FilestoreCloud/infra` (This repo): CloudFormation IaC, deployment scripts, test suite.
+  - `FilestoreCloud/infra` (This repo): CloudFormation IaC, CI/CD pipelines, test suite.
   - `FilestoreCloud/runtime`: Golden Docker image & Amazon Bedrock sidecar.
   - `FilestoreCloud/console`: Super Admin web portal (React + Refine + Ant Design).
 
 ### Directory Layout
 
 ```
-├── infra/            # Modular CloudFormation IaC (modules 01-06, root.yaml)
-├── scripts/          # Operational CLI automation (fleet rollout, environment setup)
+├── infra/            # Modular CloudFormation IaC (modules 01-07, root.yaml)
 ├── tests/            # Automated integration & unit test suite (pytest)
-├── .github/          # CI/CD deployment, canary rollouts, and branch protection workflows
+├── .github/          # CI/CD deployment and destruction workflows
 ├── .githook/         # Git hooks (Conventional Commits, branch protection, DevSecOps)
 └── .devsecops/       # AWS Labs DevSecOps configurations (Ferret Scan, ESLint Security)
 ```
