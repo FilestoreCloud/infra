@@ -272,15 +272,15 @@ Resources:
           - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
       Matcher:
         HttpCode: "200-400"
-      HealthCheckIntervalSeconds: 30
+      HealthCheckIntervalSeconds: 15
       HealthCheckPath: /status.php
       HealthCheckProtocol: HTTP
-      HealthCheckTimeoutSeconds: 10
+      HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
-      UnhealthyThresholdCount: 6
+      UnhealthyThresholdCount: 3
       TargetGroupAttributes:
         - Key: deregistration_delay.timeout_seconds
-          Value: "30"
+          Value: "15"
         - Key: stickiness.enabled
           Value: "true"
         - Key: stickiness.type
@@ -494,6 +494,11 @@ Resources:
       ContainerDefinitions:
         - Name: nextcloud
           Image: !Ref ContainerImage
+          EntryPoint:
+            - "sh"
+            - "-c"
+          Command:
+            - "mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html/data && exec /entrypoint.sh apache2-foreground"
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
