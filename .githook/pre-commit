@@ -40,48 +40,59 @@ fi
 log_success "Staged files hygiene scan passed."
 
 # ------------------------------------------------------------------------------
-# 3. Code Quality & DevSecOps Linters
+# 3. Code Quality & DevSecOps Linters (Pre-Commit Enforcement)
 # ------------------------------------------------------------------------------
-if [ "${SKIP_PRE_COMMIT:-0}" = "1" ]; then
-  log_warn "pre-commit execution skipped by SKIP_PRE_COMMIT=1"
-  exit 0
-fi
-
-# Locate pre-commit binary
-PRE_COMMIT_BIN=""
-if command -v pre-commit >/dev/null 2>&1; then
-  PRE_COMMIT_BIN="pre-commit"
-elif [ -x "/opt/homebrew/bin/pre-commit" ]; then
-  PRE_COMMIT_BIN="/opt/homebrew/bin/pre-commit"
-elif [ -x "$HOME/.local/bin/pre-commit" ]; then
-  PRE_COMMIT_BIN="$HOME/.local/bin/pre-commit"
-fi
-
-if [ -n "$PRE_COMMIT_BIN" ] && [ -f ".pre-commit-config.yaml" ]; then
-  log_step "Running pre-commit hooks (.pre-commit-config.yaml)..."
-  if ! "$PRE_COMMIT_BIN" run --hook-stage pre-commit; then
-    log_error "pre-commit hooks reported issues. Please fix them before committing."
+log_step "Running code quality checks: YAML linting (yamllint)..."
+if command -v yamllint >/dev/null 2>&1; then
+  if ! yamllint -d "{extends: relaxed, rules: {line-length: {max: 240}, indentation: {spaces: 2}}}" \
+    infra/modules/ infra/root.yaml infra/environments/; then
+    log_error "YAML linting failed. Fix YAML formatting before committing."
     exit 1
   fi
-  log_success "All pre-commit hooks passed successfully."
+  log_success "YAML linting passed."
 else
-  log_warn "pre-commit binary not found. Running basic local syntax checks..."
-
-  # Basic Python syntax verification on staged python files
-  STAGED_PY=$(get_staged_files | grep -E '\.py$' || true)
-  if [ -n "$STAGED_PY" ]; then
-    log_step "Verifying Python syntax..."
-    for py_file in $STAGED_PY; do
-      if [ -f "$py_file" ]; then
-        if ! python3 -m py_compile "$py_file" 2>/dev/null; then
-          log_error "Python syntax error in: $py_file"
-          exit 1
-        fi
-      fi
-    done
-    log_success "Python syntax validation passed."
-  fi
-  log_info "Tip: Install pre-commit (brew install pre-commit or pip install pre-commit) for full DevSecOps checks."
+  log_warn "yamllint not found in PATH, skipping YAML lint."
 fi
 
+log_step "Running CloudFormation linting (cfn-lint)..."
+if command -v cfn-lint >/dev/null 2>&1; then
+  if ! cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005; then
+    log_error "cfn-lint validation failed. Fix CloudFormation errors before committing."
+    exit 1
+  fi
+  log_success "CloudFormation linting passed."
+else
+  log_error "cfn-lint command not found. Please install cfn-lint (brew install cfn-lint or pip install cfn-lint)."
+  exit 1
+fi
+
+log_step "Validating CloudFormation template syntax with Python YAML parser..."
+if ! python3 -c "
+import yaml, glob
+class CfnLoader(yaml.SafeLoader): pass
+def ctor(l, s, n): return l.construct_scalar(n) if isinstance(n, yaml.ScalarNode) else (l.construct_sequence(n) if isinstance(n, yaml.SequenceNode) else l.construct_mapping(n))
+CfnLoader.add_multi_constructor('!', ctor)
+files = glob.glob('infra/modules/*/template.yaml') + ['infra/root.yaml']
+for f in files:
+    yaml.load(open(f), Loader=CfnLoader)
+    print(f'  ✓ Validated {f}')
+"; then
+  log_error "CloudFormation template YAML syntax validation failed!"
+  exit 1
+fi
+log_success "CloudFormation YAML syntax validation passed."
+
+log_step "Running Python unit test suite (pytest tests/)..."
+if command -v pytest >/dev/null 2>&1; then
+  if ! pytest tests/ -v; then
+    log_error "Pytest test suite failed. Fix failing tests before committing."
+    exit 1
+  fi
+  log_success "Pytest test suite passed successfully."
+else
+  log_error "pytest command not found. Please install pytest."
+  exit 1
+fi
+
+log_success "All local code quality standards verified successfully. Proceeding with commit."
 exit 0

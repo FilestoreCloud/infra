@@ -21,32 +21,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  validate:
-    name: Pre-flight Template Validation
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-
-      - name: Install Validation Tools
-        run: |
-          pip install --upgrade pip
-          pip install cfn-lint yamllint pyyaml
-
-      - name: Validate Templates
-        run: |
-          cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
-          echo "✓ All CloudFormation templates validated cleanly."
-
   deploy-networking:
     name: Deploy 01-Networking
-    needs: [validate]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -290,8 +266,8 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
           TENANT_ID: "dev-tenant"
         run: |
-          chmod +x tests/test_first_time_deployment_acceptance.py
-          python3 tests/test_first_time_deployment_acceptance.py
+          chmod +x tests/verify_first_time_deployment_acceptance.py
+          python3 tests/verify_first_time_deployment_acceptance.py
 
       - name: Trigger SuperAdmin Console Deployment in console repo
         if: env.GITOPS_TOKEN != ''
