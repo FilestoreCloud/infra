@@ -907,9 +907,3 @@ Outputs:
     Value: !GetAtt TenantOperatorFunctionUrl.FunctionUrl
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-TenantOperatorLambdaFunctionUrl"
-
-  ConsoleDeployerRoleArn:
-    Description: Least-privilege IAM Role ARN for FilestoreCloud/console repository CI/CD
-    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-console-deployer-role"
-    Export:
-      Name: !Sub "${EnvironmentName}-nextcloud-ConsoleDeployerRoleArn"

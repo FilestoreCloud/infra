@@ -216,11 +216,11 @@ Outputs:
 
   RuntimeDeployerRoleArn:
     Description: Least-privilege IAM Role ARN for FilestoreCloud/runtime repository CI/CD
-    Value: !GetAtt ComputeStack.Outputs.RuntimeDeployerRoleArn
+    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-runtime-deployer-role"
 
   ConsoleDeployerRoleArn:
     Description: Least-privilege IAM Role ARN for FilestoreCloud/console repository CI/CD
-    Value: !GetAtt ControlPlaneStack.Outputs.ConsoleDeployerRoleArn
+    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-console-deployer-role"
 
   TenantOperatorLambdaArn:
     Description: Control Plane Tenant Operator Lambda Function ARN

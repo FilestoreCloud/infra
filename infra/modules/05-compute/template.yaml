@@ -867,9 +867,3 @@ Outputs:
     Value: !Ref AdminSecret
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-AdminSecretArn"
-
-  RuntimeDeployerRoleArn:
-    Description: Least-privilege IAM Role ARN for FilestoreCloud/runtime repository CI/CD
-    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-runtime-deployer-role"
-    Export:
-      Name: !Sub "${EnvironmentName}-nextcloud-RuntimeDeployerRoleArn"
