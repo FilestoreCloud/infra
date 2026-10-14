@@ -131,12 +131,20 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
+      - name: Resolve Golden Image URI
+        id: image-resolver
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }}"
+          echo "image=${ECR_IMAGE}" >> $GITHUB_OUTPUT
+          echo "Using Golden Image URI: ${ECR_IMAGE}"
+
       - name: Deploy 05-Compute Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }}"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }}"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
