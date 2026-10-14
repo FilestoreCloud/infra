@@ -624,7 +624,7 @@ Resources:
       FunctionName: !Sub "${EnvironmentName}-nextcloud-tenant-operator"
       Description: "SaaS Control Plane REST API controller for tenant fleet lifecycle operations"
       Runtime: python3.11
-      Handler: tenant_operator_lambda.lambda_handler
+      Handler: index.lambda_handler
       Role: !GetAtt TenantOperatorLambdaRole.Arn
       Timeout: 60
       MemorySize: 512
@@ -647,11 +647,34 @@ Resources:
         - ZipFile: |
             import json
             def lambda_handler(event, context):
-                method = event.get('httpMethod', 'GET')
-                action = json.loads(event.get('body', '{}')).get('action') if event.get('body') else event.get('queryStringParameters', {}).get('action', 'HEALTH')
+                method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', 'GET')
+                headers = {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'
+                }
+                if method == 'OPTIONS':
+                    return {'statusCode': 200, 'headers': headers, 'body': ''}
+
+                body_raw = event.get('body') or '{}'
+                try:
+                    body = json.loads(body_raw) if isinstance(body_raw, str) else body_raw
+                except Exception:
+                    body = {}
+
+                if method in ['POST', 'PUT', 'DELETE']:
+                    if not body.get('tenant_id'):
+                        return {
+                            'statusCode': 400,
+                            'headers': headers,
+                            'body': json.dumps({'error': 'tenant_id is required'})
+                        }
+
+                action = body.get('action') if isinstance(body, dict) and body.get('action') else event.get('queryStringParameters', {}).get('action', 'HEALTH') if event.get('queryStringParameters') else 'HEALTH'
                 return {
                     'statusCode': 200,
-                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'headers': headers,
                     'body': json.dumps({'status': 'OK', 'action': action, 'service': 'Nextcloud-SaaS-Control-Plane'})
                 }
       Tags:

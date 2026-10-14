@@ -116,6 +116,10 @@ func TestInPlaceSuperAdmin(t *testing.T) {
 				Method:    "OPTIONS",
 				Url:       funcURL,
 				TlsConfig: tlsConfig,
+				Headers: map[string]string{
+					"Origin":                        "http://localhost:3000",
+					"Access-Control-Request-Method": "GET",
+				},
 			},
 			func(statusCode int, body string) bool {
 				return statusCode == http.StatusOK

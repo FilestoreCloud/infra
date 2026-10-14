@@ -848,6 +848,12 @@ Outputs:
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-TargetGroupFullName"
 
+  DefaultTargetGroupArn:
+    Description: Default Target Group ARN
+    Value: !Ref ALBTargetGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-DefaultTargetGroupArn"
+
   ALBHTTPSListenerArn:
     Condition: HasTlsCertificate
     Description: ALB HTTPS Listener ARN

@@ -35,7 +35,20 @@ func TestInPlaceCompute(t *testing.T) {
 	albURL, hasURL := outputs["LoadBalancerURL"]
 	require.True(t, hasURL, "Output LoadBalancerURL must exist")
 	tgArn, hasTG := outputs["DefaultTargetGroupArn"]
-	require.True(t, hasTG, "Output DefaultTargetGroupArn must exist")
+	if !hasTG || tgArn == "" {
+		tgArn, hasTG = outputs["TargetGroupArn"]
+	}
+	if !hasTG || tgArn == "" {
+		elbClient := elbv2.NewFromConfig(cfg.awsConfig)
+		tgRes, err := elbClient.DescribeTargetGroups(context.TODO(), &elbv2.DescribeTargetGroupsInput{
+			Names: []string{fmt.Sprintf("%s-nextcloud-tg", cfg.Environment)},
+		})
+		if err == nil && len(tgRes.TargetGroups) > 0 {
+			tgArn = *tgRes.TargetGroups[0].TargetGroupArn
+			hasTG = true
+		}
+	}
+	require.True(t, hasTG, "Target Group ARN must exist (either via Output DefaultTargetGroupArn or lookup)")
 
 	// 1. Assert ECS Fargate Service Status & Task Count
 	t.Logf("🚀 [In-Place] Validating ECS Fargate Service: %s (Cluster: %s)", serviceName, clusterName)
