@@ -1,0 +1,18 @@
+BEGIN:VCARD
+VERSION:3.0
+N:Jenkins;Sarah;;;
+FN:Sarah Jenkins
+ORG:Acme Corporation;Engineering
+TITLE:Lead Cloud Systems Engineer
+EMAIL;type=INTERNET,type=WORK;type=pref:sarah@acme-corp.com
+TEL;type=WORK,type=VOICE:+1-555-019-2834
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+N:Watson;Emma;;;
+FN:Emma Watson
+ORG:Zenith Financial;Finance
+TITLE:Chief Financial Officer
+EMAIL;type=INTERNET,type=WORK;type=pref:emma@zenith.com
+TEL;type=WORK,type=VOICE:+1-555-014-9921
+END:VCARD

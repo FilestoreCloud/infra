@@ -1,0 +1,20 @@
+version: '3.8'
+services:
+  nextcloud:
+    image: nextcloud:30.0.17-apache
+    restart: always
+    ports:
+      - "80:80"
+    environment:
+      - TRUSTED_PROXIES=10.0.0.0/16
+      - OPENAI_API_BASE=http://127.0.0.1:4000/v1
+    depends_on:
+      - litellm-bridge
+
+  litellm-bridge:
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: always
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      - AWS_REGION=ap-southeast-1

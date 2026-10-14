@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "Nextcloud Multi-Tenant SaaS - Module 06: SaaS Control Plane (DynamoDB Tenant Registry, SuperAdmin API, SSM Automation Runbook, Web Console)"
+Description: "Nextcloud Multi-Tenant SaaS - Module 06: SaaS Control Plane (DynamoDB Tenant Registry, SuperAdmin API, Step Functions Micro-Workflows, Web Console)"
 
 Parameters:
   EnvironmentName:
@@ -150,256 +150,6 @@ Resources:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_ADMIN_USER_PASSWORD_AUTH
 
-  SSMAutomationRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${EnvironmentName}-nextcloud-ssm-automation-role"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: ssm.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: TenantOperatorPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:GetItem
-                  - dynamodb:PutItem
-                  - dynamodb:UpdateItem
-                  - dynamodb:DeleteItem
-                  - dynamodb:Scan
-                  - dynamodb:Query
-                Resource:
-                  - !GetAtt DynamoDBTenantRegistry.Arn
-                  - !GetAtt DynamoDBAdminUsers.Arn
-                  - !GetAtt DynamoDBAuditLogs.Arn
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: !GetAtt AuditLogGroup.Arn
-              - Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:DeleteObject
-                  - s3:ListBucket
-                Resource:
-                  - Fn::If:
-                      - HasS3VaultBucketArn
-                      - !Ref S3VaultBucketArn
-                      - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
-                  - Fn::Sub:
-                      - "${BucketArn}/*"
-                      - BucketArn:
-                          Fn::If:
-                            - HasS3VaultBucketArn
-                            - !Ref S3VaultBucketArn
-                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
-              - Effect: Allow
-                Action:
-                  - cloudwatch:PutMetricData
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - ecs:UpdateService
-                  - ecs:DescribeServices
-                Resource: "*"
-
-  SSMTenantOperatorRunbook:
-    Type: AWS::SSM::Document
-    Properties:
-      Name: !Sub "${EnvironmentName}-Tenant-Lifecycle-Operator"
-      DocumentType: Automation
-      DocumentFormat: YAML
-      Content:
-        description: Native AWS Automation Runbook for Nextcloud Tenant Lifecycle Management (Provision, Suspend, Resume, Deprovision)
-        schemaVersion: "0.3"
-        assumeRole: !GetAtt SSMAutomationRole.Arn
-        parameters:
-          TenantId:
-            type: String
-            description: Unique Identifier for the Tenant (e.g. acme-corp, globex-corp)
-          Action:
-            type: String
-            allowedValues:
-              - PROVISION
-              - SUSPEND
-              - RESUME
-              - DEPROVISION
-            description: Tenant Lifecycle State Transition
-          StorageQuotaGB:
-            type: String
-            default: "100"
-            description: Storage quota in GB (Applicable when Action is PROVISION)
-          CompanyDomain:
-            type: String
-            default: "tenant.local"
-            description: Custom domain for the tenant (Applicable when Action is PROVISION)
-        mainSteps:
-          - name: ChooseActionBranch
-            action: aws:branch
-            inputs:
-              Choices:
-                - NextStep: ProvisionTenantInDynamoDB
-                  Variable: "{{ Action }}"
-                  StringEquals: PROVISION
-                - NextStep: SuspendTenantInDynamoDB
-                  Variable: "{{ Action }}"
-                  StringEquals: SUSPEND
-                - NextStep: ResumeTenantInDynamoDB
-                  Variable: "{{ Action }}"
-                  StringEquals: RESUME
-                - NextStep: DeprovisionTenantInDynamoDB
-                  Variable: "{{ Action }}"
-                  StringEquals: DEPROVISION
-
-          # 1. PROVISION STEP: Create Tenant Record & Publish Initial Metric
-          - name: ProvisionTenantInDynamoDB
-            action: aws:executeAwsApi
-            inputs:
-              Service: dynamodb
-              Api: PutItem
-              TableName: !Sub "${EnvironmentName}-nextcloud-tenant-registry"
-              Item:
-                tenant_id:
-                  S: "{{ TenantId }}"
-                status:
-                  S: ACTIVE
-                quota_gb:
-                  N: "{{ StorageQuotaGB }}"
-                domain:
-                  S: "{{ CompanyDomain }}"
-                created_at:
-                  S: "{{ global:DATE_TIME }}"
-                last_updated:
-                  S: "{{ global:DATE_TIME }}"
-              ConditionExpression: "attribute_not_exists(tenant_id)"
-            nextStep: PublishTenantActiveMetric
-
-          - name: PublishTenantActiveMetric
-            action: aws:executeAwsApi
-            inputs:
-              Service: cloudwatch
-              Api: PutMetricData
-              Namespace: Nextcloud/SaaS
-              MetricData:
-                - MetricName: TenantStorageUsedMB
-                  Dimensions:
-                    - Name: TenantId
-                      Value: "{{ TenantId }}"
-                  Value: 0.1
-                  Unit: Megabytes
-                - MetricName: TenantActiveStatus
-                  Dimensions:
-                    - Name: TenantId
-                      Value: "{{ TenantId }}"
-                  Value: 1
-                  Unit: Count
-            isEnd: true
-
-          # 2. SUSPEND STEP: Set Status SUSPENDED & TenantActiveStatus = 0
-          - name: SuspendTenantInDynamoDB
-            action: aws:executeAwsApi
-            inputs:
-              Service: dynamodb
-              Api: UpdateItem
-              TableName: !Sub "${EnvironmentName}-nextcloud-tenant-registry"
-              Key:
-                tenant_id:
-                  S: "{{ TenantId }}"
-              UpdateExpression: "SET #st = :s, #lu = :t"
-              ExpressionAttributeNames:
-                "#st": status
-                "#lu": last_updated
-              ExpressionAttributeValues:
-                ":s":
-                  S: SUSPENDED
-                ":t":
-                  S: "{{ global:DATE_TIME }}"
-            nextStep: PublishTenantSuspendedMetric
-
-          - name: PublishTenantSuspendedMetric
-            action: aws:executeAwsApi
-            inputs:
-              Service: cloudwatch
-              Api: PutMetricData
-              Namespace: Nextcloud/SaaS
-              MetricData:
-                - MetricName: TenantActiveStatus
-                  Dimensions:
-                    - Name: TenantId
-                      Value: "{{ TenantId }}"
-                  Value: 0
-                  Unit: Count
-            isEnd: true
-
-          # 3. RESUME STEP: Restore Status ACTIVE & TenantActiveStatus = 1
-          - name: ResumeTenantInDynamoDB
-            action: aws:executeAwsApi
-            inputs:
-              Service: dynamodb
-              Api: UpdateItem
-              TableName: !Sub "${EnvironmentName}-nextcloud-tenant-registry"
-              Key:
-                tenant_id:
-                  S: "{{ TenantId }}"
-              UpdateExpression: "SET #st = :s, #lu = :t"
-              ExpressionAttributeNames:
-                "#st": status
-                "#lu": last_updated
-              ExpressionAttributeValues:
-                ":s":
-                  S: ACTIVE
-                ":t":
-                  S: "{{ global:DATE_TIME }}"
-            nextStep: PublishTenantResumedMetric
-
-          - name: PublishTenantResumedMetric
-            action: aws:executeAwsApi
-            inputs:
-              Service: cloudwatch
-              Api: PutMetricData
-              Namespace: Nextcloud/SaaS
-              MetricData:
-                - MetricName: TenantActiveStatus
-                  Dimensions:
-                    - Name: TenantId
-                      Value: "{{ TenantId }}"
-                  Value: 1
-                  Unit: Count
-            isEnd: true
-
-          # 4. DEPROVISION STEP: Delete Record from DynamoDB & Mark Status = -1
-          - name: DeprovisionTenantInDynamoDB
-            action: aws:executeAwsApi
-            inputs:
-              Service: dynamodb
-              Api: DeleteItem
-              TableName: !Sub "${EnvironmentName}-nextcloud-tenant-registry"
-              Key:
-                tenant_id:
-                  S: "{{ TenantId }}"
-            nextStep: PublishTenantDeprovisionedMetric
-
-          - name: PublishTenantDeprovisionedMetric
-            action: aws:executeAwsApi
-            inputs:
-              Service: cloudwatch
-              Api: PutMetricData
-              Namespace: Nextcloud/SaaS
-              MetricData:
-                - MetricName: TenantActiveStatus
-                  Dimensions:
-                    - Name: TenantId
-                      Value: "{{ TenantId }}"
-                  Value: 0
-                  Unit: Count
-            isEnd: true
 
   # ============================================================================
   # SUPER ADMIN WEB HOSTING (S3 + CLOUDFRONT)
@@ -575,6 +325,25 @@ Resources:
                   - !GetAtt DynamoDBAdminUsers.Arn
                   - !GetAtt DynamoDBAuditLogs.Arn
                   - !Sub "${DynamoDBAuditLogs.Arn}/index/*"
+              - Sid: S3VaultAccess
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - Fn::If:
+                      - HasS3VaultBucketArn
+                      - !Ref S3VaultBucketArn
+                      - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
+                  - Fn::Sub:
+                      - "${BucketArn}/*"
+                      - BucketArn:
+                          Fn::If:
+                            - HasS3VaultBucketArn
+                            - !Ref S3VaultBucketArn
+                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
               - Sid: ECSServiceControl
                 Effect: Allow
                 Action:
@@ -593,15 +362,6 @@ Resources:
                               - HasECSClusterName
                               - !Ref ECSClusterName
                               - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
-              - Sid: SSMRunbookExecution
-                Effect: Allow
-                Action:
-                  - ssm:StartAutomationExecution
-                  - ssm:GetAutomationExecution
-                  - ssm:StopAutomationExecution
-                Resource:
-                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/${SSMTenantOperatorRunbook}:*"
-                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-execution/*"
               - Sid: SSMParameterAccess
                 Effect: Allow
                 Action:
@@ -647,8 +407,8 @@ Resources:
                   - states:StopExecution
                   - states:GetExecutionHistory
                 Resource:
-                  - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Lifecycle-Operator"
-                  - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${EnvironmentName}-Tenant-Lifecycle-Operator:*"
+                  - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-*"
+                  - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${EnvironmentName}-Tenant-*:*"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -676,8 +436,10 @@ Resources:
               - HasECSClusterName
               - !Ref ECSClusterName
               - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
-          SSM_RUNBOOK_NAME: !Ref SSMTenantOperatorRunbook
-          STATE_MACHINE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Lifecycle-Operator"
+          STATE_MACHINE_PROVISION_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Provisioning"
+          STATE_MACHINE_SUSPEND_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Suspension"
+          STATE_MACHINE_RESUME_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Resumption"
+          STATE_MACHINE_DEPROVISION_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Deprovisioning"
       Code: !If
         - HasLambdaS3Code
         - S3Bucket: !Ref LambdaCodeBucket
@@ -685,7 +447,7 @@ Resources:
         - ZipFile: |
             import json,os,time,hmac,hashlib,base64,struct,boto3,decimal
             TBL=os.environ.get("TABLE_NAME","dev-nextcloud-tenant-registry")
-            KEY=os.environ.get("ADMIN_MASTER_KEY","StorixAdmin2026!Secure")
+            KEY=os.environ.get("ADMIN_MASTER_KEY","")
             CORS={"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"}
             def d2j(o):
                 if isinstance(o,decimal.Decimal):return int(o) if o%1==0 else float(o)
@@ -701,9 +463,11 @@ Resources:
                 except:pass
                 return False
             def make_tok(p):
+                if not KEY: raise RuntimeError("Authentication service signing keys unavailable. Fail-closed.")
                 s=base64.b64encode(json.dumps(p).encode()).decode()
                 return f"{s}.{hmac.new(KEY.encode(),s.encode(),hashlib.sha256).hexdigest()}"
             def verify_tok(t):
+                if not KEY: return None
                 try:
                     s,sig=t.split(".",1)
                     if hmac.compare_digest(hmac.new(KEY.encode(),s.encode(),hashlib.sha256).hexdigest(),sig):
@@ -712,35 +476,38 @@ Resources:
                 return None
             def resp(st,d):return {"statusCode":st,"headers":CORS,"body":json.dumps(d,default=d2j)}
             def lambda_handler(event,context):
-                m=event.get("httpMethod") or event.get("requestContext",{}).get("http",{}).get("method","GET")
-                if m=="OPTIONS":return resp(200,{})
-                b=event.get("body") or {}
-                if isinstance(b,str):
-                    try:b=json.loads(b)
-                    except:b={}
-                q=event.get("queryStringParameters") or {}
-                act=(b.get("action") or q.get("action") or "").upper()
-                if act=="LOGIN":
-                    u=(b.get("username") or b.get("email") or "").strip().lower()
-                    p=b.get("password") or ""
-                    if (u in ("nhphuong.code@gmail.com","admin") or "@" in u) and (p in (KEY,"StorixAdmin2026!Secure")):
-                        tok=make_tok({"user":u,"typ":"mfa","exp":time.time()+300})
-                        return resp(200,{"status":"MFA_REQUIRED","challenge_token":tok,"user":u,"role":"SuperAdmin","demo_totp_secret":"JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"})
-                    return resp(401,{"error":"Invalid administrative credentials."})
-                if act=="VERIFY_MFA":
-                    ch=b.get("challenge_token") or ""
-                    code=b.get("mfa_code") or b.get("totp_code") or ""
-                    p=verify_tok(ch)
-                    if not p or p.get("typ")!="mfa":return resp(401,{"error":"Invalid or expired challenge token."})
-                    if not verify_totp("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",code):return resp(401,{"error":"Invalid 6-digit verification code."})
-                    tok=make_tok({"user":p["user"],"role":"SuperAdmin","exp":time.time()+86400})
-                    return resp(200,{"status":"OK","token":tok,"user":p["user"],"role":"SuperAdmin"})
-                dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                try:
+                    m=event.get("httpMethod") or event.get("requestContext",{}).get("http",{}).get("method","GET")
+                    if m=="OPTIONS":return resp(200,{})
+                    b=event.get("body") or {}
+                    if isinstance(b,str):
+                        try:b=json.loads(b)
+                        except:b={}
+                    q=event.get("queryStringParameters") or {}
+                    act=(b.get("action") or q.get("action") or "").upper()
+                    if act=="LOGIN":
+                        if not KEY: return resp(503,{"status":"AUTH_FAILED","error":"Authentication service signing keys unavailable. Fail-closed."})
+                        u=(b.get("username") or b.get("email") or "").strip().lower()
+                        p=b.get("password") or ""
+                        if (u in ("nhphuong.code@gmail.com","admin") or "@" in u) and (p and p == KEY):
+                            tok=make_tok({"user":u,"typ":"mfa","exp":time.time()+300})
+                            return resp(200,{"status":"MFA_REQUIRED","challenge_token":tok,"user":u,"role":"SuperAdmin"})
+                        return resp(401,{"error":"Invalid administrative credentials."})
+                    if act=="VERIFY_MFA":
+                        if not KEY: return resp(503,{"status":"AUTH_FAILED","error":"Authentication service signing keys unavailable. Fail-closed."})
+                        ch=b.get("challenge_token") or ""
+                        code=b.get("mfa_code") or b.get("totp_code") or ""
+                        p=verify_tok(ch)
+                        if not p or p.get("typ")!="mfa":return resp(401,{"error":"Invalid or expired challenge token."})
+                        if not verify_totp("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",code):return resp(401,{"error":"Invalid 6-digit verification code."})
+                        tok=make_tok({"user":p["user"],"role":"SuperAdmin","exp":time.time()+86400})
+                        return resp(200,{"status":"OK","token":tok,"user":p["user"],"role":"SuperAdmin"})
+                    dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
                 tbl=dynamo.Table(TBL)
                 if act=="PROVISION":
                     tid=b.get("tenant_id")
                     if not tid:return resp(400,{"error":"tenant_id is required"})
-                    item={"tenant_id":tid,"status":"ACTIVE","created_at":int(time.time()),"domain":b.get("domain",f"{tid}.png261.dev"),"admin_email":b.get("admin_email",f"admin@{tid}.com"),"quota_gb":b.get("quota_gb",100)}
+                    item={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":b.get("domain",f"{tid}.png261.dev"),"admin_email":b.get("admin_email",f"admin@{tid}.com"),"quota_gb":b.get("quota_gb",100)}
                     tbl.put_item(Item=item)
                     return resp(200,{"status":"PROVISIONED","message":f"Tenant {tid} provisioned successfully","tenant":item,"item":item})
                 if act in ("LIST","FLEET"):
@@ -757,7 +524,7 @@ Resources:
                     tid=b.get("tenant_id") or q.get("tenant_id")
                     if not tid:return resp(400,{"error":"tenant_id is required"})
                     st="SUSPENDED" if act=="SUSPEND" else "ACTIVE"
-                    tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #s=:s",ExpressionAttributeNames={"#s":"status"},ExpressionAttributeValues={":s":st})
+                    tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #s=:s,#p=:p,#cs=:cs",ExpressionAttributeNames={"#s":"status","#p":"progress","#cs":"current_step"},ExpressionAttributeValues={":s":st,":p":100,":cs":"Suspended ($0 FinOps)" if st=="SUSPENDED" else "Ready & Operational"})
                     return resp(200,{"status":"OK","message":f"Tenant {tid} {st.lower()}","new_status":st})
                 if act in ("DELETE","DEPROVISION"):
                     tid=b.get("tenant_id") or q.get("tenant_id")
@@ -812,15 +579,6 @@ Resources:
       Tags:
         Environment: !Ref EnvironmentName
 
-  SSMAutomationRoleArn:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: !Sub "/nextcloud/${EnvironmentName}/infra/ssm-operator-role-arn"
-      Type: String
-      Value: !GetAtt SSMAutomationRole.Arn
-      Description: SSM Operator Role ARN
-      Tags:
-        Environment: !Ref EnvironmentName
 
   SSMAdminWebBucket:
     Type: AWS::SSM::Parameter
@@ -938,48 +696,17 @@ Resources:
                   - !GetAtt TenantOperatorLambda.Arn
                   - !Sub "${TenantOperatorLambda.Arn}:*"
 
-  TenantLifecycleStateMachine:
+  TenantProvisioningStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
-      StateMachineName: !Sub "${EnvironmentName}-Tenant-Lifecycle-Operator"
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Provisioning"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
       DefinitionString: !Sub |
         {
-          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Lifecycle with Saga Rollback",
-          "StartAt": "ChooseActionBranch",
+          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Provisioning with Real-Time Progress & Saga Rollback",
+          "StartAt": "ProvisionMarkDynamoDB",
           "States": {
-            "ChooseActionBranch": {
-              "Type": "Choice",
-              "Choices": [
-                {
-                  "Variable": "$.Action",
-                  "StringEquals": "PROVISION",
-                  "Next": "ProvisionMarkDynamoDB"
-                },
-                {
-                  "Variable": "$.Action",
-                  "StringEquals": "SUSPEND",
-                  "Next": "SuspendScaleECS"
-                },
-                {
-                  "Variable": "$.Action",
-                  "StringEquals": "RESUME",
-                  "Next": "ResumeScaleECS"
-                },
-                {
-                  "Variable": "$.Action",
-                  "StringEquals": "DEPROVISION",
-                  "Next": "DeprovisionDeleteECS"
-                }
-              ],
-              "Default": "InvalidAction"
-            },
-            "InvalidAction": {
-              "Type": "Fail",
-              "Error": "InvalidActionError",
-              "Cause": "Action must be one of: PROVISION, SUSPEND, RESUME, DEPROVISION"
-            },
             "ProvisionMarkDynamoDB": {
               "Type": "Task",
               "Resource": "arn:aws:states:::dynamodb:putItem",
@@ -988,6 +715,8 @@ Resources:
                 "Item": {
                   "tenant_id": { "S.$": "$.TenantId" },
                   "status": { "S": "PROVISIONING" },
+                  "progress": { "N": "15" },
+                  "current_step": { "S": "Initializing Registry & Allocating Ingress" },
                   "quota_gb": { "N.$": "$.StorageQuotaGB" },
                   "domain": { "S.$": "$.CompanyDomain" }
                 }
@@ -1015,6 +744,27 @@ Resources:
                   "Next": "SagaRollback"
                 }
               ],
+              "Next": "MarkInfraAllocated"
+            },
+            "MarkInfraAllocated": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":p": { "N": "45" },
+                  ":cs": { "S": "Allocating Dedicated Infrastructure (EFS, ECS, ALB)" }
+                }
+              },
+              "ResultPath": "$.infra_mark_result",
               "Next": "WaitForContainerHealthy"
             },
             "WaitForContainerHealthy": {
@@ -1033,6 +783,13 @@ Resources:
                 }
               },
               "ResultPath": "$.health_check",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.error",
+                  "Next": "SagaRollback"
+                }
+              ],
               "Next": "IsContainerHealthy"
             },
             "IsContainerHealthy": {
@@ -1041,7 +798,7 @@ Resources:
                 {
                   "Variable": "$.health_check.Payload.healthy",
                   "BooleanEquals": true,
-                  "Next": "SeedTenantData"
+                  "Next": "MarkContainerHealthy"
                 }
               ],
               "Default": "RetryHealthCheck"
@@ -1050,6 +807,27 @@ Resources:
               "Type": "Wait",
               "Seconds": 10,
               "Next": "CheckHealthStatus"
+            },
+            "MarkContainerHealthy": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":p": { "N": "75" },
+                  ":cs": { "S": "Fargate Container Healthy (/status.php 200 OK)" }
+                }
+              },
+              "ResultPath": "$.health_mark_result",
+              "Next": "SeedTenantData"
             },
             "SeedTenantData": {
               "Type": "Task",
@@ -1079,12 +857,16 @@ Resources:
                 "Key": {
                   "tenant_id": { "S.$": "$.TenantId" }
                 },
-                "UpdateExpression": "SET #st = :s",
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
                 "ExpressionAttributeNames": {
-                  "#st": "status"
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
                 },
                 "ExpressionAttributeValues": {
-                  ":s": { "S": "ACTIVE" }
+                  ":s": { "S": "ACTIVE" },
+                  ":p": { "N": "100" },
+                  ":cs": { "S": "Ready & Operational" }
                 }
               },
               "ResultPath": "$.active_result",
@@ -1132,13 +914,17 @@ Resources:
                 "Key": {
                   "tenant_id": { "S.$": "$.TenantId" }
                 },
-                "UpdateExpression": "SET #st = :s, #err = :e",
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs, #err = :e",
                 "ExpressionAttributeNames": {
                   "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step",
                   "#err": "last_error"
                 },
                 "ExpressionAttributeValues": {
                   ":s": { "S": "FAILED" },
+                  ":p": { "N": "0" },
+                  ":cs": { "S": "Provisioning failed and rolled back" },
                   ":e": { "S": "Provisioning failed during container/resource initialization" }
                 }
               },
@@ -1148,6 +934,47 @@ Resources:
               "Type": "Fail",
               "Error": "ProvisioningFailed",
               "Cause": "Tenant provisioning failed and Saga compensation rolled back partial resources."
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+  TenantSuspensionStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Suspension"
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Suspension (FinOps Scale-to-Zero)",
+          "StartAt": "MarkSuspendingDynamoDB",
+          "States": {
+            "MarkSuspendingDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "SUSPENDING" },
+                  ":p": { "N": "30" },
+                  ":cs": { "S": "Draining active connections & scaling Fargate tasks to 0" }
+                }
+              },
+              "ResultPath": "$.ddb_suspending_result",
+              "Next": "SuspendScaleECS"
             },
             "SuspendScaleECS": {
               "Type": "Task",
@@ -1160,6 +987,29 @@ Resources:
                 }
               },
               "ResultPath": "$.suspend_result",
+              "Next": "MarkSuspendedDynamoDB"
+            },
+            "MarkSuspendedDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "SUSPENDED" },
+                  ":p": { "N": "100" },
+                  ":cs": { "S": "Suspended ($0 FinOps Scale-to-Zero)" }
+                }
+              },
+              "ResultPath": "$.ddb_result",
               "Next": "PublishSuspendMetric"
             },
             "PublishSuspendMetric": {
@@ -1182,6 +1032,48 @@ Resources:
                 ]
               },
               "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
+  TenantResumptionStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Resumption"
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Resumption",
+          "StartAt": "MarkResumingDynamoDB",
+          "States": {
+            "MarkResumingDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "RESUMING" },
+                  ":p": { "N": "25" },
+                  ":cs": { "S": "Scaling ECS Fargate task to 1" }
+                }
+              },
+              "ResultPath": "$.ddb_resuming_result",
+              "Next": "ResumeScaleECS"
             },
             "ResumeScaleECS": {
               "Type": "Task",
@@ -1194,6 +1086,84 @@ Resources:
                 }
               },
               "ResultPath": "$.resume_result",
+              "Next": "WaitForResumeHealthy"
+            },
+            "WaitForResumeHealthy": {
+              "Type": "Wait",
+              "Seconds": 15,
+              "Next": "MarkCheckingHealthDynamoDB"
+            },
+            "MarkCheckingHealthDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":p": { "N": "65" },
+                  ":cs": { "S": "Checking container health (/status.php 200 OK)" }
+                }
+              },
+              "ResultPath": "$.ddb_health_step_result",
+              "Next": "CheckResumeHealth"
+            },
+            "CheckResumeHealth": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "CHECK_TENANT_HEALTH",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.health_check",
+              "Next": "IsResumeHealthy"
+            },
+            "IsResumeHealthy": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.health_check.Payload.healthy",
+                  "BooleanEquals": true,
+                  "Next": "MarkResumedDynamoDB"
+                }
+              ],
+              "Default": "RetryResumeHealth"
+            },
+            "RetryResumeHealth": {
+              "Type": "Wait",
+              "Seconds": 10,
+              "Next": "CheckResumeHealth"
+            },
+            "MarkResumedDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "ACTIVE" },
+                  ":p": { "N": "100" },
+                  ":cs": { "S": "Ready & Operational" }
+                }
+              },
+              "ResultPath": "$.ddb_result",
               "Next": "PublishResumeMetric"
             },
             "PublishResumeMetric": {
@@ -1216,18 +1186,127 @@ Resources:
                 ]
               },
               "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
+  TenantDeprovisioningStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Deprovisioning"
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Deprovisioning with Real-Time Progress & Complete Teardown",
+          "StartAt": "MarkDeprovisioningDynamoDB",
+          "States": {
+            "MarkDeprovisioningDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "DELETING" },
+                  ":p": { "N": "15" },
+                  ":cs": { "S": "Initiating teardown: draining connections & stopping tasks" }
+                }
+              },
+              "ResultPath": "$.ddb_deleting_result",
+              "Next": "DeprovisionECSCompute"
             },
-            "DeprovisionDeleteECS": {
+            "DeprovisionECSCompute": {
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
                 "FunctionName": "${TenantOperatorLambda.Arn}",
                 "Payload": {
-                  "action": "DEPROVISION",
+                  "action": "DEPROVISION_ECS",
                   "tenant_id.$": "$.TenantId"
                 }
               },
-              "ResultPath": "$.deprovision_result",
+              "ResultPath": "$.ecs_result",
+              "Next": "MarkECSDeletedDynamoDB"
+            },
+            "MarkECSDeletedDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":p": { "N": "50" },
+                  ":cs": { "S": "ECS Service deleted; removing ALB target group & routing rules" }
+                }
+              },
+              "ResultPath": "$.ddb_ecs_result",
+              "Next": "DeprovisionIngressAndStorage"
+            },
+            "DeprovisionIngressAndStorage": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "Payload": {
+                  "action": "DEPROVISION_STORAGE",
+                  "tenant_id.$": "$.TenantId"
+                }
+              },
+              "ResultPath": "$.storage_result",
+              "Next": "MarkStorageDeletedDynamoDB"
+            },
+            "MarkStorageDeletedDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":p": { "N": "90" },
+                  ":cs": { "S": "Ingress & EFS Access Point removed; purging registry record" }
+                }
+              },
+              "ResultPath": "$.ddb_storage_result",
+              "Next": "PurgeDynamoDBRecord"
+            },
+            "PurgeDynamoDBRecord": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:deleteItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                }
+              },
+              "ResultPath": "$.ddb_purge_result",
               "Next": "PublishDeprovisionMetric"
             },
             "PublishDeprovisionMetric": {
@@ -1260,11 +1339,30 @@ Resources:
           Value: Nextcloud-SaaS-Control-Plane
 
 Outputs:
-  TenantLifecycleStateMachineArn:
-    Description: Step Functions Tenant Lifecycle State Machine ARN
-    Value: !Ref TenantLifecycleStateMachine
+  TenantProvisioningStateMachineArn:
+    Description: Step Functions Tenant Provisioning State Machine ARN
+    Value: !Ref TenantProvisioningStateMachine
     Export:
-      Name: !Sub "${EnvironmentName}-nextcloud-TenantLifecycleStateMachineArn"
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantProvisioningStateMachineArn"
+
+  TenantSuspensionStateMachineArn:
+    Description: Step Functions Tenant Suspension State Machine ARN
+    Value: !Ref TenantSuspensionStateMachine
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantSuspensionStateMachineArn"
+
+  TenantResumptionStateMachineArn:
+    Description: Step Functions Tenant Resumption State Machine ARN
+    Value: !Ref TenantResumptionStateMachine
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantResumptionStateMachineArn"
+
+  TenantDeprovisioningStateMachineArn:
+    Description: Step Functions Tenant Deprovisioning State Machine ARN
+    Value: !Ref TenantDeprovisioningStateMachine
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantDeprovisioningStateMachineArn"
+
   TenantRegistryTable:
     Description: DynamoDB Tenant Registry Table
     Value: !Ref DynamoDBTenantRegistry
@@ -1300,18 +1398,6 @@ Outputs:
     Value: !Ref AdminUserPoolClient
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-CognitoClientId"
-
-  SSMAutomationRoleArn:
-    Description: SSM Automation Role ARN
-    Value: !GetAtt SSMAutomationRole.Arn
-    Export:
-      Name: !Sub "${EnvironmentName}-nextcloud-SSMAutomationRoleArn"
-
-  SSMRunbookName:
-    Description: SSM Tenant Operator Runbook Name
-    Value: !Ref SSMTenantOperatorRunbook
-    Export:
-      Name: !Sub "${EnvironmentName}-nextcloud-SSMRunbookName"
 
   AdminWebBucketName:
     Description: S3 Bucket Name for Super Admin Web Console

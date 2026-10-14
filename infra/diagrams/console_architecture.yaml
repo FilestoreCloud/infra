@@ -101,17 +101,17 @@ Diagram:
     OrchestrationRow:
       Type: AWS::Diagram::HorizontalStack
       Children:
-        - SSMRunbook
-        - SSMAutoRole
+        - StepFunctionsMicroWorkflows
+        - StepFunctionsExecutionRole
         - BackendApiHandler
 
-    SSMRunbook:
-      Type: AWS::SSM::Document
-      Title: "SSM Lifecycle Runbook\n(Tenant-Lifecycle-Operator)\nPROVISION | SUSPEND | RESUME"
+    StepFunctionsMicroWorkflows:
+      Type: AWS::StepFunctions::StateMachine
+      Title: "Step Functions Workflows\\n(Provision, Suspend, Resume,\\nDeprovision with Saga Rollback)"
 
-    SSMAutoRole:
+    StepFunctionsExecutionRole:
       Type: AWS::IAM::Role
-      Title: "SSM Automation IAM Role\n(Least Privilege Operator)"
+      Title: "Step Functions IAM Role\\n(Least Privilege Micro-Workflows)"
 
     BackendApiHandler:
       Type: AWS::Diagram::Resource
@@ -252,10 +252,10 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    # Backend API -> SSM Runbook & Audit
+    # Backend API -> Step Functions & Audit
     - Source: BackendApiHandler
       SourcePosition: W
-      Target: SSMRunbook
+      Target: StepFunctionsMicroWorkflows
       TargetPosition: E
       TargetArrowHead:
         Type: Open
@@ -277,16 +277,16 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    # SSM Runbook Execution & IAM Role
-    - Source: SSMAutoRole
+    # Step Functions Execution & IAM Role
+    - Source: StepFunctionsExecutionRole
       SourcePosition: W
-      Target: SSMRunbook
+      Target: StepFunctionsMicroWorkflows
       TargetPosition: NE
       TargetArrowHead:
         Type: Open
       Type: orthogonal
 
-    - Source: SSMRunbook
+    - Source: StepFunctionsMicroWorkflows
       SourcePosition: S
       Target: TenantRegistryTable
       TargetPosition: N
@@ -294,7 +294,7 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    - Source: SSMRunbook
+    - Source: StepFunctionsMicroWorkflows
       SourcePosition: S
       Target: CloudWatchDashboard
       TargetPosition: NW
@@ -302,8 +302,8 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    # SSM Runbook Lifecycle Operations on Managed Fleet
-    - Source: SSMRunbook
+    # Step Functions Lifecycle Operations on Managed Fleet
+    - Source: StepFunctionsMicroWorkflows
       SourcePosition: E
       Target: ECSFleet
       TargetPosition: W
@@ -311,7 +311,7 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    - Source: SSMRunbook
+    - Source: StepFunctionsMicroWorkflows
       SourcePosition: E
       Target: RDSFleet
       TargetPosition: W
@@ -319,7 +319,7 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    - Source: SSMRunbook
+    - Source: StepFunctionsMicroWorkflows
       SourcePosition: E
       Target: S3VaultFleet
       TargetPosition: W
@@ -327,7 +327,7 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    - Source: SSMRunbook
+    - Source: StepFunctionsMicroWorkflows
       SourcePosition: E
       Target: EFSConfigFleet
       TargetPosition: W

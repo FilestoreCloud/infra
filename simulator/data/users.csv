@@ -1,0 +1,22 @@
+tenant_id,username,display_name,email,role,quota_gb,storage_used_gb,group,mfa_enabled
+acme-corp,admin,Acme Administrator,admin@acme-corp.com,TenantAdmin,100,24.5,Administrators,true
+acme-corp,sarah.lead,Sarah Jenkins (Tech Lead),sarah@acme-corp.com,User,80,48.2,Engineering,true
+acme-corp,john.dev,John Doe (Senior Developer),john@acme-corp.com,User,60,35.1,Engineering,false
+acme-corp,lisa.product,Lisa Wang (Product Manager),lisa@acme-corp.com,User,50,22.4,Product,true
+acme-corp,sync-bot,Acme Desktop Sync Agent,sync@acme-corp.com,ServiceAccount,30,12.3,Automation,false
+fintech-zenith,admin,Zenith Administrator,admin@zenith.com,TenantAdmin,250,95.4,Administrators,true
+fintech-zenith,emma.cfo,Emma Watson (Chief Financial Officer),emma@zenith.com,User,200,184.2,Finance,true
+fintech-zenith,marcus.risk,Marcus Vance (Head of Risk),marcus@zenith.com,User,150,112.0,Risk & Compliance,true
+fintech-zenith,chloe.trader,Chloe Bennett (Senior Trader),chloe@zenith.com,User,150,128.4,Trading,true
+fintech-zenith,ledger-sync,Banking Ledger Backup Bot,ledger@zenith.com,ServiceAccount,100,100.0,Automation,false
+meditech-health,admin,MediTech Administrator,admin@meditech.com,TenantAdmin,80,28.4,Administrators,true
+meditech-health,dr.foster,Dr. Aris Foster (Chief Medical Officer),foster@meditech.com,User,70,52.1,Clinical,true
+meditech-health,lab.director,Rachel Green (Lab Director),rachel@meditech.com,User,60,44.8,Laboratory,true
+meditech-health,audit.service,HIPAA Clinical Archiver,archive@meditech.com,ServiceAccount,40,31.2,Compliance,false
+pixel-studios,admin,Pixel Administrator,admin@pixel.com,TenantAdmin,500,420.5,Administrators,true
+pixel-studios,alex.design,Alex Morgan (Creative Director),alex@pixel.com,User,600,580.4,Design,true
+pixel-studios,maya.video,Maya Lin (Video Production Lead),maya@pixel.com,User,500,488.2,Multimedia,false
+pixel-studios,render-node,Octane Render Cluster Sync,render@pixel.com,ServiceAccount,300,285.0,Automation,false
+sandbox-trial,admin,Startup Founder,admin@sandbox.com,TenantAdmin,15,4.2,Administrators,false
+sandbox-trial,co-founder,Tech Co-founder,dev@sandbox.com,User,5,1.8,Engineering,false
+honda-vn,admin,Honda Vietnam Administrator,admin@honda.com.vn,TenantAdmin,100,1.2,Administrators,true
