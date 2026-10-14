@@ -80,10 +80,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Verify Provisioning Scripts Syntax
+      - name: Verify Fleet Rollout Script Syntax
         run: |
-          python3 -m py_compile scripts/provision_dedicated_tenant.py
-          echo "✅ scripts/provision_dedicated_tenant.py syntax OK"
+          python3 -m py_compile scripts/rollout_tenant_image.py
+          echo "✅ scripts/rollout_tenant_image.py syntax OK"
 
       - name: Run Pytest (if tests exist)
         run: |

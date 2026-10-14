@@ -218,11 +218,14 @@ jobs:
 
       - name: Automated Tenant Provisioning Verification
         if: ${{ inputs.provision_smoke_tenant == true }}
-        run: |
-          ENV_NAME="${{ steps.target.outputs.env }}"
-          TENANT_ID="ci-smoke-$(date +%s)"
-          echo "🚀 Provisioning test tenant: ${TENANT_ID} in ${ENV_NAME}..."
-          python3 scripts/provision_dedicated_tenant.py \
-            --tenant-id "${TENANT_ID}" \
-            --tenant-domain "${TENANT_ID}.${ENV_NAME}.nextcloud.local"
-          echo "✅ Automated tenant provisioning smoke test succeeded!"
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ steps.target.outputs.env }}-nextcloud-tenant-smoke
+          template: infra/modules/tenant-instance/template.yaml
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: >-
+            EnvironmentName=${{ steps.target.outputs.env }},
+            TenantId=smoke,
+            TenantDomain=smoke.${{ steps.target.outputs.env }}.nextcloud.local,
+            AdminPassword=${{ secrets.SMOKE_TENANT_ADMIN_PASSWORD || 'SmokeNextcloud2026!' }}

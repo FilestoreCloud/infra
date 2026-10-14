@@ -46,7 +46,7 @@ jobs:
       - name: Install Dependencies
         run: |
           pip install --upgrade pip
-          pip install boto3 psycopg2-binary pyyaml
+          pip install boto3 pyyaml
 
       - name: Configure AWS Credentials via OIDC
         id: aws-creds
@@ -60,20 +60,18 @@ jobs:
         run: |
           echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
 
-      - name: Run Dedicated Tenant Provisioning Engine
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
-        run: |
-          echo "==============================================================="
-          echo "🚀 Provisioning Tenant: ${{ inputs.tenant_id }}"
-          echo "   Domain  : ${{ inputs.tenant_domain }}"
-          echo "   Quota   : ${{ inputs.storage_quota_gb }} GB"
-          echo "   Env     : ${{ inputs.environment }}"
-          echo "==============================================================="
-
-          python3 scripts/provision_dedicated_tenant.py \
-            --tenant-id "${{ inputs.tenant_id }}" \
-            --tenant-domain "${{ inputs.tenant_domain }}"
+      - name: Provision Dedicated Tenant via CloudFormation
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-tenant-${{ inputs.tenant_id }}
+          template: infra/modules/tenant-instance/template.yaml
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: >-
+            EnvironmentName=${{ inputs.environment }},
+            TenantId=${{ inputs.tenant_id }},
+            TenantDomain=${{ inputs.tenant_domain }},
+            AdminPassword=${{ secrets.TENANT_ADMIN_PASSWORD || 'ChangeMeNextcloud2026!' }}
 
       - name: Report Provisioning Status
         env:

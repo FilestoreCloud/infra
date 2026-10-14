@@ -71,8 +71,8 @@ cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W300
 # Deploy or destroy infrastructure:
 # Done via GitHub Actions CI/CD (.github/workflows/deploy.yml / destroy.yml)
 
-# Provision a dedicated tenant
-python3 scripts/provision_dedicated_tenant.py --tenant acme --domain acme.yourdomain.com --quota 50GB
+# Provision a dedicated tenant:
+# Done via GitHub Actions CI/CD (.github/workflows/provision.yml) or Super Admin Console
 ```
 
 ---

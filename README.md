@@ -65,13 +65,10 @@ All infrastructure deployments and destructions are executed via **Native GitHub
 
 ### Provision a Dedicated Tenant
 
-```bash
-python3 scripts/provision_dedicated_tenant.py \
-  --tenant acme \
-  --domain acme.filestorecloud.com \
-  --quota 50GB \
-  --env prod
-```
+Tenant provisioning is managed via:
+
+1. **GitHub Actions Workflow**: Trigger [`.github/workflows/provision.yml`](.github/workflows/provision.yml) with parameters (`tenant_id`, `tenant_domain`).
+2. **Super Admin Console**: Use the Web Console UI or API Gateway endpoint (`/api/tenants` with action `PROVISION`).
 
 ---
 
