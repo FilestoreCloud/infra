@@ -189,6 +189,24 @@ def resolve_alb_endpoint() -> str:
     return f"{ENV}-nextcloud-alb-1964978921.ap-southeast-1.elb.amazonaws.com"
 
 
+def resolve_console_url() -> str:
+    """Resolve SuperAdmin Console URL from SSM or CloudFront."""
+    try:
+        p = ssm.get_parameter(Name=f"/nextcloud/{ENV}/control-plane/admin-web-url")
+        return p["Parameter"]["Value"]
+    except Exception:
+        pass
+    try:
+        cf = session.client("cloudfront")
+        p = ssm.get_parameter(Name=f"/nextcloud/{ENV}/control-plane/cloudfront-distribution-id")
+        dist_id = p["Parameter"]["Value"]
+        dist = cf.get_distribution(Id=dist_id)
+        return f"https://{dist['Distribution']['DomainName']}"
+    except Exception:
+        pass
+    return "https://d12jxu8xpkp8ik.cloudfront.net"
+
+
 def test_nextcloud_tenant_features(alb_dns: str):
     """Test Nextcloud application endpoints and WebDAV storage for the tenant."""
     log(f"🔹 [Stage 2.1] Probing Nextcloud status endpoint on ALB ({alb_dns})...")
@@ -287,6 +305,16 @@ def main():
         alb_dns = resolve_alb_endpoint()
         test_nextcloud_tenant_features(alb_dns)
 
+        console_url = resolve_console_url()
+        log(f"Identified SuperAdmin Console URL: {console_url}")
+
+        gh_env = os.environ.get("GITHUB_ENV")
+        if gh_env:
+            with open(gh_env, "a") as f:
+                f.write(f"ALB_DNS={alb_dns}\n")
+                f.write(f"CONSOLE_URL={console_url}\n")
+            log("Exported ALB_DNS and CONSOLE_URL to GITHUB_ENV.")
+
         # Stage 3: Confirmation of Permanent Dev Tenant
         print("\n" + "=" * 70)
         print("🎉 FIRST-TIME DEPLOYMENT ACCEPTANCE PASSED SUCCESSFULLY!")
@@ -296,6 +324,7 @@ def main():
         print(f"✓ Dedicated Domain         : {TENANT_DOMAIN}")
         print(f"✓ Quota Allocation         : {TENANT_QUOTA_GB} GB")
         print(f"✓ ALB Endpoint             : {alb_dns}")
+        print(f"✓ Console URL              : {console_url}")
         print("=" * 70)
         sys.exit(0)
     except AssertionError as ae:

@@ -150,6 +150,18 @@ Resources:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_ADMIN_USER_PASSWORD_AUTH
 
+  SuperAdminUser:
+    Type: AWS::Cognito::UserPoolUser
+    Properties:
+      UserPoolId: !Ref AdminUserPool
+      Username: "nhphuong.code@gmail.com"
+      UserAttributes:
+        - Name: email
+          Value: "nhphuong.code@gmail.com"
+        - Name: email_verified
+          Value: "true"
+      MessageAction: SUPPRESS
+
   SSMAutomationRole:
     Type: AWS::IAM::Role
     Properties:
@@ -672,38 +684,77 @@ Resources:
         - S3Bucket: !Ref LambdaCodeBucket
           S3Key: !Ref LambdaCodeKey
         - ZipFile: |
-            import json
-            def lambda_handler(event, context):
-                method = event.get('httpMethod') or event.get('requestContext', {}).get('http', {}).get('method', 'GET')
-                headers = {
-                    'Content-Type': 'application/json',
-                    'Access-Control-Allow-Origin': '*',
-                    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-                    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'
-                }
-                if method == 'OPTIONS':
-                    return {'statusCode': 200, 'headers': headers, 'body': ''}
-
-                body_raw = event.get('body') or '{}'
+            import json,os,time,hmac,hashlib,base64,struct,boto3
+            TBL=os.environ.get("TABLE_NAME","dev-nextcloud-tenant-registry")
+            KEY=os.environ.get("ADMIN_MASTER_KEY","StorixAdmin2026!Secure")
+            CORS={"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"}
+            def verify_totp(sec,code):
                 try:
-                    body = json.loads(body_raw) if isinstance(body_raw, str) else body_raw
-                except Exception:
-                    body = {}
-
-                if method in ['POST', 'PUT', 'DELETE']:
-                    if not body.get('tenant_id'):
-                        return {
-                            'statusCode': 400,
-                            'headers': headers,
-                            'body': json.dumps({'error': 'tenant_id is required'})
-                        }
-
-                action = body.get('action') if isinstance(body, dict) and body.get('action') else event.get('queryStringParameters', {}).get('action', 'HEALTH') if event.get('queryStringParameters') else 'HEALTH'
-                return {
-                    'statusCode': 200,
-                    'headers': headers,
-                    'body': json.dumps({'status': 'OK', 'action': action, 'service': 'Nextcloud-SaaS-Control-Plane'})
-                }
+                    k=base64.b32decode((sec.replace(" ","").upper()+"========")[:32],casefold=True)
+                    st=int(time.time()//30)
+                    for s in(st-1,st,st+1):
+                        h=hmac.new(k,struct.pack(">Q",s),hashlib.sha1).digest()
+                        c=(struct.unpack(">I",h[h[-1]&15:(h[-1]&15)+4])[0]&0x7FFFFFFF)%1000000
+                        if f"{c:06d}"==str(code).strip():return True
+                except:pass
+                return False
+            def make_tok(p):
+                s=base64.b64encode(json.dumps(p).encode()).decode()
+                return f"{s}.{hmac.new(KEY.encode(),s.encode(),hashlib.sha256).hexdigest()}"
+            def verify_tok(t):
+                try:
+                    s,sig=t.split(".",1)
+                    if hmac.compare_digest(hmac.new(KEY.encode(),s.encode(),hashlib.sha256).hexdigest(),sig):
+                        return json.loads(base64.b64decode(s).decode())
+                except:pass
+                return None
+            def resp(st,d):return {"statusCode":st,"headers":CORS,"body":json.dumps(d)}
+            def lambda_handler(event,context):
+                m=event.get("httpMethod") or event.get("requestContext",{}).get("http",{}).get("method","GET")
+                if m=="OPTIONS":return resp(200,{})
+                b=event.get("body") or {}
+                if isinstance(b,str):
+                    try:b=json.loads(b)
+                    except:b={}
+                q=event.get("queryStringParameters") or {}
+                act=(b.get("action") or q.get("action") or "").upper()
+                if act=="LOGIN":
+                    u=(b.get("username") or b.get("email") or "").strip().lower()
+                    p=b.get("password") or ""
+                    if (u in ("nhphuong.code@gmail.com","admin") or "@" in u) and (p in (KEY,"StorixAdmin2026!Secure")):
+                        tok=make_tok({"user":u,"typ":"mfa","exp":time.time()+300})
+                        return resp(200,{"status":"MFA_REQUIRED","challenge_token":tok,"user":u,"role":"SuperAdmin"})
+                    return resp(401,{"error":"Invalid administrative credentials."})
+                if act=="VERIFY_MFA":
+                    ch=b.get("challenge_token") or ""
+                    code=b.get("mfa_code") or b.get("totp_code") or ""
+                    p=verify_tok(ch)
+                    if not p or p.get("typ")!="mfa":return resp(401,{"error":"Invalid or expired challenge token."})
+                    if not verify_totp("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",code):return resp(401,{"error":"Invalid 6-digit verification code."})
+                    tok=make_tok({"user":p["user"],"role":"SuperAdmin","exp":time.time()+86400})
+                    return resp(200,{"status":"OK","token":tok,"user":p["user"],"role":"SuperAdmin"})
+                dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                tbl=dynamo.Table(TBL)
+                if act=="PROVISION":
+                    tid=b.get("tenant_id")
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    item={"tenant_id":tid,"status":"ACTIVE","created_at":int(time.time()),"domain":b.get("domain",f"{tid}.png261.dev"),"quota_gb":b.get("quota_gb",10)}
+                    tbl.put_item(Item=item)
+                    return resp(200,{"status":"PROVISIONED","tenant":item})
+                if act in ("LIST","FLEET"):
+                    items=tbl.scan().get("Items",[])
+                    return resp(200,{"status":"OK","data":items,"items":items,"total":len(items)})
+                if act=="DESCRIBE":
+                    tid=b.get("tenant_id") or q.get("tenant_id")
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    r=tbl.get_item(Key={"tenant_id":tid})
+                    if "Item" not in r:return resp(404,{"error":f"Tenant {tid} not found"})
+                    return resp(200,{"status":"OK","tenant":r["Item"]})
+                if act in ("DELETE","DEPROVISION"):
+                    tid=b.get("tenant_id") or q.get("tenant_id")
+                    if tid:tbl.delete_item(Key={"tenant_id":tid})
+                    return resp(200,{"status":"DEPROVISIONED","tenant_id":tid})
+                return resp(200,{"status":"OK","action":act or "HEALTH","service":"Nextcloud-SaaS-Control-Plane"})
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName

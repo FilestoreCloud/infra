@@ -185,16 +185,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
+        id: aws-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
+          output-credentials: true
 
       - name: Resolve Golden Image URI
         id: image-resolver
         run: |
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ACCOUNT_ID="${{ steps.aws-creds.outputs.aws-account-id }}"
           ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }}"
           echo "image=${ECR_IMAGE}" >> $GITHUB_OUTPUT
           echo "Using Golden Image URI: ${ECR_IMAGE}"
@@ -246,69 +248,6 @@ jobs:
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
-
-      - name: Deploy Complete SuperAdmin Lambda Operator Logic
-        run: |
-          echo "Packaging and updating tenant operator Lambda function..."
-          cd infra/modules/06-superadmin
-          python3 -c "
-          import zipfile
-          with open('tenant_operator_lambda.py', 'rb') as f:
-              code = f.read()
-          with zipfile.ZipFile('/tmp/tenant_operator.zip', 'w', zipfile.ZIP_DEFLATED) as z:
-              z.writestr('index.py', code)
-          "
-          aws lambda update-function-code \
-            --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
-            --zip-file fileb:///tmp/tenant_operator.zip
-          echo "✓ Lambda function code updated successfully."
-
-      - name: Ensure Lambda Function URL Invocation Permissions
-        run: |
-          echo "Ensuring Lambda Function URL public invocation permissions..."
-          aws lambda add-permission \
-            --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
-            --statement-id "FunctionURLPublicInvokeStatement" \
-            --action "lambda:InvokeFunctionUrl" \
-            --principal "*" \
-            --function-url-auth-type "NONE" 2>/dev/null || true
-          aws lambda add-permission \
-            --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
-            --statement-id "FunctionPublicInvokeStatement" \
-            --action "lambda:InvokeFunction" \
-            --principal "*" 2>/dev/null || true
-          echo "Lambda resource policy verified:"
-          aws lambda get-policy --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" || true
-
-      - name: Ensure SuperAdmin User in Cognito User Pool
-        env:
-          ENV: ${{ inputs.environment }}
-          ADMIN_EMAIL: "nhphuong.code@gmail.com"
-        run: |
-          echo "Ensuring SuperAdmin user exists in Cognito User Pool..."
-          USER_POOL_ID=$(aws ssm get-parameter --name "/nextcloud/${ENV}/control-plane/cognito-user-pool-id" --query "Parameter.Value" --output text 2>/dev/null || echo "")
-          if [ -z "$USER_POOL_ID" ]; then
-            USER_POOL_ID=$(aws cognito-idp list-user-pools --max-results 10 --query "UserPools[?Name=='${ENV}-nextcloud-admin-pool'].Id" --output text 2>/dev/null || echo "")
-          fi
-          if [ -n "$USER_POOL_ID" ]; then
-            echo "Target User Pool: $USER_POOL_ID"
-            if ! aws cognito-idp admin-get-user --user-pool-id "$USER_POOL_ID" --username "$ADMIN_EMAIL" >/dev/null 2>&1; then
-              echo "Creating SuperAdmin user $ADMIN_EMAIL in Cognito..."
-              aws cognito-idp admin-create-user \
-                --user-pool-id "$USER_POOL_ID" \
-                --username "$ADMIN_EMAIL" \
-                --user-attributes Name=email,Value="$ADMIN_EMAIL" Name=email_verified,Value=true \
-                --message-action SUPPRESS
-              aws cognito-idp admin-set-user-password \
-                --user-pool-id "$USER_POOL_ID" \
-                --username "$ADMIN_EMAIL" \
-                --password "${{ secrets.ADMIN_PASSWORD }}" \
-                --permanent
-              echo "✓ SuperAdmin user created successfully in Cognito."
-            else
-              echo "✓ SuperAdmin user already exists in Cognito User Pool."
-            fi
-          fi
 
       - name: Setup Go for Terratest
         uses: actions/setup-go@v5
@@ -422,20 +361,7 @@ jobs:
           SUPERADMIN_USERNAME: "nhphuong.code@gmail.com"
           SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
-          ALB_DNS=$(aws ssm get-parameter --name "/nextcloud/${ENV}/infra/alb-dns-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
-          if [ -z "$ALB_DNS" ]; then
-            ALB_DNS=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?contains(LoadBalancerName, '${ENV}-nextcloud-alb')].DNSName" --output text)
-          fi
           echo "Target ALB DNS for Playwright E2E: $ALB_DNS"
-
-          CONSOLE_URL=$(aws ssm get-parameter --name "/nextcloud/${ENV}/control-plane/admin-web-url" --query "Parameter.Value" --output text 2>/dev/null || echo "")
-          if [ -z "$CONSOLE_URL" ]; then
-            DIST_ID=$(aws ssm get-parameter --name "/nextcloud/${ENV}/control-plane/cloudfront-distribution-id" --query "Parameter.Value" --output text 2>/dev/null || echo "")
-            if [ -n "$DIST_ID" ]; then
-              CF_DOMAIN=$(aws cloudfront get-distribution --id "$DIST_ID" --query "Distribution.DomainName" --output text 2>/dev/null || echo "")
-              CONSOLE_URL="https://${CF_DOMAIN}"
-            fi
-          fi
           echo "Target SuperAdmin Console URL: $CONSOLE_URL"
 
           cd tests/nextcloud/e2e
