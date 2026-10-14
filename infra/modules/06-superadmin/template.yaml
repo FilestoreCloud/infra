@@ -722,60 +722,6 @@ Resources:
       Action: lambda:InvokeFunctionUrl
       Principal: "*"
 
-  ConsoleDeployerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${EnvironmentName}-console-deployer-role"
-      Description: "Least-privilege role for FilestoreCloud/console CI/CD to deploy SPA to S3, invalidate CloudFront, and invoke Lambda"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/console:*"
-      Policies:
-        - PolicyName: S3WebConsoleDeployPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid: S3SyncAdminWeb
-                Effect: Allow
-                Action:
-                  - s3:PutObject
-                  - s3:GetObject
-                  - s3:DeleteObject
-                  - s3:ListBucket
-                Resource:
-                  - !GetAtt AdminWebBucket.Arn
-                  - !Sub "${AdminWebBucket.Arn}/*"
-              - Sid: CloudFrontInvalidation
-                Effect: Allow
-                Action:
-                  - cloudfront:CreateInvalidation
-                  - cloudfront:GetInvalidation
-                Resource:
-                  - !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${AdminWebDistribution}"
-              - Sid: InvokeControlPlaneLambda
-                Effect: Allow
-                Action:
-                  - lambda:InvokeFunction
-                  - lambda:InvokeFunctionUrl
-                Resource:
-                  - !GetAtt TenantOperatorLambda.Arn
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: ManagedBy
-          Value: CloudFormation
-        - Key: Service
-          Value: Console-CI-CD
-
   # SSM Parameter Store exports
   SSMTenantRegistry:
     Type: AWS::SSM::Parameter
@@ -964,6 +910,6 @@ Outputs:
 
   ConsoleDeployerRoleArn:
     Description: Least-privilege IAM Role ARN for FilestoreCloud/console repository CI/CD
-    Value: !GetAtt ConsoleDeployerRole.Arn
+    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-console-deployer-role"
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-ConsoleDeployerRoleArn"

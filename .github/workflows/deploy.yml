@@ -144,7 +144,7 @@ jobs:
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }}"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -187,6 +187,36 @@ jobs:
             --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
             --zip-file fileb:///tmp/tenant_operator.zip
           echo "✓ Lambda function code updated successfully."
+
+      - name: Ensure SuperAdmin User in Cognito User Pool
+        env:
+          ENV: ${{ inputs.environment }}
+          ADMIN_EMAIL: "nhphuong.code@gmail.com"
+        run: |
+          echo "Ensuring SuperAdmin user exists in Cognito User Pool..."
+          USER_POOL_ID=$(aws ssm get-parameter --name "/nextcloud/${ENV}/control-plane/cognito-user-pool-id" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          if [ -z "$USER_POOL_ID" ]; then
+            USER_POOL_ID=$(aws cognito-idp list-user-pools --max-results 10 --query "UserPools[?Name=='${ENV}-nextcloud-admin-pool'].Id" --output text 2>/dev/null || echo "")
+          fi
+          if [ -n "$USER_POOL_ID" ]; then
+            echo "Target User Pool: $USER_POOL_ID"
+            if ! aws cognito-idp admin-get-user --user-pool-id "$USER_POOL_ID" --username "$ADMIN_EMAIL" >/dev/null 2>&1; then
+              echo "Creating SuperAdmin user $ADMIN_EMAIL in Cognito..."
+              aws cognito-idp admin-create-user \
+                --user-pool-id "$USER_POOL_ID" \
+                --username "$ADMIN_EMAIL" \
+                --user-attributes Name=email,Value="$ADMIN_EMAIL" Name=email_verified,Value=true \
+                --message-action SUPPRESS
+              aws cognito-idp admin-set-user-password \
+                --user-pool-id "$USER_POOL_ID" \
+                --username "$ADMIN_EMAIL" \
+                --password "${{ secrets.ADMIN_PASSWORD }}" \
+                --permanent
+              echo "✓ SuperAdmin user created successfully in Cognito."
+            else
+              echo "✓ SuperAdmin user already exists in Cognito User Pool."
+            fi
+          fi
 
   deploy-observability:
     name: Deploy 07-Observability
@@ -273,6 +303,8 @@ jobs:
           ENV: ${{ inputs.environment }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           TENANT_ID: "dev-tenant"
+          SUPERADMIN_USERNAME: "nhphuong.code@gmail.com"
+          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
           chmod +x tests/verify_first_time_deployment_acceptance.py
           python3 tests/verify_first_time_deployment_acceptance.py

@@ -114,7 +114,14 @@ Parameters:
     Default: "FilestoreCloud"
     Description: "GitHub Organization name for OIDC trust policies"
 
+  CreateECRRepository:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: "Whether to create the ECR repository (set to false if repository already exists)"
+
 Conditions:
+  ShouldCreateECR: !Equals [!Ref CreateECRRepository, "true"]
   HasEFS: !Not [!Equals [!Ref EFSFileSystemId, ""]]
   HasDefaultEFSAccessPointId: !Not [!Equals [!Ref DefaultEFSAccessPointId, ""]]
   HasVpcId: !Not [!Equals [!Ref VpcId, ""]]
@@ -138,6 +145,7 @@ Conditions:
 Resources:
   NextcloudECRRepository:
     Type: AWS::ECR::Repository
+    Condition: ShouldCreateECR
     Properties:
       RepositoryName: !Sub "${EnvironmentName}-nextcloud-enterprise"
       ImageScanningConfiguration:
@@ -145,54 +153,6 @@ Resources:
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
-
-  RuntimeDeployerRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub "${EnvironmentName}-runtime-deployer-role"
-      Description: "Least-privilege role for FilestoreCloud/runtime CI/CD to push Docker images to ECR"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
-            Action: sts:AssumeRoleWithWebIdentity
-            Condition:
-              StringEquals:
-                token.actions.githubusercontent.com:aud: sts.amazonaws.com
-              StringLike:
-                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/runtime:*"
-      Policies:
-        - PolicyName: ECRPushOnlyPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid: ECRAuthToken
-                Effect: Allow
-                Action:
-                  - ecr:GetAuthorizationToken
-                Resource: "*"
-              - Sid: ECRTargetRepoPushOnly
-                Effect: Allow
-                Action:
-                  - ecr:BatchCheckLayerAvailability
-                  - ecr:GetDownloadUrlForLayer
-                  - ecr:BatchGetImage
-                  - ecr:PutImage
-                  - ecr:InitiateLayerUpload
-                  - ecr:UploadLayerPart
-                  - ecr:CompleteLayerUpload
-                  - ecr:DescribeRepositories
-                  - ecr:ListImages
-                Resource: !GetAtt NextcloudECRRepository.Arn
-      Tags:
-        - Key: Environment
-          Value: !Ref EnvironmentName
-        - Key: ManagedBy
-          Value: CloudFormation
-        - Key: Service
-          Value: Runtime-CI-CD
 
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -810,7 +770,10 @@ Resources:
     Properties:
       Name: !Sub "/nextcloud/${EnvironmentName}/infra/ecr-repo-uri"
       Type: String
-      Value: !GetAtt NextcloudECRRepository.RepositoryUri
+      Value: !If
+        - ShouldCreateECR
+        - !GetAtt NextcloudECRRepository.RepositoryUri
+        - !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EnvironmentName}-nextcloud-enterprise"
       Description: Nextcloud ECR Repository URI
       Tags:
         Environment: !Ref EnvironmentName
@@ -892,7 +855,10 @@ Outputs:
 
   ECRRepositoryUri:
     Description: Amazon ECR Golden Image Repository URI
-    Value: !GetAtt NextcloudECRRepository.RepositoryUri
+    Value: !If
+      - ShouldCreateECR
+      - !GetAtt NextcloudECRRepository.RepositoryUri
+      - !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EnvironmentName}-nextcloud-enterprise"
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-ECRRepositoryUri"
 
@@ -904,6 +870,6 @@ Outputs:
 
   RuntimeDeployerRoleArn:
     Description: Least-privilege IAM Role ARN for FilestoreCloud/runtime repository CI/CD
-    Value: !GetAtt RuntimeDeployerRole.Arn
+    Value: !Sub "arn:aws:iam::${AWS::AccountId}:role/${EnvironmentName}-runtime-deployer-role"
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-RuntimeDeployerRoleArn"

@@ -76,14 +76,15 @@ def get_lambda_name() -> str:
 
 def test_superadmin_auth_and_provision(lambda_name: str) -> tuple[str, dict]:
     """Test SuperAdmin LOGIN, MFA, and PROVISION actions."""
-    log("🔹 [Stage 1.1] Testing SuperAdmin Login & TOTP MFA Challenge...")
+    admin_user = os.environ.get("SUPERADMIN_USERNAME", "nhphuong.code@gmail.com")
+    admin_pass = os.environ.get("SUPERADMIN_PASSWORD", "StorixAdmin2026!Secure")
     login_event = {
         "httpMethod": "POST",
         "body": json.dumps(
             {
                 "action": "LOGIN",
-                "username": "admin@png261.dev",
-                "password": "AdminPassword123!",
+                "username": admin_user,
+                "password": admin_pass,
             }
         ),
     }
