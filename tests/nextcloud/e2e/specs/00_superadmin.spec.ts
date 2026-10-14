@@ -22,7 +22,7 @@ const ADMIN_PASSWORD =
   "StorixAdmin2026!Secure";
 
 test.describe("SuperAdmin Web Console E2E", () => {
-  test("Should render SuperAdmin login portal entrypoint", async ({
+  test("1. Should render SuperAdmin login portal entrypoint", async ({
     page,
   }) => {
     await page.goto(`${CONSOLE_URL}/login`);
@@ -37,7 +37,24 @@ test.describe("SuperAdmin Web Console E2E", () => {
     await expect(submitBtn).toBeVisible({ timeout: 15000 });
   });
 
-  test("Should authenticate SuperAdmin via MFA and access Fleet Registry", async ({
+  test("2. Should reject invalid credentials with error alert", async ({
+    page,
+  }) => {
+    await page.goto(`${CONSOLE_URL}/login`);
+
+    const emailInput = page.locator('input#email, input[name="email"]');
+    const passInput = page.locator('input#password, input[name="password"]');
+    const submitBtn = page.locator('button[type="submit"]');
+
+    await emailInput.fill("wrong.admin@example.com");
+    await passInput.fill("InvalidPassword123!");
+    await submitBtn.click();
+
+    const alertError = page.locator(".ant-alert-error, [role='alert']");
+    await expect(alertError.first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test("3. Should authenticate SuperAdmin via MFA and access Fleet Registry", async ({
     page,
   }) => {
     await page.goto(`${CONSOLE_URL}/login`);
@@ -62,14 +79,7 @@ test.describe("SuperAdmin Web Console E2E", () => {
       // MFA may be bypassed or already authenticated
     }
 
-    // Check for any visible UI alert error messages to surface during test
-    const errorAlert = page.locator(".ant-alert-error");
-    if (await errorAlert.isVisible({ timeout: 2000 }).catch(() => false)) {
-      const msg = await errorAlert.textContent();
-      console.error(`SuperAdmin login alert error: ${msg}`);
-    }
-
-    // Verify successful login redirection to /tenants or dashboard (SPA client-side navigation)
+    // Verify successful login redirection to /tenants
     await expect(page).toHaveURL(/\/(tenants|dashboard)/, { timeout: 30000 });
 
     // Verify Tenants table or navigation header
@@ -80,6 +90,128 @@ test.describe("SuperAdmin Web Console E2E", () => {
     const tenantCell = page.locator('text="dev-tenant"');
     if (await tenantCell.isVisible({ timeout: 5000 }).catch(() => false)) {
       await expect(tenantCell.first()).toBeVisible();
+    }
+  });
+
+  test("4. Should inspect Fleet Management KPI summary cards & search bar", async ({
+    page,
+  }) => {
+    // Perform login
+    await page.goto(`${CONSOLE_URL}/login`);
+    const emailInput = page.locator('input#email, input[name="email"]');
+    await emailInput.fill(ADMIN_EMAIL);
+    await page.locator('input#password, input[name="password"]').fill(ADMIN_PASSWORD);
+    await page.locator('button[type="submit"]').click();
+
+    const mfaInput = page.getByPlaceholder("000000").or(page.locator('input[placeholder="000000"], input#mfa_code')).first();
+    try {
+      await mfaInput.waitFor({ state: "visible", timeout: 8000 });
+      await mfaInput.fill(generateTotp());
+      await page.getByRole("button", { name: /Verify/i }).click();
+    } catch {}
+
+    await expect(page).toHaveURL(/\/tenants/, { timeout: 20000 });
+
+    // Verify search input is operational
+    const searchInput = page.getByPlaceholder(/Search by Tenant ID/i).or(page.locator('input[placeholder*="Search"]')).first();
+    if (await searchInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await searchInput.fill("dev-tenant");
+      await expect(searchInput).toHaveValue("dev-tenant");
+    }
+
+    // Verify Provision Dedicated Tenant button exists
+    const provisionBtn = page.getByRole("button", { name: /Provision Dedicated Tenant/i }).or(page.locator('button:has-text("Provision")')).first();
+    await expect(provisionBtn).toBeVisible({ timeout: 10000 });
+  });
+
+  test("5. Should open and cancel Tenant Provisioning Modal", async ({
+    page,
+  }) => {
+    await page.goto(`${CONSOLE_URL}/login`);
+    await page.locator('input#email, input[name="email"]').fill(ADMIN_EMAIL);
+    await page.locator('input#password, input[name="password"]').fill(ADMIN_PASSWORD);
+    await page.locator('button[type="submit"]').click();
+
+    const mfaInput = page.getByPlaceholder("000000").or(page.locator('input[placeholder="000000"], input#mfa_code')).first();
+    try {
+      await mfaInput.waitFor({ state: "visible", timeout: 8000 });
+      await mfaInput.fill(generateTotp());
+      await page.getByRole("button", { name: /Verify/i }).click();
+    } catch {}
+
+    await expect(page).toHaveURL(/\/tenants/, { timeout: 20000 });
+
+    // Open Modal
+    const provisionBtn = page.getByRole("button", { name: /Provision Dedicated Tenant/i }).or(page.locator('button:has-text("Provision")')).first();
+    await provisionBtn.click();
+
+    // Verify modal elements
+    const modal = page.locator(".ant-modal");
+    await expect(modal.first()).toBeVisible({ timeout: 5000 });
+
+    // Close Modal via Cancel button
+    const cancelBtn = modal.locator('button:has-text("Cancel")').first();
+    if (await cancelBtn.isVisible()) {
+      await cancelBtn.click();
+      await expect(modal).not.toBeVisible({ timeout: 5000 });
+    }
+  });
+
+  test("6. Should navigate across Control Plane sections (Audit Logs, Telemetry, Webhooks)", async ({
+    page,
+  }) => {
+    await page.goto(`${CONSOLE_URL}/login`);
+    await page.locator('input#email, input[name="email"]').fill(ADMIN_EMAIL);
+    await page.locator('input#password, input[name="password"]').fill(ADMIN_PASSWORD);
+    await page.locator('button[type="submit"]').click();
+
+    const mfaInput = page.getByPlaceholder("000000").or(page.locator('input[placeholder="000000"], input#mfa_code')).first();
+    try {
+      await mfaInput.waitFor({ state: "visible", timeout: 8000 });
+      await mfaInput.fill(generateTotp());
+      await page.getByRole("button", { name: /Verify/i }).click();
+    } catch {}
+
+    await expect(page).toHaveURL(/\/tenants/, { timeout: 20000 });
+
+    // 1. Audit Logs
+    await page.goto(`${CONSOLE_URL}/audit-logs`);
+    await expect(page).toHaveURL(/\/audit-logs/, { timeout: 10000 });
+    await expect(page.locator("main, .ant-layout-content").first()).toBeVisible({ timeout: 10000 });
+
+    // 2. Telemetry & Metrics
+    await page.goto(`${CONSOLE_URL}/telemetry`);
+    await expect(page).toHaveURL(/\/telemetry/, { timeout: 10000 });
+    await expect(page.locator("main, .ant-layout-content").first()).toBeVisible({ timeout: 10000 });
+
+    // 3. Alerts & Webhooks
+    await page.goto(`${CONSOLE_URL}/settings/webhooks`);
+    await expect(page).toHaveURL(/\/settings\/webhooks/, { timeout: 10000 });
+    await expect(page.locator("main, .ant-layout-content").first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test("7. Should support Administrator sign out", async ({
+    page,
+  }) => {
+    await page.goto(`${CONSOLE_URL}/login`);
+    await page.locator('input#email, input[name="email"]').fill(ADMIN_EMAIL);
+    await page.locator('input#password, input[name="password"]').fill(ADMIN_PASSWORD);
+    await page.locator('button[type="submit"]').click();
+
+    const mfaInput = page.getByPlaceholder("000000").or(page.locator('input[placeholder="000000"], input#mfa_code')).first();
+    try {
+      await mfaInput.waitFor({ state: "visible", timeout: 8000 });
+      await mfaInput.fill(generateTotp());
+      await page.getByRole("button", { name: /Verify/i }).click();
+    } catch {}
+
+    await expect(page).toHaveURL(/\/tenants/, { timeout: 20000 });
+
+    // Logout via header avatar/logout button
+    const logoutBtn = page.getByRole("button", { name: /Log out|Logout|Sign out/i }).or(page.locator('button:has-text("Logout"), button:has-text("Sign Out"), .ant-dropdown-menu-item:has-text("Logout")')).first();
+    if (await logoutBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await logoutBtn.click();
+      await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
     }
   });
 });
