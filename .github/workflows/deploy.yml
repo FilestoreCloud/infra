@@ -402,6 +402,8 @@ jobs:
           TENANT_ID: "dev-tenant"
           NEXTCLOUD_USER: "admin"
           NEXTCLOUD_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          SUPERADMIN_USERNAME: "nhphuong.code@gmail.com"
+          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
         run: |
           ALB_DNS=$(aws ssm get-parameter --name "/nextcloud/${ENV}/infra/alb-dns-name" --query "Parameter.Value" --output text 2>/dev/null || echo "")
           if [ -z "$ALB_DNS" ]; then

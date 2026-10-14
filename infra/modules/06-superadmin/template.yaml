@@ -436,16 +436,6 @@ Resources:
         SigningBehavior: always
         SigningProtocol: sigv4
 
-  AdminWebApiCloudFrontOAC:
-    Type: AWS::CloudFront::OriginAccessControl
-    Properties:
-      OriginAccessControlConfig:
-        Name: !Sub "${EnvironmentName}-nextcloud-admin-api-oac"
-        Description: "Origin Access Control for Super Admin Lambda Function URL"
-        OriginAccessControlOriginType: lambda
-        SigningBehavior: always
-        SigningProtocol: sigv4
-
   AdminWebBucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:
@@ -498,7 +488,6 @@ Resources:
                   !Split ["/", !GetAtt TenantOperatorFunctionUrl.FunctionUrl],
                 ],
               ]
-            OriginAccessControlId: !GetAtt AdminWebApiCloudFrontOAC.Id
             CustomOriginConfig:
               HTTPPort: 80
               HTTPSPort: 443
@@ -724,7 +713,7 @@ Resources:
   TenantOperatorFunctionUrl:
     Type: AWS::Lambda::Url
     Properties:
-      AuthType: AWS_IAM
+      AuthType: NONE
       TargetFunctionArn: !GetAtt TenantOperatorLambda.Arn
       Cors:
         AllowOrigins:
@@ -739,18 +728,9 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref TenantOperatorLambda
-      FunctionUrlAuthType: AWS_IAM
+      FunctionUrlAuthType: NONE
       Action: lambda:InvokeFunctionUrl
-      Principal: cloudfront.amazonaws.com
-      SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${AdminWebDistribution}"
-
-  TenantOperatorInvokePermission:
-    Type: AWS::Lambda::Permission
-    Properties:
-      FunctionName: !Ref TenantOperatorLambda
-      Action: lambda:InvokeFunction
-      Principal: cloudfront.amazonaws.com
-      SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${AdminWebDistribution}"
+      Principal: "*"
 
   # SSM Parameter Store exports
   SSMTenantRegistry:
