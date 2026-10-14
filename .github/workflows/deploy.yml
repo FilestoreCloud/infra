@@ -13,17 +13,13 @@ on:
           - staging
           - prod
       action:
-        description: "Deployment / Lifecycle Action"
+        description: "Deployment Action"
         required: true
-        default: "deploy-module"
+        default: "deploy-all"
         type: choice
         options:
-          - deploy-module
           - deploy-all
-          - deploy-nested
-          - destroy-module
-          - destroy-all
-          - validate
+          - deploy-module
       module:
         description: "Infrastructure Module (if deploy-module or destroy-module)"
         required: false
@@ -91,7 +87,7 @@ jobs:
       - name: Install Python Dependencies
         run: |
           pip install --upgrade pip
-          pip install boto3 psycopg2-binary pyyaml
+          pip install boto3 pyyaml
 
       - name: Configure AWS Credentials via OIDC
         id: aws-creds
