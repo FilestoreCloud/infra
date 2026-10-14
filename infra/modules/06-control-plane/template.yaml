@@ -9,23 +9,28 @@ Parameters:
 
   S3VaultBucketArn:
     Type: String
-    Description: S3 Vault Bucket ARN for Tenant Operator cleanup permissions
+    Default: ""
+    Description: S3 Vault Bucket ARN for Tenant Operator cleanup permissions (Leave blank to import from Module 03)
 
   ApplicationLoadBalancerDNS:
     Type: String
-    Description: ALB DNS Name for CloudWatch Dashboard console link
+    Default: ""
+    Description: ALB DNS Name for CloudWatch Dashboard console link (Leave blank to import from Module 05)
 
   ApplicationLoadBalancerFullName:
     Type: String
-    Description: ALB Full Name for CloudWatch Dashboard ELB metrics
+    Default: ""
+    Description: ALB Full Name for CloudWatch Dashboard ELB metrics (Leave blank to import from Module 05)
 
   ECSClusterName:
     Type: String
-    Description: ECS Cluster Name for CloudWatch Dashboard metrics
+    Default: ""
+    Description: ECS Cluster Name for CloudWatch Dashboard metrics (Leave blank to import from Module 05)
 
   ECSServiceName:
     Type: String
-    Description: ECS Service Name for CloudWatch Dashboard metrics
+    Default: ""
+    Description: ECS Service Name for CloudWatch Dashboard metrics (Leave blank to import from Module 05)
 
   ApiOriginDomain:
     Type: String
@@ -50,6 +55,8 @@ Parameters:
 Conditions:
   HasCustomApiOrigin: !Not [!Equals [!Ref ApiOriginDomain, ""]]
   HasLambdaS3Code: !Not [!Equals [!Ref LambdaCodeBucket, ""]]
+  HasS3VaultBucketArn: !Not [!Equals [!Ref S3VaultBucketArn, ""]]
+  HasECSClusterName: !Not [!Equals [!Ref ECSClusterName, ""]]
 
 Resources:
   DynamoDBTenantRegistry:
@@ -190,8 +197,17 @@ Resources:
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
-                  - !Ref S3VaultBucketArn
-                  - !Sub "${S3VaultBucketArn}/*"
+                  - Fn::If:
+                      - HasS3VaultBucketArn
+                      - !Ref S3VaultBucketArn
+                      - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
+                  - Fn::Sub:
+                      - "${BucketArn}/*"
+                      - BucketArn:
+                          Fn::If:
+                            - HasS3VaultBucketArn
+                            - !Ref S3VaultBucketArn
+                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
               - Effect: Allow
                 Action:
                   - cloudwatch:PutMetricData
@@ -666,7 +682,14 @@ Resources:
                 Resource: "*"
                 Condition:
                   ArnEquals:
-                    ecs:cluster: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ECSClusterName}"
+                    ecs:cluster:
+                      Fn::Sub:
+                        - "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${CName}"
+                        - CName:
+                            Fn::If:
+                              - HasECSClusterName
+                              - !Ref ECSClusterName
+                              - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
               - Sid: SSMRunbookExecution
                 Effect: Allow
                 Action:
@@ -709,7 +732,11 @@ Resources:
           TABLE_NAME: !Ref DynamoDBTenantRegistry
           ADMIN_USERS_TABLE: !Ref DynamoDBAdminUsers
           AUDIT_LOGS_TABLE: !Ref DynamoDBAuditLogs
-          CLUSTER_NAME: !Ref ECSClusterName
+          CLUSTER_NAME:
+            Fn::If:
+              - HasECSClusterName
+              - !Ref ECSClusterName
+              - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
           SSM_RUNBOOK_NAME: !Ref SSMTenantOperatorRunbook
       Code: !If
         - HasLambdaS3Code

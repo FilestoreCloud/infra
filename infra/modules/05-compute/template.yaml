@@ -8,44 +8,54 @@ Parameters:
     Description: Environment prefix (prod, staging, dev)
 
   VpcId:
-    Type: AWS::EC2::VPC::Id
-    Description: VPC ID where the ALB and Target Group will be created
+    Type: String
+    Default: ""
+    Description: VPC ID where the ALB and Target Group will be created (Leave blank to import from Module 01)
 
   PublicSubnet1Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Public Subnet 1 ID for ALB and ECS public IP
+    Type: String
+    Default: ""
+    Description: Public Subnet 1 ID for ALB and ECS public IP (Leave blank to import from Module 01)
 
   PublicSubnet2Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Public Subnet 2 ID for ALB and ECS public IP
+    Type: String
+    Default: ""
+    Description: Public Subnet 2 ID for ALB and ECS public IP (Leave blank to import from Module 01)
 
   ALBSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: Security Group ID for ALB
+    Type: String
+    Default: ""
+    Description: Security Group ID for ALB (Leave blank to import from Module 02)
 
   ECSSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: Security Group ID for ECS tasks
+    Type: String
+    Default: ""
+    Description: Security Group ID for ECS tasks (Leave blank to import from Module 02)
 
   S3VaultBucketName:
     Type: String
-    Description: S3 Vault Bucket Name
+    Default: ""
+    Description: S3 Vault Bucket Name (Leave blank to import from Module 03)
 
   S3VaultBucketArn:
     Type: String
-    Description: S3 Vault Bucket ARN
+    Default: ""
+    Description: S3 Vault Bucket ARN (Leave blank to import from Module 03)
 
   DatabaseEndpoint:
     Type: String
-    Description: Private RDS PostgreSQL Endpoint Address
+    Default: ""
+    Description: Private RDS PostgreSQL Endpoint Address (Leave blank to import from Module 04)
 
   DBSecretArn:
     Type: String
-    Description: Secrets Manager Secret ARN for Database Credentials
+    Default: ""
+    Description: Secrets Manager Secret ARN for Database Credentials (Leave blank to import from Module 04)
 
   AdminPassword:
     Type: String
     NoEcho: true
+    Default: "AdminSuperSecurePass2026!"
     Description: Initial admin password for Nextcloud
 
   TaskCpu:
@@ -108,6 +118,15 @@ Parameters:
 
 Conditions:
   HasEFS: !Not [!Equals [!Ref EFSFileSystemId, ""]]
+  HasVpcId: !Not [!Equals [!Ref VpcId, ""]]
+  HasPublicSubnet1Id: !Not [!Equals [!Ref PublicSubnet1Id, ""]]
+  HasPublicSubnet2Id: !Not [!Equals [!Ref PublicSubnet2Id, ""]]
+  HasALBSecurityGroupId: !Not [!Equals [!Ref ALBSecurityGroupId, ""]]
+  HasECSSecurityGroupId: !Not [!Equals [!Ref ECSSecurityGroupId, ""]]
+  HasS3VaultBucketName: !Not [!Equals [!Ref S3VaultBucketName, ""]]
+  HasS3VaultBucketArn: !Not [!Equals [!Ref S3VaultBucketArn, ""]]
+  HasDatabaseEndpoint: !Not [!Equals [!Ref DatabaseEndpoint, ""]]
+  HasDBSecretArn: !Not [!Equals [!Ref DBSecretArn, ""]]
 
 Resources:
   NextcloudECRRepository:
@@ -175,10 +194,19 @@ Resources:
       Scheme: internet-facing
       Type: application
       Subnets:
-        - !Ref PublicSubnet1Id
-        - !Ref PublicSubnet2Id
+        - Fn::If:
+            - HasPublicSubnet1Id
+            - !Ref PublicSubnet1Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet1Id"
+        - Fn::If:
+            - HasPublicSubnet2Id
+            - !Ref PublicSubnet2Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet2Id"
       SecurityGroups:
-        - !Ref ALBSecurityGroupId
+        - Fn::If:
+            - HasALBSecurityGroupId
+            - !Ref ALBSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ALBSecurityGroupId"
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-alb"
@@ -270,7 +298,11 @@ Resources:
       Port: 80
       Protocol: HTTP
       TargetType: ip
-      VpcId: !Ref VpcId
+      VpcId:
+        Fn::If:
+          - HasVpcId
+          - !Ref VpcId
+          - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
       Matcher:
         HttpCode: "200-400"
       HealthCheckIntervalSeconds: 30
@@ -395,7 +427,10 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                 Resource:
-                  - !Ref DBSecretArn
+                  - Fn::If:
+                      - HasDBSecretArn
+                      - !Ref DBSecretArn
+                      - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecretArn"
                   - !Ref AdminSecret
                   - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/tenants/*"
 
@@ -422,8 +457,17 @@ Resources:
                   - s3:DeleteObject
                   - s3:ListBucket
                 Resource:
-                  - !Ref S3VaultBucketArn
-                  - !Sub "${S3VaultBucketArn}/*"
+                  - Fn::If:
+                      - HasS3VaultBucketArn
+                      - !Ref S3VaultBucketArn
+                      - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
+                  - Fn::Sub:
+                      - "${BucketArn}/*"
+                      - BucketArn:
+                          Fn::If:
+                            - HasS3VaultBucketArn
+                            - !Ref S3VaultBucketArn
+                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
         - PolicyName: BedrockAIAccessPolicy
           PolicyDocument:
             Version: "2012-10-17"
@@ -484,7 +528,11 @@ Resources:
             - !Ref "AWS::NoValue"
           Environment:
             - Name: POSTGRES_HOST
-              Value: !Ref DatabaseEndpoint
+              Value:
+                Fn::If:
+                  - HasDatabaseEndpoint
+                  - !Ref DatabaseEndpoint
+                  - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DatabaseEndpoint"
             - Name: POSTGRES_DB
               Value: nextcloud
             - Name: POSTGRES_USER
@@ -492,7 +540,11 @@ Resources:
             - Name: NEXTCLOUD_ADMIN_USER
               Value: admin
             - Name: OBJECTSTORE_S3_BUCKET
-              Value: !Ref S3VaultBucketName
+              Value:
+                Fn::If:
+                  - HasS3VaultBucketName
+                  - !Ref S3VaultBucketName
+                  - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketName"
             - Name: OBJECTSTORE_S3_REGION
               Value: !Ref "AWS::Region"
             - Name: OBJECTSTORE_S3_AUTOCREATE
@@ -523,7 +575,14 @@ Resources:
               Value: "false"
           Secrets:
             - Name: POSTGRES_PASSWORD
-              ValueFrom: !Sub "${DBSecretArn}:password::"
+              ValueFrom:
+                Fn::Sub:
+                  - "${SecretArn}:password::"
+                  - SecretArn:
+                      Fn::If:
+                        - HasDBSecretArn
+                        - !Ref DBSecretArn
+                        - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecretArn"
             - Name: NEXTCLOUD_ADMIN_PASSWORD
               ValueFrom: !Sub "${AdminSecret}:password::"
           LogConfiguration:
@@ -567,10 +626,19 @@ Resources:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED
           Subnets:
-            - !Ref PublicSubnet1Id
-            - !Ref PublicSubnet2Id
+            - Fn::If:
+                - HasPublicSubnet1Id
+                - !Ref PublicSubnet1Id
+                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet1Id"
+            - Fn::If:
+                - HasPublicSubnet2Id
+                - !Ref PublicSubnet2Id
+                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet2Id"
           SecurityGroups:
-            - !Ref ECSSecurityGroupId
+            - Fn::If:
+                - HasECSSecurityGroupId
+                - !Ref ECSSecurityGroupId
+                - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSSecurityGroupId"
       LoadBalancers:
         - ContainerName: nextcloud
           ContainerPort: 80

@@ -8,16 +8,19 @@ Parameters:
     Description: Environment prefix (prod, staging, dev)
 
   PublicSubnet1Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Public Subnet 1 ID for EFS Mount Target
+    Type: String
+    Default: ""
+    Description: Public Subnet 1 ID for EFS Mount Target (Leave blank to import from Module 01)
 
   PublicSubnet2Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Public Subnet 2 ID for EFS Mount Target
+    Type: String
+    Default: ""
+    Description: Public Subnet 2 ID for EFS Mount Target (Leave blank to import from Module 01)
 
   EFSSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: Security Group ID for EFS Mount Targets
+    Type: String
+    Default: ""
+    Description: Security Group ID for EFS Mount Targets (Leave blank to import from Module 02)
 
   TransitionToIADays:
     Type: Number
@@ -33,6 +36,11 @@ Parameters:
     Type: Number
     Default: 365
     Description: Number of days before permanently deleting noncurrent file versions
+
+Conditions:
+  HasPublicSubnet1Id: !Not [!Equals [!Ref PublicSubnet1Id, ""]]
+  HasPublicSubnet2Id: !Not [!Equals [!Ref PublicSubnet2Id, ""]]
+  HasEFSSecurityGroupId: !Not [!Equals [!Ref EFSSecurityGroupId, ""]]
 
 Resources:
   # ── S3 Multi-Tenant Object Storage Vault ─────────────────────────────────────
@@ -111,17 +119,31 @@ Resources:
     Type: AWS::EFS::MountTarget
     Properties:
       FileSystemId: !Ref NextcloudEFS
-      SubnetId: !Ref PublicSubnet1Id
+      SubnetId:
+        Fn::If:
+          - HasPublicSubnet1Id
+          - !Ref PublicSubnet1Id
+          - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet1Id"
       SecurityGroups:
-        - !Ref EFSSecurityGroupId
+        - Fn::If:
+            - HasEFSSecurityGroupId
+            - !Ref EFSSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-EFSSecurityGroupId"
 
   EFSMountTarget2:
     Type: AWS::EFS::MountTarget
     Properties:
       FileSystemId: !Ref NextcloudEFS
-      SubnetId: !Ref PublicSubnet2Id
+      SubnetId:
+        Fn::If:
+          - HasPublicSubnet2Id
+          - !Ref PublicSubnet2Id
+          - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PublicSubnet2Id"
       SecurityGroups:
-        - !Ref EFSSecurityGroupId
+        - Fn::If:
+            - HasEFSSecurityGroupId
+            - !Ref EFSSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-EFSSecurityGroupId"
 
   DefaultEFSAccessPoint:
     Type: AWS::EFS::AccessPoint

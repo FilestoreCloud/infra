@@ -132,20 +132,65 @@ jobs:
           echo "module=${MODULE}" >> $GITHUB_OUTPUT
           echo "🚀 Target: Env=${ENV}, Action=${ACTION}, Module=${MODULE}"
 
-      - name: Execute Infrastructure Action (Native SDK Engine)
-        env:
-          ENV_NAME: ${{ steps.target.outputs.env }}
-          ACTION: ${{ steps.target.outputs.action }}
-          MODULE: ${{ steps.target.outputs.module }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD || 'NextCloudSecurePass2026!' }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || 'AdminSuperSecurePass2026!' }}
-          AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
-        run: |
-          python3 scripts/deploy_infra.py \
-            --environment "${ENV_NAME}" \
-            --action "${ACTION}" \
-            --module "${MODULE}" \
-            --region "${AWS_REGION}"
+      - name: Deploy 01-Networking Stack
+        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '01-networking' || steps.target.outputs.module == 'networking'
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ steps.target.outputs.env }}-nextcloud-01-networking
+          template: infra/modules/01-networking/template.yaml
+          parameter-overrides: "EnvironmentName=${{ steps.target.outputs.env }}"
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Deploy 02-Security Stack
+        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '02-security' || steps.target.outputs.module == 'security'
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ steps.target.outputs.env }}-nextcloud-02-security
+          template: infra/modules/02-security/template.yaml
+          parameter-overrides: "EnvironmentName=${{ steps.target.outputs.env }}"
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Deploy 03-Storage Stack
+        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '03-storage' || steps.target.outputs.module == 'storage'
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ steps.target.outputs.env }}-nextcloud-03-storage
+          template: infra/modules/03-storage/template.yaml
+          parameter-overrides: "EnvironmentName=${{ steps.target.outputs.env }}"
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Deploy 04-Database Stack
+        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '04-database' || steps.target.outputs.module == 'database'
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ steps.target.outputs.env }}-nextcloud-04-database
+          template: infra/modules/04-database/template.yaml
+          parameter-overrides: "EnvironmentName=${{ steps.target.outputs.env }},DBPassword=${{ secrets.DB_PASSWORD || 'NextCloudSecurePass2026!' }}"
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Deploy 05-Compute Stack
+        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '05-compute' || steps.target.outputs.module == 'compute'
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ steps.target.outputs.env }}-nextcloud-05-compute
+          template: infra/modules/05-compute/template.yaml
+          parameter-overrides: "EnvironmentName=${{ steps.target.outputs.env }},AdminPassword=${{ secrets.ADMIN_PASSWORD || 'AdminSuperSecurePass2026!' }}"
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Deploy 06-Control-Plane Stack
+        if: steps.target.outputs.action == 'deploy-all' || steps.target.outputs.module == '06-control-plane' || steps.target.outputs.module == 'control-plane'
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ steps.target.outputs.env }}-nextcloud-06-control-plane
+          template: infra/modules/06-control-plane/template.yaml
+          parameter-overrides: "EnvironmentName=${{ steps.target.outputs.env }}"
+          no-fail-on-empty-changeset: "1"
+          capabilities: CAPABILITY_NAMED_IAM
 
       - name: Smoke Test & Health Check
         id: smoke_test

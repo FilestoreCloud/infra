@@ -8,16 +8,19 @@ Parameters:
     Description: Environment prefix (prod, staging, dev)
 
   PrivateSubnet1Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Private Subnet 1 ID for RDS Subnet Group
+    Type: String
+    Default: ""
+    Description: Private Subnet 1 ID for RDS Subnet Group (Leave blank to import from Module 01)
 
   PrivateSubnet2Id:
-    Type: AWS::EC2::Subnet::Id
-    Description: Private Subnet 2 ID for RDS Subnet Group
+    Type: String
+    Default: ""
+    Description: Private Subnet 2 ID for RDS Subnet Group (Leave blank to import from Module 01)
 
   DBSecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
-    Description: Security Group ID for RDS PostgreSQL
+    Type: String
+    Default: ""
+    Description: Security Group ID for RDS PostgreSQL (Leave blank to import from Module 02)
 
   DBInstanceClass:
     Type: String
@@ -47,7 +50,13 @@ Parameters:
   DBPassword:
     Type: String
     NoEcho: true
+    Default: "NextCloudSecurePass2026!"
     Description: Master password for RDS PostgreSQL
+
+Conditions:
+  HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
+  HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
+  HasDBSecurityGroupId: !Not [!Equals [!Ref DBSecurityGroupId, ""]]
 
 Resources:
   DBSubnetGroup:
@@ -55,8 +64,14 @@ Resources:
     Properties:
       DBSubnetGroupDescription: Private Subnet Group for RDS PostgreSQL
       SubnetIds:
-        - !Ref PrivateSubnet1Id
-        - !Ref PrivateSubnet2Id
+        - Fn::If:
+            - HasPrivateSubnet1Id
+            - !Ref PrivateSubnet1Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
+        - Fn::If:
+            - HasPrivateSubnet2Id
+            - !Ref PrivateSubnet2Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-db-subnet-group"
@@ -96,7 +111,10 @@ Resources:
       DBSubnetGroupName: !Ref DBSubnetGroup
       DBParameterGroupName: !Ref DBParameterGroup
       VPCSecurityGroups:
-        - !Ref DBSecurityGroupId
+        - Fn::If:
+            - HasDBSecurityGroupId
+            - !Ref DBSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecurityGroupId"
       PubliclyAccessible: false
       MultiAZ: false
       BackupRetentionPeriod: 1
