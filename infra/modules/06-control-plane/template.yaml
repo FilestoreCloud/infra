@@ -32,8 +32,24 @@ Parameters:
     Default: ""
     Description: "Optional backend API domain (Lambda Function URL domain without https:// or ALB DNS). If omitted, falls back to ApplicationLoadBalancerDNS."
 
+  GitHubOrg:
+    Type: String
+    Default: "FilestoreCloud"
+    Description: "GitHub Organization name for OIDC trust policies"
+
+  LambdaCodeBucket:
+    Type: String
+    Default: ""
+    Description: "Optional S3 bucket containing tenant_operator_lambda code zip. If omitted, uses bootstrap handler."
+
+  LambdaCodeKey:
+    Type: String
+    Default: "tenant_operator_lambda.zip"
+    Description: "Optional S3 key containing tenant_operator_lambda code zip."
+
 Conditions:
   HasCustomApiOrigin: !Not [!Equals [!Ref ApiOriginDomain, ""]]
+  HasLambdaS3Code: !Not [!Equals [!Ref LambdaCodeBucket, ""]]
 
 Resources:
   DynamoDBTenantRegistry:
@@ -548,7 +564,10 @@ Resources:
               !If [
                 HasCustomApiOrigin,
                 !Ref ApiOriginDomain,
-                !Ref ApplicationLoadBalancerDNS,
+                !Select [
+                  2,
+                  !Split ["/", !GetAtt TenantOperatorFunctionUrl.FunctionUrl],
+                ],
               ]
             CustomOriginConfig:
               HTTPPort: 80
@@ -601,6 +620,192 @@ Resources:
           Value: !Ref EnvironmentName
         - Key: Application
           Value: Nextcloud-SuperAdmin-Web
+
+  TenantOperatorLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-tenant-operator-lambda-role"
+      Description: "Least-privilege execution role for Nextcloud SaaS Control Plane Lambda"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ControlPlaneLeastPrivilegePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: DynamoDBOperations
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Scan
+                  - dynamodb:Query
+                  - dynamodb:BatchGetItem
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt DynamoDBTenantRegistry.Arn
+                  - !GetAtt DynamoDBAdminUsers.Arn
+                  - !GetAtt DynamoDBAuditLogs.Arn
+                  - !Sub "${DynamoDBAuditLogs.Arn}/index/*"
+              - Sid: ECSServiceControl
+                Effect: Allow
+                Action:
+                  - ecs:UpdateService
+                  - ecs:DescribeServices
+                  - ecs:DescribeTasks
+                  - ecs:ListTasks
+                Resource: "*"
+                Condition:
+                  ArnEquals:
+                    ecs:cluster: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${ECSClusterName}"
+              - Sid: SSMRunbookExecution
+                Effect: Allow
+                Action:
+                  - ssm:StartAutomationExecution
+                  - ssm:GetAutomationExecution
+                  - ssm:StopAutomationExecution
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-definition/${SSMTenantOperatorRunbook}:*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:automation-execution/*"
+              - Sid: CloudWatchTelemetry
+                Effect: Allow
+                Action:
+                  - cloudwatch:GetMetricData
+                  - cloudwatch:GetMetricWidgetImage
+                Resource: "*"
+              - Sid: ContainerLogInspection
+                Effect: Allow
+                Action:
+                  - logs:GetLogEvents
+                  - logs:FilterLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${EnvironmentName}-*:*"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  TenantOperatorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-nextcloud-tenant-operator"
+      Description: "SaaS Control Plane REST API controller for tenant fleet lifecycle operations"
+      Runtime: python3.11
+      Handler: tenant_operator_lambda.lambda_handler
+      Role: !GetAtt TenantOperatorLambdaRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+          TABLE_NAME: !Ref DynamoDBTenantRegistry
+          ADMIN_USERS_TABLE: !Ref DynamoDBAdminUsers
+          AUDIT_LOGS_TABLE: !Ref DynamoDBAuditLogs
+          CLUSTER_NAME: !Ref ECSClusterName
+          SSM_RUNBOOK_NAME: !Ref SSMTenantOperatorRunbook
+      Code: !If
+        - HasLambdaS3Code
+        - S3Bucket: !Ref LambdaCodeBucket
+          S3Key: !Ref LambdaCodeKey
+        - ZipFile: |
+            import json
+            def lambda_handler(event, context):
+                method = event.get('httpMethod', 'GET')
+                action = json.loads(event.get('body', '{}')).get('action') if event.get('body') else event.get('queryStringParameters', {}).get('action', 'HEALTH')
+                return {
+                    'statusCode': 200,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'status': 'OK', 'action': action, 'service': 'Nextcloud-SaaS-Control-Plane'})
+                }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
+  TenantOperatorFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      AuthType: NONE
+      TargetFunctionArn: !GetAtt TenantOperatorLambda.Arn
+      Cors:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - "*"
+        AllowHeaders:
+          - "*"
+        MaxAge: 86400
+
+  TenantOperatorUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TenantOperatorLambda
+      FunctionUrlAuthType: NONE
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+
+  ConsoleDeployerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-console-deployer-role"
+      Description: "Least-privilege role for FilestoreCloud/console CI/CD to deploy SPA to S3, invalidate CloudFront, and invoke Lambda"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub "arn:aws:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOrg}/console:*"
+      Policies:
+        - PolicyName: S3WebConsoleDeployPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: S3SyncAdminWeb
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt AdminWebBucket.Arn
+                  - !Sub "${AdminWebBucket.Arn}/*"
+              - Sid: CloudFrontInvalidation
+                Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                  - cloudfront:GetInvalidation
+                Resource:
+                  - !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${AdminWebDistribution}"
+              - Sid: InvokeControlPlaneLambda
+                Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                  - lambda:InvokeFunctionUrl
+                Resource:
+                  - !GetAtt TenantOperatorLambda.Arn
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: ManagedBy
+          Value: CloudFormation
+        - Key: Service
+          Value: Console-CI-CD
 
   # SSM Parameter Store exports
   SSMTenantRegistry:
@@ -781,3 +986,21 @@ Outputs:
     Value: !Sub "https://${AdminWebDistribution.DomainName}"
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-AdminWebURL"
+
+  TenantOperatorLambdaArn:
+    Description: Control Plane Tenant Operator Lambda Function ARN
+    Value: !GetAtt TenantOperatorLambda.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantOperatorLambdaArn"
+
+  TenantOperatorLambdaFunctionUrl:
+    Description: Control Plane Tenant Operator Lambda Function URL
+    Value: !GetAtt TenantOperatorFunctionUrl.FunctionUrl
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantOperatorLambdaFunctionUrl"
+
+  ConsoleDeployerRoleArn:
+    Description: Least-privilege IAM Role ARN for FilestoreCloud/console repository CI/CD
+    Value: !GetAtt ConsoleDeployerRole.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-ConsoleDeployerRoleArn"

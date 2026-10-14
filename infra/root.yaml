@@ -201,3 +201,19 @@ Outputs:
   AdminWebDistributionId:
     Description: CloudFront Distribution ID for Super Admin Web Console
     Value: !GetAtt ControlPlaneStack.Outputs.AdminWebDistributionId
+
+  RuntimeDeployerRoleArn:
+    Description: Least-privilege IAM Role ARN for FilestoreCloud/runtime repository CI/CD
+    Value: !GetAtt ComputeStack.Outputs.RuntimeDeployerRoleArn
+
+  ConsoleDeployerRoleArn:
+    Description: Least-privilege IAM Role ARN for FilestoreCloud/console repository CI/CD
+    Value: !GetAtt ControlPlaneStack.Outputs.ConsoleDeployerRoleArn
+
+  TenantOperatorLambdaArn:
+    Description: Control Plane Tenant Operator Lambda Function ARN
+    Value: !GetAtt ControlPlaneStack.Outputs.TenantOperatorLambdaArn
+
+  TenantOperatorLambdaFunctionUrl:
+    Description: Control Plane Tenant Operator Lambda Function URL
+    Value: !GetAtt ControlPlaneStack.Outputs.TenantOperatorLambdaFunctionUrl
