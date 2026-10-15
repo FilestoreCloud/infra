@@ -100,7 +100,7 @@ jobs:
 
   deploy-storage:
     name: Deploy 03-Storage
-    needs: [deploy-networking]
+    needs: [deploy-security]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
