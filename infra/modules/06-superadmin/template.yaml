@@ -1171,6 +1171,8 @@ Resources:
       StateMachineName: !Sub "${EnvironmentName}-Tenant-Suspension"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
       DefinitionString: !Sub |
         {
           "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Suspension (FinOps Scale-to-Zero)",
@@ -1495,6 +1497,8 @@ Resources:
       StateMachineName: !Sub "${EnvironmentName}-Tenant-Deprovisioning"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
       DefinitionString: !Sub |
         {
           "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Deprovisioning with Real-Time Progress & Complete Teardown",
@@ -1632,6 +1636,8 @@ Resources:
       StateMachineName: !Sub "${EnvironmentName}-Tenant-Seeding"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
       DefinitionString: !Sub |
         {
           "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Demo Seeding (Admin Accounts & Sample Files)",
@@ -1765,6 +1771,8 @@ Resources:
       StateMachineName: !Sub "${EnvironmentName}-Tenant-Demo-Provisioning"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
       DefinitionString: !Sub |
         {
           "Comment": "AWS Step Functions Orchestrator for Demo Tenant: Sequentially runs Tenant Provisioning then Tenant Seeding",
