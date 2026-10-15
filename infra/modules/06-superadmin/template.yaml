@@ -1097,7 +1097,7 @@ Resources:
             },
             "PublishProvisionMetric": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
               "Parameters": {
                 "Namespace": "Nextcloud/SaaS",
                 "MetricData": [
@@ -1237,7 +1237,7 @@ Resources:
             },
             "PublishSuspendMetric": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
               "Parameters": {
                 "Namespace": "Nextcloud/SaaS",
                 "MetricData": [
@@ -1462,7 +1462,7 @@ Resources:
             },
             "PublishResumeMetric": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
               "Parameters": {
                 "Namespace": "Nextcloud/SaaS",
                 "MetricData": [
@@ -1605,7 +1605,7 @@ Resources:
             },
             "PublishDeprovisionMetric": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
               "Parameters": {
                 "Namespace": "Nextcloud/SaaS",
                 "MetricData": [
@@ -1732,7 +1732,7 @@ Resources:
             },
             "PublishSeedMetric": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
               "Parameters": {
                 "Namespace": "Nextcloud/SaaS",
                 "MetricData": [
@@ -2270,7 +2270,7 @@ Resources:
             },
             "PublishFleetUpgradeMetric": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Resource": "arn:aws:states:::aws-sdk:cloudwatch:putMetricData",
               "Parameters": {
                 "Namespace": "Nextcloud/SaaS",
                 "MetricData": [
