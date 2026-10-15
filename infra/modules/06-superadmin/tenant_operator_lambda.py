@@ -618,6 +618,11 @@ def get_infra_config():
             for s in os.environ.get("PUBLIC_SUBNETS", "").split(",")
             if s.strip()
         ],
+        "private_subnets": [
+            s.strip()
+            for s in os.environ.get("PRIVATE_SUBNETS", "").split(",")
+            if s.strip()
+        ],
         "ecs_sg": os.environ.get("ECS_SECURITY_GROUP"),
         "https_listener_arn": os.environ.get("HTTPS_LISTENER_ARN"),
         "alb_arn": os.environ.get("ALB_ARN"),
@@ -645,6 +650,10 @@ def get_infra_config():
                     config["vpc_id"] = val
                 elif name.endswith("/infra/public-subnets"):
                     config["public_subnets"] = [
+                        s.strip() for s in val.split(",") if s.strip()
+                    ]
+                elif name.endswith("/infra/private-subnets"):
+                    config["private_subnets"] = [
                         s.strip() for s in val.split(",") if s.strip()
                     ]
                 elif name.endswith("/security/ecs-sg-id"):
@@ -679,6 +688,11 @@ def get_infra_config():
         config["vpc_id"] = "vpc-030257f65c0893745"
     if not config["public_subnets"]:
         config["public_subnets"] = [
+            "subnet-08096079734609710",
+            "subnet-049b7e2945e7eddce",
+        ]
+    if not config.get("private_subnets"):
+        config["private_subnets"] = [
             "subnet-08096079734609710",
             "subnet-049b7e2945e7eddce",
         ]
@@ -2412,7 +2426,7 @@ def get_tenant_detail(tenant_id):
         "s3_vault_prefix": f"s3://{vault_bucket}/tenants/{tenant_id}/",
         "secrets_manager_path": f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials",
         "vpc_id": infra.get("vpc_id", "vpc-030257f65c0893745"),
-        "subnets": infra.get("public_subnets", ["subnet-08096079734609710"]),
+        "subnets": infra.get("private_subnets", ["subnet-08096079734609710"]),
         "security_group_id": infra.get("ecs_sg", "sg-020acf11e92c99ca4"),
     }
 
@@ -3083,9 +3097,9 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
             ],
             "networkConfiguration": {
                 "awsvpcConfiguration": {
-                    "subnets": infra["public_subnets"],
+                    "subnets": infra["private_subnets"],
                     "securityGroups": [infra["ecs_sg"]],
-                    "assignPublicIp": "ENABLED",
+                    "assignPublicIp": "DISABLED",
                 }
             },
         }
@@ -3527,18 +3541,18 @@ def _handle_request(event, context):
         input_code_hash = hashlib.sha256(str(mfa_code).strip().encode()).hexdigest()
 
         is_mfa_valid = False
+        mfa_type = "EMAIL_OTP"
         if expected_otp_hash and hmac.compare_digest(
             expected_otp_hash, input_code_hash
         ):
             is_mfa_valid = True
         else:
-            # Fallback to user's TOTP authenticator secret if configured
+            # Fallback to user's TOTP authenticator secret if configured in DynamoDB (Fail-closed)
             user = get_user_account(username)
-            mfa_secret = (
-                user.get("mfa_secret") if user else None
-            ) or "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
-            if mfa_secret and verify_totp_code(mfa_secret, mfa_code, window=10):
+            mfa_secret = user.get("mfa_secret") if user else None
+            if mfa_secret and verify_totp_code(mfa_secret, mfa_code, window=1):
                 is_mfa_valid = True
+                mfa_type = "TOTP"
 
         if is_mfa_valid:
             token = create_session_token(username, user_role)
@@ -3548,7 +3562,7 @@ def _handle_request(event, context):
                 "MFA_VERIFY_SUCCESS",
                 "auth",
                 "SUCCESS",
-                {"mfa_type": "EMAIL_OTP"},
+                {"mfa_type": mfa_type},
                 client_ip,
                 user_agent,
             )
@@ -4237,9 +4251,9 @@ def _handle_request(event, context):
                     ],
                     "networkConfiguration": {
                         "awsvpcConfiguration": {
-                            "subnets": infra["public_subnets"],
+                            "subnets": infra["private_subnets"],
                             "securityGroups": [infra["ecs_sg"]],
-                            "assignPublicIp": "ENABLED",
+                            "assignPublicIp": "DISABLED",
                         }
                     },
                 }

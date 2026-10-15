@@ -472,6 +472,7 @@ Resources:
         - ZipFile: |
             import json,os,time,hmac,hashlib,base64,struct,boto3,decimal
             TBL=os.environ.get("TABLE_NAME","dev-nextcloud-tenant-registry")
+            UTBL=os.environ.get("ADMIN_USERS_TABLE","")
             KEY=os.environ.get("ADMIN_MASTER_KEY","")
             CORS={"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"}
             def d2j(o):
@@ -523,7 +524,19 @@ Resources:
                     code=b.get("mfa_code") or b.get("totp_code") or ""
                     p=verify_tok(ch)
                     if not p or p.get("typ")!="mfa":return resp(401,{"error":"Invalid or expired challenge token."})
-                    if not verify_totp("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",code):return resp(401,{"error":"Invalid 6-digit verification code."})
+                    m_ok=False
+                    if p.get("otp_hash") and hmac.compare_digest(p["otp_hash"],hashlib.sha256(str(code).strip().encode()).hexdigest()):
+                        m_ok=True
+                    else:
+                        sec=None
+                        if UTBL:
+                            try:
+                                ddb=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                                it=ddb.Table(UTBL).get_item(Key={"username":p["user"]}).get("Item")
+                                sec=it.get("mfa_secret") if it else None
+                            except:pass
+                        if sec and verify_totp(sec,code):m_ok=True
+                    if not m_ok:return resp(401,{"error":"Invalid 6-digit verification code."})
                     tok=make_tok({"user":p["user"],"role":"SuperAdmin","exp":time.time()+86400})
                     return resp(200,{"status":"OK","token":tok,"user":p["user"],"role":"SuperAdmin"})
                 dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
