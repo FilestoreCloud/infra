@@ -359,6 +359,26 @@ jobs:
           npm install
           npx playwright install --with-deps chromium
 
+      - name: Resolve Acceptance Target Endpoints
+        id: endpoints
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          python3 -c "
+          import os, boto3
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          ssm = boto3.client('ssm', region_name=region)
+          alb_dns = ssm.get_parameter(Name=f'/nextcloud/{env_name}/infra/alb-dns')['Parameter']['Value']
+          admin_url = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-url')['Parameter']['Value']
+          print(f'Resolved ALB DNS: {alb_dns}')
+          print(f'Resolved Console URL: {admin_url}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'alb_dns={alb_dns}\n')
+              f.write(f'console_url={admin_url}\n')
+          "
+
       - name: Run Playwright Nextcloud E2E Suite
         env:
           ENV: ${{ inputs.environment }}
@@ -369,6 +389,8 @@ jobs:
           SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
           SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
+          ALB_DNS: ${{ steps.endpoints.outputs.alb_dns }}
+          CONSOLE_URL: ${{ steps.endpoints.outputs.console_url }}
         run: |
           echo "Target ALB DNS for Playwright E2E: $ALB_DNS"
           echo "Target SuperAdmin Console URL: $CONSOLE_URL"
