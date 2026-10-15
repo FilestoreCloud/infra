@@ -383,17 +383,3 @@ jobs:
           name: playwright-e2e-report
           path: tests/nextcloud/e2e/playwright-report/
           retention-days: 14
-
-      - name: Trigger SuperAdmin Console Deployment in console repo
-        if: env.GITOPS_TOKEN != ''
-        env:
-          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
-          ORG_NAME: ${{ github.repository_owner }}
-        run: |
-          echo "Dispatching deploy_console event to ${ORG_NAME}/console..."
-          curl -s -X POST \
-            -H "Accept: application/vnd.github.v3+json" \
-            -H "Authorization: token ${GITOPS_TOKEN}" \
-            https://api.github.com/repos/${ORG_NAME}/console/dispatches \
-            -d "{\"event_type\": \"deploy_console\", \"client_payload\": {\"environment\": \"${{ inputs.environment }}\"}}" || true
-          echo "✓ Console deployment event successfully dispatched."
