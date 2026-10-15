@@ -1,14 +1,21 @@
-# FilestoreCloud Infrastructure & Operations
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/storix-logo-white.png">
+    <img alt="Storix Logo" src="docs/images/storix-logo.png" width="360">
+  </picture>
+</p>
 
-Modular CloudFormation Infrastructure as Code (IaC) and operational automation for the FilestoreCloud enterprise multi-tenant platform on AWS.
+# Storix Infrastructure & Operations
+
+Modular CloudFormation Infrastructure as Code (IaC) and operational automation for the Storix enterprise multi-tenant platform on AWS.
 
 ---
 
 ## 1. Architecture Overview
 
-![FilestoreCloud Multi-Tenant AWS Architecture](docs/images/nextcloud_architecture.png)
+![Storix Multi-Tenant AWS Architecture](docs/images/nextcloud_architecture.png)
 
-FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular CloudFormation architecture with container-per-tenant isolation on Amazon ECS Fargate.
+Storix utilizes a zero-code-modification, fully AWS-native modular CloudFormation architecture with container-per-tenant isolation on Amazon ECS Fargate.
 
 ### Key Architectural Boundaries
 
@@ -65,7 +72,7 @@ All infrastructure deployments and destructions are executed via **Native GitHub
 
 Tenant provisioning is managed dynamically through the **Super Admin Console**:
 
-- Use the Web Console UI ([`FilestoreCloud/console`](https://github.com/FilestoreCloud/console)) or API Gateway endpoint (`/api/tenants` with action `PROVISION`) to create, configure, suspend, or delete tenants.
+- Use the Web Console UI ([`Storix/console`](https://github.com/Storix/console)) or API Gateway endpoint (`/api/tenants` with action `PROVISION`) to create, configure, suspend, or delete tenants.
 
 ---
 
@@ -97,5 +104,5 @@ awsdac infra/diagrams/console_architecture.yaml -o docs/images/console_architect
 
 ## 6. Related Repositories
 
-- [**`FilestoreCloud/runtime`**](https://github.com/FilestoreCloud/runtime): Docker Golden Image & Bedrock AI Sidecar.
-- [**`FilestoreCloud/console`**](https://github.com/FilestoreCloud/console): Super Admin Web Console (React 18 + Refine + Ant Design).
+- [**`Storix/runtime`**](https://github.com/Storix/runtime): Docker Golden Image & Bedrock AI Sidecar.
+- [**`Storix/console`**](https://github.com/Storix/console): Super Admin Web Console (React 18 + Refine + Ant Design).
