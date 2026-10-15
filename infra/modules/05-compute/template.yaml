@@ -507,11 +507,6 @@ Resources:
       ContainerDefinitions:
         - Name: nextcloud
           Image: !Ref ContainerImage
-          EntryPoint:
-            - "sh"
-            - "-c"
-          Command:
-            - "sed -i \"s/'overwriteprotocol' => 'https'/'overwriteprotocol' => 'http'/g\" /var/www/html/config/config.php 2>/dev/null || true; sed -i \"s/\\\"overwriteprotocol\\\" => \\\"https\\\"/\\\"overwriteprotocol\\\" => \\\"http\\\"/g\" /var/www/html/config/config.php 2>/dev/null || true; cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && exec /entrypoint.sh apache2-foreground"
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
