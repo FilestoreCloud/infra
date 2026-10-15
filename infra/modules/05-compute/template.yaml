@@ -470,6 +470,7 @@ Resources:
                 Action:
                   - elasticfilesystem:ClientMount
                   - elasticfilesystem:ClientWrite
+                  - elasticfilesystem:ClientRootAccess
                   - elasticfilesystem:DescribeFileSystems
                 Resource: !If
                   - HasEFS

@@ -106,3 +106,10 @@ awsdac infra/diagrams/console_architecture.yaml -o docs/images/console_architect
 
 - [**`Storix/runtime`**](https://github.com/Storix/runtime): Docker Golden Image & Bedrock AI Sidecar.
 - [**`Storix/console`**](https://github.com/Storix/console): Super Admin Web Console (React 18 + Refine + Ant Design).
+
+---
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+

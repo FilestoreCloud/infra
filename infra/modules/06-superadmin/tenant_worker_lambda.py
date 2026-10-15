@@ -45,6 +45,11 @@ def get_infra_config():
             for s in os.environ.get("PUBLIC_SUBNETS", "").split(",")
             if s.strip()
         ],
+        "private_subnets": [
+            s.strip()
+            for s in os.environ.get("PRIVATE_SUBNETS", "").split(",")
+            if s.strip()
+        ],
         "ecs_sg": os.environ.get("ECS_SECURITY_GROUP"),
         "https_listener_arn": os.environ.get("HTTPS_LISTENER_ARN"),
         "alb_arn": os.environ.get("ALB_ARN"),
@@ -72,6 +77,10 @@ def get_infra_config():
                     config["vpc_id"] = val
                 elif name.endswith("/infra/public-subnets"):
                     config["public_subnets"] = [
+                        s.strip() for s in val.split(",") if s.strip()
+                    ]
+                elif name.endswith("/infra/private-subnets"):
+                    config["private_subnets"] = [
                         s.strip() for s in val.split(",") if s.strip()
                     ]
                 elif name.endswith("/security/ecs-sg-id"):
@@ -106,6 +115,11 @@ def get_infra_config():
         config["vpc_id"] = "vpc-030257f65c0893745"
     if not config["public_subnets"]:
         config["public_subnets"] = [
+            "subnet-08096079734609710",
+            "subnet-049b7e2945e7eddce",
+        ]
+    if not config.get("private_subnets"):
+        config["private_subnets"] = [
             "subnet-08096079734609710",
             "subnet-049b7e2945e7eddce",
         ]
@@ -370,9 +384,9 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
             ],
             "networkConfiguration": {
                 "awsvpcConfiguration": {
-                    "subnets": infra["public_subnets"],
+                    "subnets": infra["private_subnets"],
                     "securityGroups": [infra["ecs_sg"]],
-                    "assignPublicIp": "ENABLED",
+                    "assignPublicIp": "DISABLED",
                 }
             },
         }

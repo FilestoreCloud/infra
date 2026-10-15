@@ -46,6 +46,9 @@ def package_lambda(source_path=DEFAULT_SOURCE, output_path=DEFAULT_OUTPUT):
     with open(source_path, "rb") as f:
         content = f.read()
 
+    # Normalize line endings to UNIX LF (\n) to guarantee bit-for-bit determinism across platforms (e.g. CRLF on Windows)
+    content = content.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
     # Verify python source syntax integrity prior to archiving
     try:
         ast.parse(content, filename=source_path)
