@@ -833,6 +833,13 @@ Resources:
                   - events:PutRule
                   - events:DescribeRule
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: "*"
 
   TenantProvisioningStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -840,9 +847,12 @@ Resources:
       StateMachineName: !Sub "${EnvironmentName}-Tenant-Provisioning"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
       DefinitionString: !Sub |
         {
-          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Provisioning with Real-Time Progress & Saga Rollback",
+          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Provisioning with Real-Time Progress, Saga Rollback & Loop Limiter",
+          "TimeoutSeconds": 600,
           "StartAt": "ProvisionMarkDynamoDB",
           "States": {
             "ProvisionMarkDynamoDB": {
@@ -875,6 +885,19 @@ Resources:
                 }
               },
               "ResultPath": "$.provision_result",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
               "Catch": [
                 {
                   "ErrorEquals": ["States.ALL"],
@@ -903,6 +926,14 @@ Resources:
                 }
               },
               "ResultPath": "$.infra_mark_result",
+              "Next": "InitHealthCheckState"
+            },
+            "InitHealthCheckState": {
+              "Type": "Pass",
+              "Result": {
+                "attempts": 0
+              },
+              "ResultPath": "$.health_check.Payload",
               "Next": "WaitForContainerHealthy"
             },
             "WaitForContainerHealthy": {
@@ -917,10 +948,24 @@ Resources:
                 "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "CHECK_TENANT_HEALTH",
-                  "tenant_id.$": "$.TenantId"
+                  "tenant_id.$": "$.TenantId",
+                  "attempt.$": "$.health_check.Payload.attempts"
                 }
               },
               "ResultPath": "$.health_check",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
               "Catch": [
                 {
                   "ErrorEquals": ["States.ALL"],
@@ -937,6 +982,11 @@ Resources:
                   "Variable": "$.health_check.Payload.healthy",
                   "BooleanEquals": true,
                   "Next": "MarkContainerHealthy"
+                },
+                {
+                  "Variable": "$.health_check.Payload.exceeded_max_retries",
+                  "BooleanEquals": true,
+                  "Next": "SagaRollback"
                 }
               ],
               "Default": "RetryHealthCheck"
@@ -1165,9 +1215,12 @@ Resources:
       StateMachineName: !Sub "${EnvironmentName}-Tenant-Resumption"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
       DefinitionString: !Sub |
         {
-          "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Resumption",
+          "Comment": "AWS Step Functions State Machine for Nextcloud Tenant Resumption with Loop Limiter",
+          "TimeoutSeconds": 600,
           "StartAt": "MarkResumingDynamoDB",
           "States": {
             "MarkResumingDynamoDB": {
@@ -1204,6 +1257,27 @@ Resources:
                 }
               },
               "ResultPath": "$.resume_result",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Next": "InitResumeHealthState"
+            },
+            "InitResumeHealthState": {
+              "Type": "Pass",
+              "Result": {
+                "attempts": 0
+              },
+              "ResultPath": "$.health_check.Payload",
               "Next": "WaitForResumeHealthy"
             },
             "WaitForResumeHealthy": {
@@ -1239,10 +1313,24 @@ Resources:
                 "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "CHECK_TENANT_HEALTH",
-                  "tenant_id.$": "$.TenantId"
+                  "tenant_id.$": "$.TenantId",
+                  "attempt.$": "$.health_check.Payload.attempts"
                 }
               },
               "ResultPath": "$.health_check",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
               "Next": "IsResumeHealthy"
             },
             "IsResumeHealthy": {
@@ -1252,6 +1340,11 @@ Resources:
                   "Variable": "$.health_check.Payload.healthy",
                   "BooleanEquals": true,
                   "Next": "MarkResumedDynamoDB"
+                },
+                {
+                  "Variable": "$.health_check.Payload.exceeded_max_retries",
+                  "BooleanEquals": true,
+                  "Next": "MarkResumeFailedDynamoDB"
                 }
               ],
               "Default": "RetryResumeHealth"
@@ -1260,6 +1353,34 @@ Resources:
               "Type": "Wait",
               "Seconds": 10,
               "Next": "CheckResumeHealth"
+            },
+            "MarkResumeFailedDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :s, #cs = :cs, #err = :err",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#cs": "current_step",
+                  "#err": "last_error"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "FAILED" },
+                  ":cs": { "S": "Container health check timed out during resumption" },
+                  ":err": { "S": "Health check exceeded maximum retry attempts (15)" }
+                }
+              },
+              "ResultPath": "$.ddb_failed_result",
+              "Next": "ResumeFailed"
+            },
+            "ResumeFailed": {
+              "Type": "Fail",
+              "Error": "ResumptionHealthTimeout",
+              "Cause": "Tenant container failed to become healthy within the allotted retry window."
             },
             "MarkResumedDynamoDB": {
               "Type": "Task",
@@ -1636,9 +1757,12 @@ Resources:
       StateMachineName: !Sub "${EnvironmentName}-Tenant-Fleet-Upgrade"
       StateMachineType: STANDARD
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      TracingConfiguration:
+        Enabled: true
       DefinitionString: !Sub |
         {
-          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Fleet Rolling Container Image Upgrade",
+          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Fleet Rolling Container Image Upgrade with Canary Rollout & Auto-Rollback",
+          "TimeoutSeconds": 1800,
           "StartAt": "GetRunningTenants",
           "States": {
             "GetRunningTenants": {
@@ -1651,11 +1775,236 @@ Resources:
                 }
               },
               "ResultPath": "$.Fleet",
-              "Next": "UpgradeFleetMap"
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Next": "CheckFleetHasTenants"
             },
-            "UpgradeFleetMap": {
+            "CheckFleetHasTenants": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.Fleet.Payload.has_tenants",
+                  "BooleanEquals": false,
+                  "Next": "NoRunningTenantsPass"
+                }
+              ],
+              "Default": "MarkCanaryUpgradingDynamoDB"
+            },
+            "NoRunningTenantsPass": {
+              "Type": "Pass",
+              "End": true
+            },
+            "MarkCanaryUpgradingDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.Fleet.Payload.canary_tenant" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "UPGRADING" },
+                  ":p": { "N": "20" },
+                  ":cs": { "S": "Canary Rollout: Testing new container image on initial tenant" }
+                }
+              },
+              "ResultPath": "$.canary_ddb_result",
+              "Next": "UpdateCanaryECSImage"
+            },
+            "UpdateCanaryECSImage": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantWorkerLambda.Arn}",
+                "Payload": {
+                  "action": "UPDATE_TENANT_IMAGE",
+                  "tenant_id.$": "$.Fleet.Payload.canary_tenant",
+                  "target_image.$": "$.TargetImage"
+                }
+              },
+              "ResultPath": "$.canary_update_result",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "ResultPath": "$.canary_error",
+                  "Next": "RollbackCanaryECSImage"
+                }
+              ],
+              "Next": "InitCanaryHealthState"
+            },
+            "InitCanaryHealthState": {
+              "Type": "Pass",
+              "Result": {
+                "attempts": 0
+              },
+              "ResultPath": "$.canary_health.Payload",
+              "Next": "WaitForCanaryDeployment"
+            },
+            "WaitForCanaryDeployment": {
+              "Type": "Wait",
+              "Seconds": 15,
+              "Next": "CheckCanaryHealth"
+            },
+            "CheckCanaryHealth": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantWorkerLambda.Arn}",
+                "Payload": {
+                  "action": "CHECK_TENANT_HEALTH",
+                  "tenant_id.$": "$.Fleet.Payload.canary_tenant",
+                  "attempt.$": "$.canary_health.Payload.attempts"
+                }
+              },
+              "ResultPath": "$.canary_health",
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Next": "IsCanaryHealthy"
+            },
+            "IsCanaryHealthy": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.canary_health.Payload.healthy",
+                  "BooleanEquals": true,
+                  "Next": "MarkCanaryCompleteDynamoDB"
+                },
+                {
+                  "Variable": "$.canary_health.Payload.exceeded_max_retries",
+                  "BooleanEquals": true,
+                  "Next": "RollbackCanaryECSImage"
+                }
+              ],
+              "Default": "RetryCanaryHealth"
+            },
+            "RetryCanaryHealth": {
+              "Type": "Wait",
+              "Seconds": 10,
+              "Next": "CheckCanaryHealth"
+            },
+            "RollbackCanaryECSImage": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantWorkerLambda.Arn}",
+                "Payload": {
+                  "action": "ROLLBACK_TENANT_IMAGE",
+                  "tenant_id.$": "$.Fleet.Payload.canary_tenant"
+                }
+              },
+              "ResultPath": "$.canary_rollback_result",
+              "Next": "MarkCanaryFailedDynamoDB"
+            },
+            "MarkCanaryFailedDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.Fleet.Payload.canary_tenant" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs, #err = :err",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step",
+                  "#err": "last_error"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "ACTIVE" },
+                  ":p": { "N": "100" },
+                  ":cs": { "S": "Canary container unhealthy; rolled back to previous stable image" },
+                  ":err": { "S": "Canary deployment aborted due to container health check failure" }
+                }
+              },
+              "ResultPath": "$.canary_failed_ddb",
+              "Next": "CanaryUpgradeFailed"
+            },
+            "CanaryUpgradeFailed": {
+              "Type": "Fail",
+              "Error": "CanaryDeploymentFailed",
+              "Cause": "Canary tenant health check failed. Rollout aborted across the fleet to prevent outages."
+            },
+            "MarkCanaryCompleteDynamoDB": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
+              "Parameters": {
+                "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                "Key": {
+                  "tenant_id": { "S.$": "$.Fleet.Payload.canary_tenant" }
+                },
+                "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs, #img = :img",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#p": "progress",
+                  "#cs": "current_step",
+                  "#img": "container_image"
+                },
+                "ExpressionAttributeValues": {
+                  ":s": { "S": "ACTIVE" },
+                  ":p": { "N": "100" },
+                  ":cs": { "S": "Ready & Operational (Canary Upgraded)" },
+                  ":img": { "S.$": "$.TargetImage" }
+                }
+              },
+              "ResultPath": "$.canary_complete_result",
+              "Next": "CheckHasRemainingTenants"
+            },
+            "CheckHasRemainingTenants": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.Fleet.Payload.remaining_tenants[0]",
+                  "IsPresent": true,
+                  "Next": "UpgradeRemainingFleetMap"
+                }
+              ],
+              "Default": "PublishFleetUpgradeMetric"
+            },
+            "UpgradeRemainingFleetMap": {
               "Type": "Map",
-              "ItemsPath": "$.Fleet.Payload.running_tenants",
+              "ItemsPath": "$.Fleet.Payload.remaining_tenants",
               "ItemSelector": {
                 "TenantId.$": "$$.Map.Item.Value",
                 "TargetImage.$": "$.TargetImage"
@@ -1699,6 +2048,21 @@ Resources:
                       }
                     },
                     "ResultPath": "$.update_result",
+                    "Catch": [
+                      {
+                        "ErrorEquals": ["States.ALL"],
+                        "ResultPath": "$.error",
+                        "Next": "RollbackTenantECSImage"
+                      }
+                    ],
+                    "Next": "InitTenantHealthState"
+                  },
+                  "InitTenantHealthState": {
+                    "Type": "Pass",
+                    "Result": {
+                      "attempts": 0
+                    },
+                    "ResultPath": "$.health_check.Payload",
                     "Next": "MarkDeployingDynamoDB"
                   },
                   "MarkDeployingDynamoDB": {
@@ -1734,10 +2098,24 @@ Resources:
                       "FunctionName": "${TenantWorkerLambda.Arn}",
                       "Payload": {
                         "action": "CHECK_TENANT_HEALTH",
-                        "tenant_id.$": "$.TenantId"
+                        "tenant_id.$": "$.TenantId",
+                        "attempt.$": "$.health_check.Payload.attempts"
                       }
                     },
                     "ResultPath": "$.health_check",
+                    "Retry": [
+                      {
+                        "ErrorEquals": [
+                          "Lambda.ServiceException",
+                          "Lambda.AWSLambdaException",
+                          "Lambda.SdkClientException",
+                          "Lambda.TooManyRequestsException"
+                        ],
+                        "IntervalSeconds": 2,
+                        "MaxAttempts": 3,
+                        "BackoffRate": 2.0
+                      }
+                    ],
                     "Next": "IsUpgradeHealthy"
                   },
                   "IsUpgradeHealthy": {
@@ -1747,6 +2125,11 @@ Resources:
                         "Variable": "$.health_check.Payload.healthy",
                         "BooleanEquals": true,
                         "Next": "MarkUpgradeCompleteDynamoDB"
+                      },
+                      {
+                        "Variable": "$.health_check.Payload.exceeded_max_retries",
+                        "BooleanEquals": true,
+                        "Next": "RollbackTenantECSImage"
                       }
                     ],
                     "Default": "RetryUpgradeHealth"
@@ -1755,6 +2138,44 @@ Resources:
                     "Type": "Wait",
                     "Seconds": 10,
                     "Next": "CheckUpgradedHealth"
+                  },
+                  "RollbackTenantECSImage": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${TenantWorkerLambda.Arn}",
+                      "Payload": {
+                        "action": "ROLLBACK_TENANT_IMAGE",
+                        "tenant_id.$": "$.TenantId"
+                      }
+                    },
+                    "ResultPath": "$.rollback_result",
+                    "Next": "MarkTenantRollbackDynamoDB"
+                  },
+                  "MarkTenantRollbackDynamoDB": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::dynamodb:updateItem",
+                    "Parameters": {
+                      "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                      "Key": {
+                        "tenant_id": { "S.$": "$.TenantId" }
+                      },
+                      "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs, #err = :err",
+                      "ExpressionAttributeNames": {
+                        "#st": "status",
+                        "#p": "progress",
+                        "#cs": "current_step",
+                        "#err": "last_error"
+                      },
+                      "ExpressionAttributeValues": {
+                        ":s": { "S": "ACTIVE" },
+                        ":p": { "N": "100" },
+                        ":cs": { "S": "Upgrade timed out; rolled back to previous stable image" },
+                        ":err": { "S": "Container health check timed out during rolling upgrade" }
+                      }
+                    },
+                    "ResultPath": "$.ddb_rollback_result",
+                    "End": true
                   },
                   "MarkUpgradeCompleteDynamoDB": {
                     "Type": "Task",
