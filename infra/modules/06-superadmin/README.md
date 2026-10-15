@@ -27,9 +27,8 @@ Modern, lightweight single-page management application for SaaS Super Admins to 
 
 | File                                                     | Purpose                                                                                                                   |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| [`template.yaml`](template.yaml)                         | CloudFormation template for DynamoDB tenant registry, audit logs, admin users, Cognito, and CloudFront/S3 web hosting     |
-| [`tenant_operator_lambda.py`](tenant_operator_lambda.py) | Control Plane REST API Lambda backend and operational lifecycle controller                                                |
-| [`runbook.yaml`](runbook.yaml)                           | Systems Manager (SSM) Automation Runbook for tenant lifecycle workflows (`PROVISION`, `SUSPEND`, `RESUME`, `DEPROVISION`) |
+| [`template.yaml`](template.yaml)                         | CloudFormation template defining the 6 AWS Step Functions State Machines, DynamoDB registries, Cognito, and web hosting |
+| [`tenant_operator_lambda.py`](tenant_operator_lambda.py) | Control Plane REST API Lambda backend and micro-task worker for Step Functions executions                                |
 
 > [!NOTE]
 > **Web Console Application:**
