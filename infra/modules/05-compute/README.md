@@ -6,7 +6,7 @@ Deploys the core scalable ingress and compute platform for Nextcloud Multi-Tenan
 
 - **Amazon ECS Fargate Cluster:** Serverless container cluster hosting the default platform service as well as independent dedicated tenant containers provisioned dynamically via the Super Admin Console and Control Plane.
 - **Dual-Container Task Architecture:** Runs Nextcloud 30 Apache alongside a local LiteLLM Bedrock Bridge sidecar proxying Claude 3.5 Sonnet on Amazon Bedrock.
-- **Zero-NAT Placement:** ECS tasks are placed in public subnets with `AssignPublicIp: ENABLED` and their Security Group locked strictly to the ALB. This allows direct internet egress for ECR image pulls, CloudWatch logging, and Bedrock model invocations without requiring a costly NAT Gateway or expensive Interface VPC Endpoints.
+- **Private Subnet Placement:** ECS tasks are placed in private subnets with `AssignPublicIp: DISABLED` and access AWS services (ECR, CloudWatch, Secrets Manager, EFS) via VPC Interface Endpoints without requiring public IP assignments or internet gateways.
 - **Amazon ECR Golden Image Repository:** Provisions `${EnvironmentName}-nextcloud-enterprise` with automated vulnerability scanning on push.
 - **SSM Parameter Store Ingress Exports:** Automatically exports `alb-https-listener-arn`, `alb-dns-name`, `ecs-cluster-name`, and IAM execution role ARNs to enable independent tenant container deployment without stack lock-in.
 

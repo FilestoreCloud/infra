@@ -125,3 +125,8 @@ ferret-scan-results.sarif
 playwright-report/
 test-results/
 
+# Convenience symlinks
+/modules
+/root.yaml
+
+
