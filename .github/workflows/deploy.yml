@@ -260,11 +260,35 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
+      - name: Resolve Deployment S3 Bucket
+        id: resolve-bucket
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          python3 -c "
+          import os, sys, boto3
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          cfn = boto3.client('cloudformation', region_name=region)
+          try:
+              storage_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-03-storage')['Stacks'][0]
+              bucket = [o['OutputValue'] for o in storage_stack['Outputs'] if o['OutputKey'] == 'S3VaultBucketName'][0]
+              print(f'Using S3 Bucket for large templates: {bucket}')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f'bucket={bucket}\n')
+          except Exception as e:
+              print(f'Error resolving S3 bucket: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
       - name: Deploy 06-SuperAdmin Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
           name: ${{ inputs.environment }}-nextcloud-06-superadmin
           template: infra/modules/06-superadmin/template.yaml
+          s3-bucket: ${{ steps.resolve-bucket.outputs.bucket }}
+          s3-prefix: cfn-templates
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
