@@ -25,10 +25,11 @@ Modern, lightweight single-page management application for SaaS Super Admins to 
 
 ## 2. Directory Contents
 
-| File                                                     | Purpose                                                                                                                   |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| File                                                     | Purpose                                                                                                                 |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | [`template.yaml`](template.yaml)                         | CloudFormation template defining the 6 AWS Step Functions State Machines, DynamoDB registries, Cognito, and web hosting |
-| [`tenant_operator_lambda.py`](tenant_operator_lambda.py) | Control Plane REST API Lambda backend and micro-task worker for Step Functions executions                                |
+| [`tenant_operator_lambda.py`](tenant_operator_lambda.py) | Control Plane REST API Lambda controller for SuperAdmin Web Console (Auth, MFA, Fleet, Step Functions Trigger)          |
+| [`tenant_worker_lambda.py`](tenant_worker_lambda.py)     | Dedicated internal worker Lambda executing Step Functions micro-tasks (ECS, ALB, EFS, Health Check, Seeding)            |
 
 > [!NOTE]
 > **Web Console Application:**

@@ -51,7 +51,7 @@ FilestoreCloud utilizes a zero-code-modification, fully AWS-native modular Cloud
 ### Validate Templates Locally
 
 ```bash
-cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
+cfn-lint --config-file .devsecops/.cfnlintrc.yaml infra/modules/*/template.yaml infra/root.yaml
 ```
 
 ### Deploy Full Infrastructure Stack
@@ -76,7 +76,7 @@ Tenant provisioning is managed dynamically through the **Super Admin Console**:
 pytest tests/ -v
 
 # Run CloudFormation linter
-cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
+cfn-lint --config-file .devsecops/.cfnlintrc.yaml infra/modules/*/template.yaml infra/root.yaml
 ```
 
 ---

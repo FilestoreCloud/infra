@@ -51,7 +51,7 @@ cd tests/terratest && go test -v -run "TestInPlace" -timeout 15m && cd ../..
 
 ```bash
 # CloudFormation template linting (matching CI)
-cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
+cfn-lint --config-file .devsecops/.cfnlintrc.yaml infra/modules/*/template.yaml infra/root.yaml
 
 # CloudFormation Guard policy-as-code compliance
 cfn-guard validate --rules infra/rules/ --data infra/modules/*/template.yaml --data infra/root.yaml --show-summary fail
@@ -60,15 +60,15 @@ cfn-guard validate --rules infra/rules/ --data infra/modules/*/template.yaml --d
 pre-commit run --all-files
 
 # Python linting & formatting (Ruff)
-ruff check .
-ruff format .
+ruff check --config .devsecops/ruff.toml .
+ruff format --config .devsecops/ruff.toml .
 ```
 
 ### Infrastructure Deployment & Linting
 
 ```bash
 # Validate CloudFormation templates
-cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
+cfn-lint --config-file .devsecops/.cfnlintrc.yaml infra/modules/*/template.yaml infra/root.yaml
 
 # Deploy or destroy infrastructure:
 # Done via GitHub Actions CI/CD (.github/workflows/deploy.yml / destroy.yml)

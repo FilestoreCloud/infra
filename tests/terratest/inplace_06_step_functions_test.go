@@ -15,18 +15,18 @@ import (
 
 // ASLDefinition represents a minimal Amazon States Language state machine structure.
 type ASLDefinition struct {
-	Comment string                 `json:"Comment"`
-	StartAt string                 `json:"StartAt"`
-	States  map[string]ASLState    `json:"States"`
+	Comment string              `json:"Comment"`
+	StartAt string              `json:"StartAt"`
+	States  map[string]ASLState `json:"States"`
 }
 
 type ASLState struct {
-	Type     string      `json:"Type"`
-	Next     string      `json:"Next"`
-	End      bool        `json:"End"`
-	Default  string      `json:"Default"`
-	Branches []struct{}  `json:"Branches"`
-	Catch    []ASLCatch  `json:"Catch"`
+	Type     string     `json:"Type"`
+	Next     string     `json:"Next"`
+	End      bool       `json:"End"`
+	Default  string     `json:"Default"`
+	Branches []struct{} `json:"Branches"`
+	Catch    []ASLCatch `json:"Catch"`
 }
 
 type ASLCatch struct {
@@ -56,6 +56,7 @@ func TestInPlaceStepFunctions(t *testing.T) {
 		{OutputKey: "TenantDeprovisioningStateMachineArn", Name: "TenantDeprovisioningStateMachine"},
 		{OutputKey: "TenantSeedingStateMachineArn", Name: "TenantSeedingStateMachine"},
 		{OutputKey: "TenantDemoProvisioningStateMachineArn", Name: "TenantDemoProvisioningStateMachine"},
+		{OutputKey: "TenantFleetUpgradeStateMachineArn", Name: "TenantFleetUpgradeStateMachine"},
 	}
 
 	sfnClient := sfn.NewFromConfig(cfg.awsConfig)

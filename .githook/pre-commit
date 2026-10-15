@@ -56,7 +56,7 @@ fi
 
 log_step "Running CloudFormation linting (cfn-lint)..."
 if command -v cfn-lint >/dev/null 2>&1; then
-  if ! cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005; then
+  if ! cfn-lint --config-file .devsecops/.cfnlintrc.yaml infra/modules/*/template.yaml infra/root.yaml; then
     log_error "cfn-lint validation failed. Fix CloudFormation errors before committing."
     exit 1
   fi
