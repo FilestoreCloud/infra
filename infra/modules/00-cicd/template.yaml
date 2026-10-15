@@ -74,6 +74,7 @@ Resources:
                   - ecr:DescribeRepositories
                   - ecr:ListImages
                   - ecr:CreateRepository
+                  - ecr:TagResource
                 Resource: "*"
       Tags:
         - Key: Environment
