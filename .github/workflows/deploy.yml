@@ -195,11 +195,31 @@ jobs:
 
       - name: Resolve Golden Image URI
         id: image-resolver
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+          ACCOUNT_ID: ${{ steps.aws-creds.outputs.aws-account-id }}
         run: |
-          ACCOUNT_ID="${{ steps.aws-creds.outputs.aws-account-id }}"
-          ECR_IMAGE="${ACCOUNT_ID}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }}"
-          echo "image=${ECR_IMAGE}" >> $GITHUB_OUTPUT
-          echo "Using Golden Image URI: ${ECR_IMAGE}"
+          python3 -c "
+          import os, sys, boto3
+
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          account_id = os.environ['ACCOUNT_ID']
+          repo = f'{env_name}-nextcloud-enterprise'
+
+          ecr = boto3.client('ecr', region_name=region)
+          try:
+              desc = ecr.describe_images(repositoryName=repo, imageIds=[{'imageTag': env_name}])
+              digest = desc['imageDetails'][0]['imageDigest']
+              image_uri = f'{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}@{digest}'
+              print(f'Using Golden Image Digest URI: {image_uri}')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f'image={image_uri}\n')
+          except Exception as e:
+              print(f'Error resolving image digest: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
 
       - name: Deploy 05-Compute Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2

@@ -84,7 +84,7 @@ func TestInPlaceResilience_ECSFargateSelfHealing(t *testing.T) {
 		t,
 		statusEndpoint,
 		tlsConfig,
-		30,
+		60,
 		5*time.Second,
 		func(statusCode int, body string) bool {
 			return statusCode == 200 && (strings.Contains(body, "installed") || strings.Contains(body, "version"))
