@@ -121,6 +121,17 @@ Resources:
         - Key: Application
           Value: Nextcloud-SaaS-Control-Plane
 
+  StepFunctionsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/vendedlogs/states/${EnvironmentName}-nextcloud-sfn"
+      RetentionInDays: 90
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
   AdminUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -384,6 +395,8 @@ Resources:
                   - logs:FilterLogEvents
                 Resource:
                   - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/${EnvironmentName}-*:*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vendedlogs/states/${EnvironmentName}-*:*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/audit/${EnvironmentName}-*:*"
               - Sid: CognitoAdminAuth
                 Effect: Allow
                 Action:
@@ -405,9 +418,18 @@ Resources:
                   - states:DescribeExecution
                   - states:StopExecution
                   - states:GetExecutionHistory
+                  - states:ListExecutions
                 Resource:
                   - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-*"
                   - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:execution:${EnvironmentName}-Tenant-*:*"
+              - Sid: XRayObservability
+                Effect: Allow
+                Action:
+                  - xray:GetTraceSummaries
+                  - xray:BatchGetTraces
+                  - xray:GetServiceGraph
+                  - xray:GetTraceGraph
+                Resource: "*"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -430,6 +452,7 @@ Resources:
           AUDIT_LOGS_TABLE: !Ref DynamoDBAuditLogs
           COGNITO_USER_POOL_ID: !Ref AdminUserPool
           COGNITO_CLIENT_ID: !Ref AdminUserPoolClient
+          SFN_LOG_GROUP: !Ref StepFunctionsLogGroup
           CLUSTER_NAME:
             Fn::If:
               - HasECSClusterName
@@ -840,6 +863,19 @@ Resources:
                   - xray:GetSamplingRules
                   - xray:GetSamplingTargets
                 Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogDelivery
+                  - logs:GetLogDelivery
+                  - logs:UpdateLogDelivery
+                  - logs:DeleteLogDelivery
+                  - logs:ListLogDeliveries
+                  - logs:PutResourcePolicy
+                  - logs:DescribeResourcePolicies
+                  - logs:DescribeLogGroups
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
 
   TenantProvisioningStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -849,6 +885,12 @@ Resources:
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
       TracingConfiguration:
         Enabled: true
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StepFunctionsLogGroup.Arn
       DefinitionString: !Sub |
         {
           "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Provisioning with Real-Time Progress, Saga Rollback & Loop Limiter",
@@ -1759,6 +1801,12 @@ Resources:
       RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
       TracingConfiguration:
         Enabled: true
+      LoggingConfiguration:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+          - CloudWatchLogsLogGroup:
+              LogGroupArn: !GetAtt StepFunctionsLogGroup.Arn
       DefinitionString: !Sub |
         {
           "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Fleet Rolling Container Image Upgrade with Canary Rollout & Auto-Rollback",
@@ -2350,3 +2398,9 @@ Outputs:
     Value: !GetAtt TenantWorkerLambda.Arn
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-TenantWorkerLambdaArn"
+
+  StepFunctionsLogGroupName:
+    Description: CloudWatch Log Group for Step Functions State Machine Executions
+    Value: !Ref StepFunctionsLogGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-StepFunctionsLogGroupName"

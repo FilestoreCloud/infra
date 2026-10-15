@@ -136,13 +136,28 @@ func TestInPlaceStepFunctions(t *testing.T) {
 				assert.True(t, hasCanary, "TenantFleetUpgradeStateMachine must implement Canary deployment states")
 				assert.True(t, hasRollback, "TenantFleetUpgradeStateMachine must implement auto-rollback states")
 			}
+
+			// 4c. Invariant: AWS X-Ray Tracing & CloudWatch Logging Configuration
+			if desc.TracingConfiguration != nil {
+				assert.True(t, desc.TracingConfiguration.Enabled, "TracingConfiguration must be enabled for X-Ray distributed tracing")
+			}
+			if sm.Name == "TenantProvisioningStateMachine" || sm.Name == "TenantFleetUpgradeStateMachine" {
+				if desc.LoggingConfiguration != nil {
+					assert.Equal(t, sfnTypes.LogLevelAll, desc.LoggingConfiguration.Level, "LoggingConfiguration Level must be ALL")
+				}
+			}
 		})
 	}
 
-	// 5. Verify SSM Runbook is fully decommissioned
+	// 5. Verify Central CloudWatch Log Group for Step Functions
+	sfnLogGroup, hasLogGroup := outputs["StepFunctionsLogGroupName"]
+	assert.True(t, hasLogGroup, "Output StepFunctionsLogGroupName must exist in superadmin stack")
+	assert.NotEmpty(t, sfnLogGroup, "StepFunctionsLogGroupName must not be empty")
+
+	// 6. Verify SSM Runbook is fully decommissioned
 	_, hasRunbook := outputs["SSMRunbookName"]
 	assert.False(t, hasRunbook, "Legacy SSM Runbook must be fully decommissioned in favor of Step Functions")
-	t.Logf("✅ [Terratest] All 4 Modular Step Functions validated and operational.")
+	t.Logf("✅ [Terratest] All Modular Step Functions and Observability configurations validated.")
 }
 
 func containsAny(s string, substrs ...string) bool {
