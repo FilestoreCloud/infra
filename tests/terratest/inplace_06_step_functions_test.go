@@ -120,6 +120,22 @@ func TestInPlaceStepFunctions(t *testing.T) {
 				}
 				assert.True(t, hasRollback, "TenantProvisioningStateMachine must implement Saga rollback/compensation state")
 			}
+
+			// 4b. Invariant: Fleet Upgrade state machine must have Canary and Rollback states
+			if sm.Name == "TenantFleetUpgradeStateMachine" {
+				hasCanary := false
+				hasRollback := false
+				for sName := range asl.States {
+					if containsAny(sName, "Canary") {
+						hasCanary = true
+					}
+					if containsAny(sName, "Rollback") {
+						hasRollback = true
+					}
+				}
+				assert.True(t, hasCanary, "TenantFleetUpgradeStateMachine must implement Canary deployment states")
+				assert.True(t, hasRollback, "TenantFleetUpgradeStateMachine must implement auto-rollback states")
+			}
 		})
 	}
 

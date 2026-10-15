@@ -57,7 +57,7 @@ cfn-lint --config-file .devsecops/.cfnlintrc.yaml infra/modules/*/template.yaml 
 cfn-guard validate --rules infra/rules/ --data infra/modules/*/template.yaml --data infra/root.yaml --show-summary fail
 
 # Run complete AWS Labs DevSecOps pre-commit suite
-pre-commit run --all-files
+pre-commit run --config .devsecops/.pre-commit-config.yaml --all-files
 
 # Python linting & formatting (Ruff)
 ruff check --config .devsecops/ruff.toml .
@@ -101,7 +101,7 @@ cfn-lint --config-file .devsecops/.cfnlintrc.yaml infra/modules/*/template.yaml 
 
 Before concluding any implementation or opening a PR:
 
-1. [ ] **Pre-commit:** `pre-commit run --all-files` passes cleanly with zero errors.
+1. [ ] **Pre-commit:** `pre-commit run --config .devsecops/.pre-commit-config.yaml --all-files` passes cleanly with zero errors.
 2. [ ] **Tests:** `pytest tests/ -v` passes.
 3. [ ] **IaC Lint & Policy:** `cfn-lint` and `cfn-guard validate` pass cleanly.
 4. [ ] **Git:** Staged changes committed to `dev` with Conventional Commit message.

@@ -512,7 +512,15 @@ def _get_running_tenants():
                     tenants.append(s_name.replace("service-", ""))
         except Exception as ecs_e:
             print(f"Warning querying ECS services fallback: {ecs_e}")
-    return {"running_tenants": list(dict.fromkeys(tenants))}
+
+    unique_tenants = list(dict.fromkeys(tenants))
+    return {
+        "has_tenants": len(unique_tenants) > 0,
+        "canary_tenant": unique_tenants[0] if unique_tenants else "",
+        "remaining_tenants": unique_tenants[1:] if len(unique_tenants) > 1 else [],
+        "running_tenants": unique_tenants,
+        "total_count": len(unique_tenants),
+    }
 
 
 def _update_tenant_ecs_image(tenant_id, target_image, infra):
@@ -525,6 +533,7 @@ def _update_tenant_ecs_image(tenant_id, target_image, infra):
         # 1. Describe current active task definition
         desc = ecs.describe_task_definition(taskDefinition=task_family)
         task_def = desc["taskDefinition"]
+        current_task_def_arn = task_def.get("taskDefinitionArn", "")
         container_defs = task_def["containerDefinitions"]
 
         # 2. Update image in the container definition
@@ -560,19 +569,21 @@ def _update_tenant_ecs_image(tenant_id, target_image, infra):
             forceNewDeployment=True,
         )
 
-        # 5. Update image attribute in DynamoDB
+        # 5. Update image attribute & previous task definition arn in DynamoDB
         try:
             now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             dynamodb.update_item(
                 TableName=TABLE_NAME,
                 Key={"tenant_id": {"S": tenant_id}},
-                UpdateExpression="SET #img = :img, #lu = :lu",
+                UpdateExpression="SET #img = :img, #ptd = :ptd, #lu = :lu",
                 ExpressionAttributeNames={
                     "#img": "container_image",
+                    "#ptd": "previous_task_definition_arn",
                     "#lu": "last_updated",
                 },
                 ExpressionAttributeValues={
                     ":img": {"S": target_image},
+                    ":ptd": {"S": current_task_def_arn},
                     ":lu": {"S": now_iso},
                 },
             )
@@ -584,6 +595,7 @@ def _update_tenant_ecs_image(tenant_id, target_image, infra):
             "tenant_id": tenant_id,
             "target_image": target_image,
             "task_definition_arn": new_task_def_arn,
+            "previous_task_definition_arn": current_task_def_arn,
         }
     except Exception as e:
         print(f"Error updating tenant ECS image for {tenant_id}: {e}")
@@ -592,6 +604,45 @@ def _update_tenant_ecs_image(tenant_id, target_image, infra):
             "tenant_id": tenant_id,
             "error": str(e),
         }
+
+
+def _rollback_tenant_ecs_image(tenant_id, infra):
+    """Rolls back the ECS Service to the previous task definition revision."""
+    cluster_name = infra.get("cluster_name", CLUSTER_NAME)
+    service_name = f"service-{tenant_id}"
+    try:
+        res = dynamodb.get_item(TableName=TABLE_NAME, Key={"tenant_id": {"S": tenant_id}})
+        item = res.get("Item", {})
+        prev_arn = item.get("previous_task_definition_arn", {}).get("S", "")
+        if prev_arn:
+            ecs.update_service(
+                cluster=cluster_name,
+                service=service_name,
+                taskDefinition=prev_arn,
+                forceNewDeployment=True,
+            )
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        dynamodb.update_item(
+            TableName=TABLE_NAME,
+            Key={"tenant_id": {"S": tenant_id}},
+            UpdateExpression="SET #st = :s, #p = :p, #cs = :cs, #lu = :lu",
+            ExpressionAttributeNames={
+                "#st": "status",
+                "#p": "progress",
+                "#cs": "current_step",
+                "#lu": "last_updated",
+            },
+            ExpressionAttributeValues={
+                ":s": {"S": "ACTIVE"},
+                ":p": {"N": "100"},
+                ":cs": {"S": "Rolled back to previous stable container revision"},
+                ":lu": {"S": now_iso},
+            },
+        )
+        return {"status": "ROLLED_BACK", "tenant_id": tenant_id, "rolled_back_to": prev_arn}
+    except Exception as e:
+        print(f"Error rolling back tenant ECS image for {tenant_id}: {e}")
+        return {"status": "ROLLBACK_FAILED", "tenant_id": tenant_id, "error": str(e)}
 
 
 def lambda_handler(event, context):
@@ -617,7 +668,8 @@ def lambda_handler(event, context):
         }
 
     elif action == "CHECK_TENANT_HEALTH":
-        return _check_tenant_health(tenant_id, infra)
+        attempt = event.get("attempt") or 0
+        return _check_tenant_health(tenant_id, infra, attempt=attempt)
 
     elif action == "SEED_TENANT_USERS_AND_FILES":
         return _seed_tenant_data(tenant_id)
@@ -705,5 +757,8 @@ def lambda_handler(event, context):
     elif action == "UPDATE_TENANT_IMAGE":
         target_image = event.get("target_image") or event.get("image", "")
         return _update_tenant_ecs_image(tenant_id, target_image, infra)
+
+    elif action == "ROLLBACK_TENANT_IMAGE":
+        return _rollback_tenant_ecs_image(tenant_id, infra)
 
     return {"status": "UNKNOWN_TASK", "action": action, "tenant_id": tenant_id}
