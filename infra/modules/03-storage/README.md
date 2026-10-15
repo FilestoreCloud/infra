@@ -64,8 +64,8 @@ Deploys the dual-tier storage architecture for Nextcloud Multi-Tenant SaaS on AW
 | `S3VaultBucket`           | `AWS::S3::Bucket`       | Primary Multi-Tenant S3 Vault with encryption, versioning, and lifecycle policies |
 | `S3VaultBucketPolicy`     | `AWS::S3::BucketPolicy` | Enforces TLS-only data transfer (`aws:SecureTransport: false` Deny)               |
 | `NextcloudEFS`            | `AWS::EFS::FileSystem`  | Encrypted, elastic EFS file system with 30-day IA lifecycle policy                |
-| `EFSMountTarget1`         | `AWS::EFS::MountTarget` | Mount target in Public Subnet 1 bound to `EFSSecurityGroup`                       |
-| `EFSMountTarget2`         | `AWS::EFS::MountTarget` | Mount target in Public Subnet 2 bound to `EFSSecurityGroup`                       |
+| `EFSMountTarget1`         | `AWS::EFS::MountTarget` | Mount target in Private Subnet 1 bound to `EFSSecurityGroup`                      |
+| `EFSMountTarget2`         | `AWS::EFS::MountTarget` | Mount target in Private Subnet 2 bound to `EFSSecurityGroup`                      |
 | `DefaultEFSAccessPoint`   | `AWS::EFS::AccessPoint` | Access point targeting `/tenants/default/config` with POSIX UID/GID 33            |
 | `SSMS3VaultBucket`        | `AWS::SSM::Parameter`   | SSM parameter storing S3 Vault bucket name                                        |
 | `SSMS3VaultBucketArn`     | `AWS::SSM::Parameter`   | SSM parameter storing S3 Vault bucket ARN                                         |
@@ -79,8 +79,8 @@ Deploys the dual-tier storage architecture for Nextcloud Multi-Tenant SaaS on AW
 | Parameter                         | Type                          | Default | Description                                                        |
 | --------------------------------- | ----------------------------- | ------- | ------------------------------------------------------------------ |
 | `EnvironmentName`                 | String                        | `prod`  | Environment prefix (`dev`, `staging`, `prod`)                      |
-| `PublicSubnet1Id`                 | `AWS::EC2::Subnet::Id`        | -       | Public Subnet 1 ID for EFS Mount Target                            |
-| `PublicSubnet2Id`                 | `AWS::EC2::Subnet::Id`        | -       | Public Subnet 2 ID for EFS Mount Target                            |
+| `PrivateSubnet1Id`                | `AWS::EC2::Subnet::Id`        | -       | Private Subnet 1 ID for EFS Mount Target                           |
+| `PrivateSubnet2Id`                | `AWS::EC2::Subnet::Id`        | -       | Private Subnet 2 ID for EFS Mount Target                           |
 | `EFSSecurityGroupId`              | `AWS::EC2::SecurityGroup::Id` | -       | EFS Security Group ID (from Module 02)                             |
 | `TransitionToIADays`              | Number                        | `30`    | Days before transitioning noncurrent S3 versions to S3 Standard-IA |
 | `TransitionToGlacierDays`         | Number                        | `90`    | Days before transitioning noncurrent S3 versions to S3 Glacier     |
@@ -120,7 +120,7 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
       EnvironmentName=prod \
-      PublicSubnet1Id="${SUB_1}" \
-      PublicSubnet2Id="${SUB_2}" \
+      PrivateSubnet1Id="${SUB_1}" \
+      PrivateSubnet2Id="${SUB_2}" \
       EFSSecurityGroupId="${EFS_SG}"
 ```

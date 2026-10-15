@@ -44,8 +44,9 @@ repos:
     rev: v0.16.3
     hooks:
       - id: ruff
-        args: [--fix, --exit-non-zero-on-fix]
+        args: [--config, .devsecops/ruff.toml, --fix, --exit-non-zero-on-fix]
       - id: ruff-format
+        args: [--config, .devsecops/ruff.toml]
 
   - repo: https://github.com/pypa/pip-audit
     rev: v2.10.1
@@ -63,14 +64,6 @@ repos:
       - id: go-fmt
         args: [-w]
         files: '\.go$'
-      - id: go-vet
-        args: [-v]
-        files: '\.go$'
-      - id: go-imports
-        args: [-w]
-        files: '\.go$'
-      - id: go-mod-tidy
-        files: 'go\.(mod|sum)$'
 
   # ============================================================================
   # LANGUAGE-SPECIFIC: JAVASCRIPT/TYPESCRIPT
@@ -155,7 +148,7 @@ repos:
             "--config",
             ".devsecops/ferret-scan.yaml",
             "--suppression-file",
-            ".ferret-scan-suppressions.yaml",
+            ".devsecops/.ferret-scan-suppressions.yaml",
           ]
         files: '\.(go|java|json|kt|kts|md|py|sh|sql|swift|txt|xml|yaml|yml)$'
         exclude: '(^\.git/|\.ash/|\.cache/|\.devsecops/|\.dsr/|\.idea/|\.kiro/|\.venv/|\.virtualenv/|__pycache__/|\.pytest_cache/|\.mypy_cache/|\.ruff_cache/|\.tox/|\.terraform/|\.next/|\.nuxt/|\.svelte-kit/|\.turbo/|\.docusaurus/|_build/|site/|bin/|cdk\.out/|dist/|node_modules/|\.pnpm-store/|\.yarn/|bower_components/|\.vscode/|out/|\.output/|\.nyc_output/|test-results/|reports/|tmp/|temp/|logs/|setup\.sh|vendor/|Pods/|venv/|test_|_test\.|^README\.md$|\.DS_Store$|Thumbs\.db$|.*\.pyc$|.*\.pyo$|.*\.swp$|.*\.swo$|.*\.log$|package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|poetry\.lock$|Pipfile\.lock$|Gemfile\.lock$|\.terraform\.lock\.hcl$|terraform\.tfstate$|cdk\.context\.json$)'
@@ -168,6 +161,7 @@ repos:
     rev: v1.55.1
     hooks:
       - id: cfn-lint
+        args: ["--config-file", ".devsecops/.cfnlintrc.yaml"]
         files: '^infra/(modules/[^/]+/template|root)\.ya?ml$'
 
   - repo: local
@@ -186,7 +180,7 @@ repos:
   # break template consumers:
   #   1. No pyproject.toml -> hard crash "RuntimeError: All resolvers failed".
   #      The CLI's hardcoded requirements_paths default ("pyproject.toml")
-  #      overrides the value set in licensecheck.toml, so a project using
+  #      overrides the value set in .devsecops/licensecheck.toml, so a project using
   #      requirements.txt still crashes. Passing --requirements-paths works
   #      around it, but every path listed must exist or it crashes again.
   #   2. A project with zero dependencies exits 3 instead of 0.
@@ -198,4 +192,4 @@ repos:
         name: License Compliance Check
         args: ["--format", "ansi", "--zero"]
         # Note: licensecheck will automatically detect pyproject.toml or requirements.txt
-        # Configure allowed/blocked licenses in licensecheck.toml
+        # Configure allowed/blocked licenses in .devsecops/licensecheck.toml

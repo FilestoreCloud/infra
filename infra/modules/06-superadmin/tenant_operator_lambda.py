@@ -47,6 +47,7 @@ STATE_MACHINE_RESUME_ARN = os.environ.get("STATE_MACHINE_RESUME_ARN", "")
 STATE_MACHINE_DEPROVISION_ARN = os.environ.get("STATE_MACHINE_DEPROVISION_ARN", "")
 STATE_MACHINE_SEED_ARN = os.environ.get("STATE_MACHINE_SEED_ARN", "")
 STATE_MACHINE_DEMO_ARN = os.environ.get("STATE_MACHINE_DEMO_ARN", "")
+STATE_MACHINE_FLEET_UPGRADE_ARN = os.environ.get("STATE_MACHINE_FLEET_UPGRADE_ARN", "")
 
 
 def safe_put_metric_data(Namespace, MetricData):
@@ -203,7 +204,10 @@ def get_user_account(username):
                 user_status = user_res.get("UserStatus", "CONFIRMED")
                 enabled = user_res.get("Enabled", True)
                 if enabled and user_status in ["CONFIRMED", "FORCE_CHANGE_PASSWORD"]:
-                    attrs = {a["Name"]: a["Value"] for a in user_res.get("UserAttributes", [])}
+                    attrs = {
+                        a["Name"]: a["Value"]
+                        for a in user_res.get("UserAttributes", [])
+                    }
                     return {
                         "username": username,
                         "display_name": attrs.get("name", attrs.get("email", username)),
@@ -378,7 +382,9 @@ def create_session_token(username, role=None, key=None):
     if not key:
         key = get_signing_key()
     if not key:
-        raise RuntimeError("Authentication service signing keys unavailable. Fail-closed.")
+        raise RuntimeError(
+            "Authentication service signing keys unavailable. Fail-closed."
+        )
     if not role:
         user = get_user_account(username)
         role = user["role"] if user else "SuperAdmin"
@@ -404,7 +410,7 @@ def authenticate_with_cognito(username, password):
     if not COGNITO_USER_POOL_ID or not COGNITO_CLIENT_ID:
         return False, None, "Cognito User Pool not configured."
     try:
-        resp = cognito_idp.admin_initiate_auth(
+        cognito_idp.admin_initiate_auth(
             UserPoolId=COGNITO_USER_POOL_ID,
             ClientId=COGNITO_CLIENT_ID,
             AuthFlow="ADMIN_NO_SRP_AUTH",
@@ -423,7 +429,11 @@ def authenticate_with_cognito(username, password):
             role = attrs.get("custom:role", "SuperAdmin")
         except Exception:
             pass
-        return True, {"username": username, "role": role, "auth_source": "COGNITO"}, None
+        return (
+            True,
+            {"username": username, "role": role, "auth_source": "COGNITO"},
+            None,
+        )
     except cognito_idp.exceptions.NotAuthorizedException:
         return False, None, "Incorrect username or password."
     except cognito_idp.exceptions.UserNotFoundException:
@@ -482,7 +492,9 @@ Storix Security Operations
                 },
             },
         )
-        print(f"[AUTH] Successfully sent MFA verification code to {recipient_email} via SES.")
+        print(
+            f"[AUTH] Successfully sent MFA verification code to {recipient_email} via SES."
+        )
         return True
     except Exception as e:
         print(f"[AUTH_WARNING] Could not dispatch SES email to {recipient_email}: {e}")
@@ -494,7 +506,9 @@ def create_challenge_token(username, role, otp_code=None, key=None):
     if not key:
         key = get_signing_key()
     if not key:
-        raise RuntimeError("Authentication service signing keys unavailable. Fail-closed.")
+        raise RuntimeError(
+            "Authentication service signing keys unavailable. Fail-closed."
+        )
     payload = {
         "user": username,
         "role": role,
@@ -2407,7 +2421,6 @@ def _alb_response(resp):
     return resp
 
 
-
 def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra):
     """Provisions dedicated EFS, ECS Task Definition, ALB Target Group, Rule, and ECS Service."""
     ap_id = ensure_tenant_efs_access_point(tenant_id, infra.get("efs_id"))
@@ -2512,7 +2525,9 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
             ]
         ecs.create_service(**ecs_params)
     except ClientError as e:
-        if "InvalidParameterException" in str(e) and "Creation of service was not idempotent" in str(e):
+        if "InvalidParameterException" in str(
+            e
+        ) and "Creation of service was not idempotent" in str(e):
             ecs.update_service(
                 cluster=infra["cluster_name"],
                 service=service_name,
@@ -2535,8 +2550,12 @@ def _saga_cleanup_tenant(tenant_id, infra):
     """Saga compensation: tears down allocated ECS service, Target Group, Rule, and EFS access point."""
     service_name = f"service-{tenant_id}"
     try:
-        ecs.update_service(cluster=infra["cluster_name"], service=service_name, desiredCount=0)
-        ecs.delete_service(cluster=infra["cluster_name"], service=service_name, force=True)
+        ecs.update_service(
+            cluster=infra["cluster_name"], service=service_name, desiredCount=0
+        )
+        ecs.delete_service(
+            cluster=infra["cluster_name"], service=service_name, force=True
+        )
     except Exception as e:
         print(f"Warning deleting ECS service {service_name}: {e}")
 
@@ -2561,7 +2580,10 @@ def _saga_cleanup_tenant(tenant_id, infra):
             paginator = efs.get_paginator("describe_access_points")
             for page in paginator.paginate(FileSystemId=infra["efs_id"]):
                 for ap in page.get("AccessPoints", []):
-                    if ap.get("RootDirectory", {}).get("Path") == f"/tenants/{tenant_id}/config":
+                    if (
+                        ap.get("RootDirectory", {}).get("Path")
+                        == f"/tenants/{tenant_id}/config"
+                    ):
                         efs.delete_access_point(AccessPointId=ap["AccessPointId"])
         except Exception as e:
             print(f"Warning deleting EFS access point: {e}")
@@ -2598,8 +2620,15 @@ def _handle_step_function_task(event):
         domain = event.get("domain") or f"{tenant_id}.png261.dev"
         quota_gb = str(event.get("quota_gb", 100))
         admin_email = event.get("admin_email", f"admin@{tenant_id}.com")
-        res = _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
-        return {"status": "INITIALIZING", "tenant_id": tenant_id, "healthy": False, "details": res}
+        res = _provision_tenant_resources(
+            tenant_id, domain, quota_gb, admin_email, infra
+        )
+        return {
+            "status": "INITIALIZING",
+            "tenant_id": tenant_id,
+            "healthy": False,
+            "details": res,
+        }
 
     elif action == "CHECK_TENANT_HEALTH":
         return _check_tenant_health(tenant_id, infra)
@@ -2655,9 +2684,7 @@ def _handle_step_function_task(event):
                             ap.get("RootDirectory", {}).get("Path")
                             == f"/tenants/{tenant_id}/config"
                         ):
-                            efs.delete_access_point(
-                                AccessPointId=ap["AccessPointId"]
-                            )
+                            efs.delete_access_point(AccessPointId=ap["AccessPointId"])
             except Exception as e:
                 print(f"Warning deleting EFS access point: {e}")
         return {"status": "STORAGE_DEPROVISIONED", "tenant_id": tenant_id}
@@ -2684,11 +2711,16 @@ def _handle_step_function_task(event):
 
     return {"status": "UNKNOWN_TASK", "action": action}
 
+
 def lambda_handler(event, context):
     try:
         # Check if direct Step Functions micro-workflow invocation
         action = (event.get("action") or "").upper() if isinstance(event, dict) else ""
-        is_http = bool(event.get("httpMethod") or event.get("requestContext")) if isinstance(event, dict) else False
+        is_http = (
+            bool(event.get("httpMethod") or event.get("requestContext"))
+            if isinstance(event, dict)
+            else False
+        )
         if action in [
             "PROVISION_TENANT_RESOURCES",
             "CHECK_TENANT_HEALTH",
@@ -2703,7 +2735,9 @@ def lambda_handler(event, context):
 
         return _alb_response(_handle_request(event, context))
     except RuntimeError as re:
-        if "Authentication service signing keys unavailable" in str(re) or "Fail-closed" in str(re):
+        if "Authentication service signing keys unavailable" in str(
+            re
+        ) or "Fail-closed" in str(re):
             return _alb_response(
                 {
                     "statusCode": 503,
@@ -2765,19 +2799,25 @@ def _handle_request(event, context):
 
     # 1. Handle LOGIN endpoint (Credentials validation & MFA challenge generation)
     if action == "LOGIN":
-        username = (payload.get("username") or payload.get("email") or "").strip().lower()
+        username = (
+            (payload.get("username") or payload.get("email") or "").strip().lower()
+        )
         password = payload.get("password") or ""
 
         if not username or not password:
             return {
                 "statusCode": 400,
                 "headers": CORS_HEADERS,
-                "body": json.dumps({"error": "Administrator email and password are required."}),
+                "body": json.dumps(
+                    {"error": "Administrator email and password are required."}
+                ),
             }
 
         # Fail closed immediately if master signing keys are missing or unreachable
         if not get_signing_key():
-            raise RuntimeError("Authentication service signing keys unavailable. Fail-closed.")
+            raise RuntimeError(
+                "Authentication service signing keys unavailable. Fail-closed."
+            )
 
         is_valid = False
         user_role = "SuperAdmin"
@@ -2794,7 +2834,11 @@ def _handle_request(event, context):
         # 2. Secondary Authentication: DynamoDB Admin Users Table
         if not is_valid:
             user = get_user_account(username)
-            if user and user.get("password_hash") and verify_password(password, user.get("password_hash")):
+            if (
+                user
+                and user.get("password_hash")
+                and verify_password(password, user.get("password_hash"))
+            ):
                 is_valid = True
                 user_role = user.get("role", "SuperAdmin")
 
@@ -2815,7 +2859,9 @@ def _handle_request(event, context):
         if is_valid:
             # Multi-Factor Authentication is required for all administrator logins
             mfa_otp = f"{secrets.randbelow(1000000):06d}"
-            challenge_token = create_challenge_token(username, user_role, otp_code=mfa_otp)
+            challenge_token = create_challenge_token(
+                username, user_role, otp_code=mfa_otp
+            )
 
             # Send 6-digit MFA verification code to administrator's email via SES
             send_mfa_email(username, mfa_otp)
@@ -2858,7 +2904,9 @@ def _handle_request(event, context):
             return {
                 "statusCode": 401,
                 "headers": CORS_HEADERS,
-                "body": json.dumps({"error": cognito_err or "Invalid administrative credentials"}),
+                "body": json.dumps(
+                    {"error": cognito_err or "Invalid administrative credentials"}
+                ),
             }
 
     # 2. Handle VERIFY_MFA endpoint (Verify 6-digit verification code)
@@ -2881,7 +2929,9 @@ def _handle_request(event, context):
 
         # Fail closed immediately if master signing keys are missing or unreachable
         if not get_signing_key():
-            raise RuntimeError("Authentication service signing keys unavailable. Fail-closed.")
+            raise RuntimeError(
+                "Authentication service signing keys unavailable. Fail-closed."
+            )
 
         challenge_payload = verify_session_token(challenge_token)
         if not challenge_payload or challenge_payload.get("type") != "mfa_challenge":
@@ -2903,12 +2953,16 @@ def _handle_request(event, context):
         input_code_hash = hashlib.sha256(str(mfa_code).strip().encode()).hexdigest()
 
         is_mfa_valid = False
-        if expected_otp_hash and hmac.compare_digest(expected_otp_hash, input_code_hash):
+        if expected_otp_hash and hmac.compare_digest(
+            expected_otp_hash, input_code_hash
+        ):
             is_mfa_valid = True
         else:
             # Fallback to user's TOTP authenticator secret if configured
             user = get_user_account(username)
-            mfa_secret = (user.get("mfa_secret") if user else None) or "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+            mfa_secret = (
+                user.get("mfa_secret") if user else None
+            ) or "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
             if mfa_secret and verify_totp_code(mfa_secret, mfa_code, window=10):
                 is_mfa_valid = True
 
@@ -3228,8 +3282,8 @@ def _handle_request(event, context):
             "body": json.dumps(test_res),
         }
 
-    if action in ["ROLLOUT_IMAGE", "UPGRADE_FLEET_IMAGE"]:
-        new_image = payload.get("image")
+    if action in ["ROLLOUT_IMAGE", "UPGRADE_FLEET_IMAGE", "FLEET_UPGRADE"]:
+        new_image = payload.get("image") or payload.get("target_image")
         if not new_image:
             return {
                 "statusCode": 400,
@@ -3238,6 +3292,48 @@ def _handle_request(event, context):
             }
         release_type = payload.get("release_type", "PATCH").upper()
         dry_run = bool(payload.get("dry_run", False))
+
+        if not dry_run and STATE_MACHINE_FLEET_UPGRADE_ARN:
+            try:
+                sfn_resp = sfn.start_execution(
+                    stateMachineArn=STATE_MACHINE_FLEET_UPGRADE_ARN,
+                    name=f"fleet-upgrade-{int(time.time())}",
+                    input=json.dumps(
+                        {"TargetImage": new_image, "ReleaseType": release_type}
+                    ),
+                )
+                record_audit_event(
+                    user_info.get("user", "admin"),
+                    user_role,
+                    action,
+                    "fleet",
+                    "SUCCESS",
+                    {
+                        "image": new_image,
+                        "release_type": release_type,
+                        "execution_arn": sfn_resp["executionArn"],
+                    },
+                    client_ip,
+                    user_agent,
+                )
+                return {
+                    "statusCode": 200,
+                    "headers": CORS_HEADERS,
+                    "body": json.dumps(
+                        {
+                            "message": f"Fleet rolling container image upgrade workflow initiated to {new_image}",
+                            "target_image": new_image,
+                            "executionArn": sfn_resp["executionArn"],
+                            "status": "UPGRADING",
+                            "progress": 10,
+                            "current_step": "Step Functions Fleet Rolling Upgrade Triggered",
+                        }
+                    ),
+                }
+            except Exception as e:
+                print(
+                    f"Warning starting fleet upgrade state machine: {e}. Falling back to inline rollout."
+                )
 
         paginator = dynamodb.get_paginator("scan")
         target_tenants = []
@@ -3382,7 +3478,11 @@ def _handle_request(event, context):
             db_name = f"nc_{clean_id}"
             is_demo = action == "PROVISION_DEMO" or bool(payload.get("is_demo"))
 
-            chosen_sfn_arn = STATE_MACHINE_DEMO_ARN if (is_demo and STATE_MACHINE_DEMO_ARN) else STATE_MACHINE_PROVISION_ARN
+            chosen_sfn_arn = (
+                STATE_MACHINE_DEMO_ARN
+                if (is_demo and STATE_MACHINE_DEMO_ARN)
+                else STATE_MACHINE_PROVISION_ARN
+            )
             if chosen_sfn_arn:
                 try:
                     init_item = {
@@ -3390,7 +3490,9 @@ def _handle_request(event, context):
                         "status": {"S": "PROVISIONING"},
                         "progress": {"N": "10"},
                         "current_step": {
-                            "S": "Step Functions Demo Provisioning (Infra + Seed) Triggered" if is_demo else "Step Functions Provisioning Workflow Triggered"
+                            "S": "Step Functions Demo Provisioning (Infra + Seed) Triggered"
+                            if is_demo
+                            else "Step Functions Provisioning Workflow Triggered"
                         },
                         "domain": {"S": domain},
                         "quota_gb": {"N": quota_gb},
@@ -3407,27 +3509,35 @@ def _handle_request(event, context):
                     sfn_resp = sfn.start_execution(
                         stateMachineArn=chosen_sfn_arn,
                         name=f"{('demo-provision' if is_demo else 'provision')}-{tenant_id}-{int(time.time())}",
-                        input=json.dumps({
-                            "TenantId": tenant_id,
-                            "StorageQuotaGB": quota_gb,
-                            "CompanyDomain": domain,
-                        }),
+                        input=json.dumps(
+                            {
+                                "TenantId": tenant_id,
+                                "StorageQuotaGB": quota_gb,
+                                "CompanyDomain": domain,
+                            }
+                        ),
                     )
                     return {
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
-                        "body": json.dumps({
-                            "message": f"Tenant {tenant_id} {'demo ' if is_demo else ''}provisioning workflow initiated",
-                            "executionArn": sfn_resp["executionArn"],
-                            "tenant_id": tenant_id,
-                            "status": "PROVISIONING",
-                            "progress": 10,
-                            "current_step": "Step Functions Demo Provisioning Triggered" if is_demo else "Step Functions Provisioning Workflow Triggered",
-                            "is_demo": is_demo,
-                        }),
+                        "body": json.dumps(
+                            {
+                                "message": f"Tenant {tenant_id} {'demo ' if is_demo else ''}provisioning workflow initiated",
+                                "executionArn": sfn_resp["executionArn"],
+                                "tenant_id": tenant_id,
+                                "status": "PROVISIONING",
+                                "progress": 10,
+                                "current_step": "Step Functions Demo Provisioning Triggered"
+                                if is_demo
+                                else "Step Functions Provisioning Workflow Triggered",
+                                "is_demo": is_demo,
+                            }
+                        ),
                     }
                 except Exception as e:
-                    print(f"Step Functions start_execution warning: {e}. Falling back to direct provision.")
+                    print(
+                        f"Step Functions start_execution warning: {e}. Falling back to direct provision."
+                    )
 
             # 1. Create or ensure dedicated EFS Access Point
             ap_id = ensure_tenant_efs_access_point(tenant_id, infra.get("efs_id"))
@@ -3642,23 +3752,32 @@ def _handle_request(event, context):
                     return {
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
-                        "body": json.dumps({
-                            "message": f"Tenant {tenant_id} seeding workflow initiated",
-                            "executionArn": sfn_resp["executionArn"],
-                            "status": "SEEDING",
-                            "progress": 10,
-                            "current_step": "Step Functions Seeding Workflow Triggered",
-                        }),
+                        "body": json.dumps(
+                            {
+                                "message": f"Tenant {tenant_id} seeding workflow initiated",
+                                "executionArn": sfn_resp["executionArn"],
+                                "status": "SEEDING",
+                                "progress": 10,
+                                "current_step": "Step Functions Seeding Workflow Triggered",
+                            }
+                        ),
                     }
                 except Exception as e:
-                    print(f"Step Functions start_execution warning: {e}. Falling back to direct seed.")
+                    print(
+                        f"Step Functions start_execution warning: {e}. Falling back to direct seed."
+                    )
 
             _seed_tenant_data(tenant_id)
             dynamodb.update_item(
                 TableName=TABLE_NAME,
                 Key={"tenant_id": {"S": tenant_id}},
                 UpdateExpression="SET #st = :s, #p = :p, #cs = :cs, #lu = :t",
-                ExpressionAttributeNames={"#st": "status", "#p": "progress", "#cs": "current_step", "#lu": "last_updated"},
+                ExpressionAttributeNames={
+                    "#st": "status",
+                    "#p": "progress",
+                    "#cs": "current_step",
+                    "#lu": "last_updated",
+                },
                 ExpressionAttributeValues={
                     ":s": {"S": "ACTIVE"},
                     ":p": {"N": "100"},
@@ -3669,12 +3788,14 @@ def _handle_request(event, context):
             return {
                 "statusCode": 200,
                 "headers": CORS_HEADERS,
-                "body": json.dumps({
-                    "message": f"Tenant {tenant_id} seeded successfully",
-                    "status": "ACTIVE",
-                    "progress": 100,
-                    "current_step": "Ready & Operational (Demo Seeded)",
-                }),
+                "body": json.dumps(
+                    {
+                        "message": f"Tenant {tenant_id} seeded successfully",
+                        "status": "ACTIVE",
+                        "progress": 100,
+                        "current_step": "Ready & Operational (Demo Seeded)",
+                    }
+                ),
             }
 
         elif action == "SUSPEND":
@@ -3709,16 +3830,20 @@ def _handle_request(event, context):
                     return {
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
-                        "body": json.dumps({
-                            "message": f"Tenant {tenant_id} suspension workflow initiated",
-                            "executionArn": sfn_resp["executionArn"],
-                            "status": "SUSPENDING",
-                            "progress": 10,
-                            "current_step": "Step Functions Suspension Workflow Triggered",
-                        }),
+                        "body": json.dumps(
+                            {
+                                "message": f"Tenant {tenant_id} suspension workflow initiated",
+                                "executionArn": sfn_resp["executionArn"],
+                                "status": "SUSPENDING",
+                                "progress": 10,
+                                "current_step": "Step Functions Suspension Workflow Triggered",
+                            }
+                        ),
                     }
                 except Exception as e:
-                    print(f"Step Functions start_execution warning: {e}. Falling back to direct suspend.")
+                    print(
+                        f"Step Functions start_execution warning: {e}. Falling back to direct suspend."
+                    )
 
             service_name = f"service-{tenant_id}"
             infra = get_infra_config()
@@ -3733,7 +3858,12 @@ def _handle_request(event, context):
                 TableName=TABLE_NAME,
                 Key={"tenant_id": {"S": tenant_id}},
                 UpdateExpression="SET #st = :s, #p = :p, #cs = :cs, #lu = :t",
-                ExpressionAttributeNames={"#st": "status", "#p": "progress", "#cs": "current_step", "#lu": "last_updated"},
+                ExpressionAttributeNames={
+                    "#st": "status",
+                    "#p": "progress",
+                    "#cs": "current_step",
+                    "#lu": "last_updated",
+                },
                 ExpressionAttributeValues={
                     ":s": {"S": "SUSPENDED"},
                     ":p": {"N": "100"},
@@ -3799,16 +3929,20 @@ def _handle_request(event, context):
                     return {
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
-                        "body": json.dumps({
-                            "message": f"Tenant {tenant_id} resumption workflow initiated",
-                            "executionArn": sfn_resp["executionArn"],
-                            "status": "RESUMING",
-                            "progress": 10,
-                            "current_step": "Step Functions Resumption Workflow Triggered",
-                        }),
+                        "body": json.dumps(
+                            {
+                                "message": f"Tenant {tenant_id} resumption workflow initiated",
+                                "executionArn": sfn_resp["executionArn"],
+                                "status": "RESUMING",
+                                "progress": 10,
+                                "current_step": "Step Functions Resumption Workflow Triggered",
+                            }
+                        ),
                     }
                 except Exception as e:
-                    print(f"Step Functions start_execution warning: {e}. Falling back to direct resume.")
+                    print(
+                        f"Step Functions start_execution warning: {e}. Falling back to direct resume."
+                    )
 
             service_name = f"service-{tenant_id}"
             infra = get_infra_config()
@@ -3823,7 +3957,12 @@ def _handle_request(event, context):
                 TableName=TABLE_NAME,
                 Key={"tenant_id": {"S": tenant_id}},
                 UpdateExpression="SET #st = :s, #p = :p, #cs = :cs, #lu = :t",
-                ExpressionAttributeNames={"#st": "status", "#p": "progress", "#cs": "current_step", "#lu": "last_updated"},
+                ExpressionAttributeNames={
+                    "#st": "status",
+                    "#p": "progress",
+                    "#cs": "current_step",
+                    "#lu": "last_updated",
+                },
                 ExpressionAttributeValues={
                     ":s": {"S": "ACTIVE"},
                     ":p": {"N": "100"},
@@ -3872,7 +4011,9 @@ def _handle_request(event, context):
                     ExpressionAttributeValues={
                         ":s": {"S": "DELETING"},
                         ":p": {"N": "10"},
-                        ":cs": {"S": "Step Functions Deprovisioning Workflow Triggered"},
+                        ":cs": {
+                            "S": "Step Functions Deprovisioning Workflow Triggered"
+                        },
                         ":t": {"S": now_iso},
                     },
                 )
@@ -3889,16 +4030,20 @@ def _handle_request(event, context):
                     return {
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
-                        "body": json.dumps({
-                            "message": f"Tenant {tenant_id} deprovisioning workflow initiated",
-                            "executionArn": sfn_resp["executionArn"],
-                            "status": "DELETING",
-                            "progress": 10,
-                            "current_step": "Step Functions Deprovisioning Workflow Triggered",
-                        }),
+                        "body": json.dumps(
+                            {
+                                "message": f"Tenant {tenant_id} deprovisioning workflow initiated",
+                                "executionArn": sfn_resp["executionArn"],
+                                "status": "DELETING",
+                                "progress": 10,
+                                "current_step": "Step Functions Deprovisioning Workflow Triggered",
+                            }
+                        ),
                     }
                 except Exception as e:
-                    print(f"Step Functions start_execution warning: {e}. Falling back to direct deprovision.")
+                    print(
+                        f"Step Functions start_execution warning: {e}. Falling back to direct deprovision."
+                    )
 
             service_name = f"service-{tenant_id}"
             infra = get_infra_config()
@@ -4448,7 +4593,9 @@ def _handle_request(event, context):
             }
 
     except RuntimeError as re:
-        if "Authentication service signing keys unavailable" in str(re) or "Fail-closed" in str(re):
+        if "Authentication service signing keys unavailable" in str(
+            re
+        ) or "Fail-closed" in str(re):
             return {
                 "statusCode": 503,
                 "headers": CORS_HEADERS,

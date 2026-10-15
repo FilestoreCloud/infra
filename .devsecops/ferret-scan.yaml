@@ -613,7 +613,7 @@ validators:
 
 # Suppression configuration
 suppressions:
-  file: ".ferret-scan-suppressions.yaml" # Path to suppression configuration file
+  file: ".devsecops/.ferret-scan-suppressions.yaml" # Path to suppression configuration file
   generate_on_scan: false # Generate suppression rules for all findings during scan
   show_suppressed: false # Include suppressed findings in output
 

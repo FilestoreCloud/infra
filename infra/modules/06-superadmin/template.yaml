@@ -150,7 +150,6 @@ Resources:
         - ALLOW_USER_SRP_AUTH
         - ALLOW_ADMIN_USER_PASSWORD_AUTH
 
-
   # ============================================================================
   # SUPER ADMIN WEB HOSTING (S3 + CLOUDFRONT)
   # ============================================================================
@@ -442,6 +441,7 @@ Resources:
           STATE_MACHINE_DEPROVISION_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Deprovisioning"
           STATE_MACHINE_SEED_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Seeding"
           STATE_MACHINE_DEMO_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Demo-Provisioning"
+          STATE_MACHINE_FLEET_UPGRADE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Fleet-Upgrade"
       Code: !If
         - HasLambdaS3Code
         - S3Bucket: !Ref LambdaCodeBucket
@@ -569,6 +569,133 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: "*"
 
+  TenantWorkerLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-tenant-worker-lambda-role"
+      Description: "Least-privilege execution role for Step Functions Worker Lambda executing ECS/ALB/EFS tasks"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: TenantWorkerTaskExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ECSServiceManagement
+                Effect: Allow
+                Action:
+                  - ecs:CreateService
+                  - ecs:UpdateService
+                  - ecs:DeleteService
+                  - ecs:DescribeServices
+                  - ecs:RegisterTaskDefinition
+                  - ecs:DeregisterTaskDefinition
+                  - ecs:DescribeTaskDefinition
+                  - ecs:TagResource
+                Resource: "*"
+              - Sid: ELBTargetGroupAndRuleManagement
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:CreateTargetGroup
+                  - elasticloadbalancing:DeleteTargetGroup
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:ModifyTargetGroupAttributes
+                  - elasticloadbalancing:CreateRule
+                  - elasticloadbalancing:DeleteRule
+                  - elasticloadbalancing:DescribeRules
+                Resource: "*"
+              - Sid: EFSConfigAccessPointManagement
+                Effect: Allow
+                Action:
+                  - elasticfilesystem:CreateAccessPoint
+                  - elasticfilesystem:DeleteAccessPoint
+                  - elasticfilesystem:DescribeAccessPoints
+                  - elasticfilesystem:TagResource
+                Resource: "*"
+              - Sid: SSMParameterRetrieval
+                Effect: Allow
+                Action:
+                  - ssm:GetParametersByPath
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/nextcloud/${EnvironmentName}*"
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/nextcloud/${EnvironmentName}/*"
+              - Sid: DynamoDBStateSync
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                Resource:
+                  - !GetAtt DynamoDBTenantRegistry.Arn
+              - Sid: CloudWatchMetricsEmission
+                Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+              - Sid: IAMPassRoleForTaskExecution
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
+
+  TenantWorkerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-nextcloud-tenant-worker"
+      Description: "Step Functions micro-task worker for Nextcloud dedicated tenant provisioning and lifecycle operations"
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt TenantWorkerLambdaRole.Arn
+      Timeout: 120
+      MemorySize: 512
+      Environment:
+        Variables:
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+          TABLE_NAME: !Ref DynamoDBTenantRegistry
+          CLUSTER_NAME:
+            Fn::If:
+              - HasECSClusterName
+              - !Ref ECSClusterName
+              - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
+      Code: !If
+        - HasLambdaS3Code
+        - S3Bucket: !Ref LambdaCodeBucket
+          S3Key: !Ref LambdaCodeKey
+        - ZipFile: |
+            import json, os, time
+            def lambda_handler(event, context):
+                act = (event.get("action") or "").upper()
+                tid = event.get("tenant_id", "")
+                print(f"[TenantWorkerLambda] Received task: {act} for tenant: {tid}")
+                if act == "CHECK_TENANT_HEALTH":
+                    return {"healthy": True, "tenant_id": tid, "status": "HEALTHY"}
+                return {"status": "SUCCESS", "action": act, "tenant_id": tid, "healthy": True}
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
+  TenantWorkerInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TenantWorkerLambda
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+
   # SSM Parameter Store exports
   SSMTenantRegistry:
     Type: AWS::SSM::Parameter
@@ -579,7 +706,6 @@ Resources:
       Description: DynamoDB Tenant Registry Table Name
       Tags:
         Environment: !Ref EnvironmentName
-
 
   SSMAdminWebBucket:
     Type: AWS::SSM::Parameter
@@ -696,6 +822,8 @@ Resources:
                 Resource:
                   - !GetAtt TenantOperatorLambda.Arn
                   - !Sub "${TenantOperatorLambda.Arn}:*"
+                  - !GetAtt TenantWorkerLambda.Arn
+                  - !Sub "${TenantWorkerLambda.Arn}:*"
               - Effect: Allow
                 Action:
                   - states:StartExecution
@@ -738,7 +866,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "PROVISION_TENANT_RESOURCES",
                   "tenant_id.$": "$.TenantId",
@@ -786,7 +914,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "CHECK_TENANT_HEALTH",
                   "tenant_id.$": "$.TenantId"
@@ -887,7 +1015,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "SAGA_CLEANUP_TENANT",
                   "tenant_id.$": "$.TenantId"
@@ -970,7 +1098,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "SUSPEND",
                   "tenant_id.$": "$.TenantId"
@@ -1069,7 +1197,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "RESUME",
                   "tenant_id.$": "$.TenantId"
@@ -1108,7 +1236,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "CHECK_TENANT_HEALTH",
                   "tenant_id.$": "$.TenantId"
@@ -1223,7 +1351,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "DEPROVISION_ECS",
                   "tenant_id.$": "$.TenantId"
@@ -1257,7 +1385,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "DEPROVISION_STORAGE",
                   "tenant_id.$": "$.TenantId"
@@ -1360,7 +1488,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "SEED_ADMIN_USERS",
                   "tenant_id.$": "$.TenantId"
@@ -1394,7 +1522,7 @@ Resources:
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
-                "FunctionName": "${TenantOperatorLambda.Arn}",
+                "FunctionName": "${TenantWorkerLambda.Arn}",
                 "Payload": {
                   "action": "SEED_SAMPLE_FILES",
                   "tenant_id.$": "$.TenantId"
@@ -1502,7 +1630,192 @@ Resources:
         - Key: Application
           Value: Nextcloud-SaaS-Control-Plane
 
+  TenantFleetUpgradeStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub "${EnvironmentName}-Tenant-Fleet-Upgrade"
+      StateMachineType: STANDARD
+      RoleArn: !GetAtt StepFunctionsExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "AWS Step Functions State Machine for Nextcloud Multi-Tenant Fleet Rolling Container Image Upgrade",
+          "StartAt": "GetRunningTenants",
+          "States": {
+            "GetRunningTenants": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${TenantWorkerLambda.Arn}",
+                "Payload": {
+                  "action": "GET_RUNNING_TENANTS"
+                }
+              },
+              "ResultPath": "$.Fleet",
+              "Next": "UpgradeFleetMap"
+            },
+            "UpgradeFleetMap": {
+              "Type": "Map",
+              "ItemsPath": "$.Fleet.Payload.running_tenants",
+              "ItemSelector": {
+                "TenantId.$": "$$.Map.Item.Value",
+                "TargetImage.$": "$.TargetImage"
+              },
+              "MaxConcurrency": 2,
+              "Iterator": {
+                "StartAt": "MarkTenantUpgradingDynamoDB",
+                "States": {
+                  "MarkTenantUpgradingDynamoDB": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::dynamodb:updateItem",
+                    "Parameters": {
+                      "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                      "Key": {
+                        "tenant_id": { "S.$": "$.TenantId" }
+                      },
+                      "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs",
+                      "ExpressionAttributeNames": {
+                        "#st": "status",
+                        "#p": "progress",
+                        "#cs": "current_step"
+                      },
+                      "ExpressionAttributeValues": {
+                        ":s": { "S": "UPGRADING" },
+                        ":p": { "N": "25" },
+                        ":cs": { "S": "Updating ECS task definition with new container image" }
+                      }
+                    },
+                    "ResultPath": "$.ddb_result",
+                    "Next": "UpdateTenantECSImage"
+                  },
+                  "UpdateTenantECSImage": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${TenantWorkerLambda.Arn}",
+                      "Payload": {
+                        "action": "UPDATE_TENANT_IMAGE",
+                        "tenant_id.$": "$.TenantId",
+                        "target_image.$": "$.TargetImage"
+                      }
+                    },
+                    "ResultPath": "$.update_result",
+                    "Next": "MarkDeployingDynamoDB"
+                  },
+                  "MarkDeployingDynamoDB": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::dynamodb:updateItem",
+                    "Parameters": {
+                      "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                      "Key": {
+                        "tenant_id": { "S.$": "$.TenantId" }
+                      },
+                      "UpdateExpression": "SET #p = :p, #cs = :cs",
+                      "ExpressionAttributeNames": {
+                        "#p": "progress",
+                        "#cs": "current_step"
+                      },
+                      "ExpressionAttributeValues": {
+                        ":p": { "N": "60" },
+                        ":cs": { "S": "Rolling deployment in progress; awaiting task stabilization" }
+                      }
+                    },
+                    "ResultPath": "$.ddb_deploy_result",
+                    "Next": "WaitForRollingDeployment"
+                  },
+                  "WaitForRollingDeployment": {
+                    "Type": "Wait",
+                    "Seconds": 15,
+                    "Next": "CheckUpgradedHealth"
+                  },
+                  "CheckUpgradedHealth": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                      "FunctionName": "${TenantWorkerLambda.Arn}",
+                      "Payload": {
+                        "action": "CHECK_TENANT_HEALTH",
+                        "tenant_id.$": "$.TenantId"
+                      }
+                    },
+                    "ResultPath": "$.health_check",
+                    "Next": "IsUpgradeHealthy"
+                  },
+                  "IsUpgradeHealthy": {
+                    "Type": "Choice",
+                    "Choices": [
+                      {
+                        "Variable": "$.health_check.Payload.healthy",
+                        "BooleanEquals": true,
+                        "Next": "MarkUpgradeCompleteDynamoDB"
+                      }
+                    ],
+                    "Default": "RetryUpgradeHealth"
+                  },
+                  "RetryUpgradeHealth": {
+                    "Type": "Wait",
+                    "Seconds": 10,
+                    "Next": "CheckUpgradedHealth"
+                  },
+                  "MarkUpgradeCompleteDynamoDB": {
+                    "Type": "Task",
+                    "Resource": "arn:aws:states:::dynamodb:updateItem",
+                    "Parameters": {
+                      "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
+                      "Key": {
+                        "tenant_id": { "S.$": "$.TenantId" }
+                      },
+                      "UpdateExpression": "SET #st = :s, #p = :p, #cs = :cs, #img = :img",
+                      "ExpressionAttributeNames": {
+                        "#st": "status",
+                        "#p": "progress",
+                        "#cs": "current_step",
+                        "#img": "container_image"
+                      },
+                      "ExpressionAttributeValues": {
+                        ":s": { "S": "ACTIVE" },
+                        ":p": { "N": "100" },
+                        ":cs": { "S": "Ready & Operational (Upgraded)" },
+                        ":img": { "S.$": "$.TargetImage" }
+                      }
+                    },
+                    "ResultPath": "$.ddb_complete_result",
+                    "End": true
+                  }
+                }
+              },
+              "ResultPath": "$.upgrade_results",
+              "Next": "PublishFleetUpgradeMetric"
+            },
+            "PublishFleetUpgradeMetric": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::cloudwatch:putMetricData",
+              "Parameters": {
+                "Namespace": "Nextcloud/SaaS",
+                "MetricData": [
+                  {
+                    "MetricName": "FleetImageUpgradeCompleted",
+                    "Value": 1.0,
+                    "Unit": "Count"
+                  }
+                ]
+              },
+              "End": true
+            }
+          }
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS-Control-Plane
+
 Outputs:
+  TenantFleetUpgradeStateMachineArn:
+    Description: Step Functions Tenant Fleet Rolling Upgrade State Machine ARN
+    Value: !Ref TenantFleetUpgradeStateMachine
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantFleetUpgradeStateMachineArn"
+
   TenantProvisioningStateMachineArn:
     Description: Step Functions Tenant Provisioning State Machine ARN
     Value: !Ref TenantProvisioningStateMachine
@@ -1610,3 +1923,9 @@ Outputs:
     Value: !GetAtt TenantOperatorFunctionUrl.FunctionUrl
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-TenantOperatorLambdaFunctionUrl"
+
+  TenantWorkerLambdaArn:
+    Description: Step Functions Tenant Worker Lambda Function ARN
+    Value: !GetAtt TenantWorkerLambda.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-TenantWorkerLambdaArn"

@@ -232,6 +232,10 @@ Outputs:
     Description: Control Plane Tenant Operator Lambda Function URL
     Value: !GetAtt ControlPlaneStack.Outputs.TenantOperatorLambdaFunctionUrl
 
+  TenantWorkerLambdaArn:
+    Description: Step Functions Tenant Worker Lambda Function ARN
+    Value: !GetAtt ControlPlaneStack.Outputs.TenantWorkerLambdaArn
+
   CloudWatchDashboardName:
     Description: CloudWatch Dashboard Name
     Value: !GetAtt ObservabilityStack.Outputs.CloudWatchDashboardName

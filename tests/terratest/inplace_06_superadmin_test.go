@@ -164,6 +164,9 @@ func TestInPlaceSuperAdmin(t *testing.T) {
 		"TenantSuspensionStateMachineArn",
 		"TenantResumptionStateMachineArn",
 		"TenantDeprovisioningStateMachineArn",
+		"TenantSeedingStateMachineArn",
+		"TenantDemoProvisioningStateMachineArn",
+		"TenantFleetUpgradeStateMachineArn",
 	}
 	for _, key := range sfnKeys {
 		arn, exists := outputs[key]
@@ -171,6 +174,13 @@ func TestInPlaceSuperAdmin(t *testing.T) {
 			t.Logf("⚙️ [In-Place] Validating Step Function ARN output %s: %s", key, arn)
 			assert.Contains(t, arn, "arn:aws:states:", fmt.Sprintf("%s must be a valid Step Function ARN", key))
 		}
+	}
+
+	// 7b. Assert Dedicated Step Functions Worker Lambda exists
+	workerArn, hasWorker := outputs["TenantWorkerLambdaArn"]
+	if hasWorker && workerArn != "" {
+		t.Logf("⚡ [In-Place] Validating Worker Lambda ARN: %s", workerArn)
+		assert.Contains(t, workerArn, "arn:aws:lambda:", "TenantWorkerLambdaArn must be a valid Lambda ARN")
 	}
 
 	// 8. Assert Web Admin CloudFront URL output

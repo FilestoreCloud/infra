@@ -7,15 +7,21 @@ and prints the resulting SHA256 checksum.
 """
 
 import argparse
+import ast
 import hashlib
 import os
+import shutil
 import sys
 import zipfile
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MODULE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "infra", "modules", "06-superadmin"))
+MODULE_DIR = os.path.abspath(
+    os.path.join(SCRIPT_DIR, "..", "infra", "modules", "06-superadmin")
+)
 DEFAULT_SOURCE = os.path.join(MODULE_DIR, "tenant_operator_lambda.py")
-DEFAULT_OUTPUT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "build", "tenant_operator.zip"))
+DEFAULT_OUTPUT = os.path.abspath(
+    os.path.join(SCRIPT_DIR, "..", "build", "tenant_operator_lambda.zip")
+)
 
 # Fixed timestamp (1980-01-01 00:00:00) for deterministic zip output
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
@@ -40,12 +46,33 @@ def package_lambda(source_path=DEFAULT_SOURCE, output_path=DEFAULT_OUTPUT):
     with open(source_path, "rb") as f:
         content = f.read()
 
+    # Verify python source syntax integrity prior to archiving
+    try:
+        ast.parse(content, filename=source_path)
+    except SyntaxError as err:
+        raise ValueError(f"Lambda source contains syntax errors: {err}")
+
     # Create deterministic zip archive
     with zipfile.ZipFile(output_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zinfo = zipfile.ZipInfo(filename="index.py", date_time=FIXED_ZIP_TIMESTAMP)
         zinfo.external_attr = FIXED_FILE_PERMISSIONS
         zinfo.compress_type = zipfile.ZIP_DEFLATED
         zf.writestr(zinfo, content)
+
+    # Maintain dual-write alias between tenant_operator.zip and tenant_operator_lambda.zip
+    out_name = os.path.basename(output_path)
+    if out_name == "tenant_operator.zip":
+        alt_output = os.path.join(out_dir, "tenant_operator_lambda.zip")
+        try:
+            shutil.copyfile(output_path, alt_output)
+        except OSError:
+            pass
+    elif out_name == "tenant_operator_lambda.zip":
+        alt_output = os.path.join(out_dir, "tenant_operator.zip")
+        try:
+            shutil.copyfile(output_path, alt_output)
+        except OSError:
+            pass
 
     # Compute and report SHA256 hash
     sha256 = hashlib.sha256()
@@ -60,9 +87,15 @@ def package_lambda(source_path=DEFAULT_SOURCE, output_path=DEFAULT_OUTPUT):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Package tenant_operator_lambda.py deterministically.")
-    parser.add_argument("--source", default=DEFAULT_SOURCE, help="Path to tenant_operator_lambda.py")
-    parser.add_argument("--output", default=DEFAULT_OUTPUT, help="Path to destination zip file")
+    parser = argparse.ArgumentParser(
+        description="Package tenant_operator_lambda.py deterministically."
+    )
+    parser.add_argument(
+        "--source", default=DEFAULT_SOURCE, help="Path to tenant_operator_lambda.py"
+    )
+    parser.add_argument(
+        "--output", default=DEFAULT_OUTPUT, help="Path to destination zip file"
+    )
     args = parser.parse_args()
 
     try:
