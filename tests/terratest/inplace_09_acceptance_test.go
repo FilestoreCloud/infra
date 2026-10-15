@@ -159,6 +159,27 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		ConsistentRead: aws.Bool(true),
 	})
 	require.NoError(t, err, fmt.Sprintf("Failed to get item for tenant %s from DynamoDB", tenantID))
+	if len(getItemRes.Item) == 0 {
+		t.Logf("⚡ Tenant '%s' not yet registered in DynamoDB. Provisioning via SuperAdmin Control Plane...", tenantID)
+		provPayload, _ := json.Marshal(map[string]interface{}{
+			"action":    "PROVISION",
+			"tenant_id": tenantID,
+		})
+		_, provErr := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
+			FunctionName: aws.String(lambdaArn),
+			Payload:      provPayload,
+		})
+		require.NoError(t, provErr, "Failed to provision tenant via SuperAdmin Lambda")
+
+		getItemRes, err = dynamoClient.GetItem(context.TODO(), &dynamodb.GetItemInput{
+			TableName: aws.String(tableName),
+			Key: map[string]dynamoTypes.AttributeValue{
+				"tenant_id": &dynamoTypes.AttributeValueMemberS{Value: tenantID},
+			},
+			ConsistentRead: aws.Bool(true),
+		})
+		require.NoError(t, err, fmt.Sprintf("Failed to re-fetch tenant %s from DynamoDB", tenantID))
+	}
 	require.NotEmpty(t, getItemRes.Item, fmt.Sprintf("Tenant '%s' must exist in DynamoDB", tenantID))
 
 	if statusAttr, ok := getItemRes.Item["status"].(*dynamoTypes.AttributeValueMemberS); ok {

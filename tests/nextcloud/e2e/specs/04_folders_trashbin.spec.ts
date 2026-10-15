@@ -11,6 +11,14 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
     await loginNextcloud(page);
     await page.goto("/index.php/apps/files/");
     await page.waitForURL(/\/apps\/files/);
+    const wizard = page.locator('#firstrunwizard, [role="dialog"], .modal-mask');
+    if (await wizard.isVisible({ timeout: 4000 }).catch(() => false)) {
+      await page.keyboard.press("Escape").catch(() => {});
+      const modalCloseBtn = page.locator('#firstrunwizard button[aria-label="Close"], button.modal-container__close, button:has-text("Close")').first();
+      if (await modalCloseBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await modalCloseBtn.click({ force: true }).catch(() => {});
+      }
+    }
   });
 
   test("Should navigate to Deleted files (Trashbin) from sidebar", async ({

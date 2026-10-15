@@ -37,4 +37,14 @@ export async function loginNextcloud(
   // Verify authenticated header or navigation
   const headerMenu = page.locator("#header, header, .app-navigation, #appmenu, [role=\"navigation\"], #content, main");
   await expect(headerMenu.first()).toBeVisible({ timeout: 20000 });
+
+  // Dismiss First Run Wizard modal if presented
+  const wizard = page.locator('#firstrunwizard, [role="dialog"], .modal-mask');
+  if (await wizard.isVisible({ timeout: 4000 }).catch(() => false)) {
+    await page.keyboard.press("Escape").catch(() => {});
+    const modalCloseBtn = page.locator('#firstrunwizard button[aria-label="Close"], button.modal-container__close, button:has-text("Close")').first();
+    if (await modalCloseBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      await modalCloseBtn.click({ force: true }).catch(() => {});
+    }
+  }
 }

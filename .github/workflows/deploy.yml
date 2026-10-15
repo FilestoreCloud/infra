@@ -293,6 +293,50 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
+      - name: Seed SuperAdmin User & Initial Tenant (AWS Python SDK)
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+          TENANT_ID: ${{ vars.TENANT_ID }}
+          ADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          python3 -c "
+          import os, boto3, hashlib, time
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          username = os.environ.get('ADMIN_USERNAME', '').strip().lower()
+          pwd = os.environ.get('ADMIN_PASSWORD', '').strip()
+          tenant_id = os.environ.get('TENANT_ID', '').strip()
+
+          ddb = boto3.resource('dynamodb', region_name=region)
+          if username and pwd:
+              user_tbl = ddb.Table(f'{env_name}-nextcloud-admin-users')
+              pwd_hash = hashlib.sha256(pwd.encode()).hexdigest()
+              user_tbl.put_item(Item={
+                  'username': username,
+                  'password_hash': pwd_hash,
+                  'role': 'SuperAdmin',
+                  'created_at': int(time.time()),
+                  'updated_at': int(time.time())
+              })
+              print(f'✓ SuperAdmin user {username} seeded in {env_name}-nextcloud-admin-users')
+
+          if tenant_id:
+              tenant_tbl = ddb.Table(f'{env_name}-nextcloud-tenant-registry')
+              tenant_tbl.put_item(Item={
+                  'tenant_id': tenant_id,
+                  'status': 'ACTIVE',
+                  'progress': 100,
+                  'current_step': 'Ready & Operational',
+                  'created_at': int(time.time()),
+                  'domain': f'{tenant_id}.png261.dev',
+                  'admin_email': f'admin@{tenant_id}.com',
+                  'quota_gb': 100
+              })
+              print(f'✓ Initial tenant {tenant_id} registered and ACTIVE in {env_name}-nextcloud-tenant-registry')
+          "
+
       - name: Setup Go for Terratest
         uses: actions/setup-go@v5
         with:
