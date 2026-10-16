@@ -660,10 +660,10 @@ Resources:
             Command:
               - CMD-SHELL
               - "curl -s http://localhost/status.php | grep -q 'installed' || exit 1"
-            Interval: 30
-            Timeout: 15
+            Interval: 20
+            Timeout: 10
             Retries: 10
-            StartPeriod: 300
+            StartPeriod: 240
 
   ECSService:
     Type: AWS::ECS::Service
@@ -680,7 +680,7 @@ Resources:
           Base: 0
           Weight: 3
       DesiredCount: !Ref DesiredCount
-      HealthCheckGracePeriodSeconds: 900
+      HealthCheckGracePeriodSeconds: 360
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
