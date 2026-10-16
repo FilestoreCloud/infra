@@ -62,6 +62,24 @@ def package_lambda(source_path=DEFAULT_SOURCE, output_path=DEFAULT_OUTPUT):
         zinfo.compress_type = zipfile.ZIP_DEFLATED
         zf.writestr(zinfo, content)
 
+        # Include operator_core package modules if present
+        source_dir = os.path.dirname(source_path)
+        core_dir = os.path.join(source_dir, "operator_core")
+        if os.path.isdir(core_dir):
+            for root, dirs, files in os.walk(core_dir):
+                dirs.sort()
+                for file in sorted(files):
+                    if file.endswith(".py"):
+                        file_path = os.path.join(root, file)
+                        rel_path = os.path.relpath(file_path, source_dir)
+                        with open(file_path, "rb") as cf:
+                            c_content = cf.read().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+                        ast.parse(c_content, filename=file_path)
+                        m_zinfo = zipfile.ZipInfo(filename=rel_path, date_time=FIXED_ZIP_TIMESTAMP)
+                        m_zinfo.external_attr = FIXED_FILE_PERMISSIONS
+                        m_zinfo.compress_type = zipfile.ZIP_DEFLATED
+                        zf.writestr(m_zinfo, c_content)
+
     # Maintain dual-write alias between tenant_operator.zip and tenant_operator_lambda.zip
     out_name = os.path.basename(output_path)
     if out_name == "tenant_operator.zip":
