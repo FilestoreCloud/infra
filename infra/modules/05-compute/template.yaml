@@ -423,7 +423,7 @@ Resources:
                 Action:
                   - kms:Decrypt
                   - kms:DescribeKey
-                Resource: "*"
+                Resource: !Sub "arn:aws:kms:${AWS::Region}:${AWS::AccountId}:key/*"
         - PolicyName: EFSAccessPolicy
           PolicyDocument:
             Version: "2012-10-17"
@@ -433,7 +433,25 @@ Resources:
                   - elasticfilesystem:ClientMount
                   - elasticfilesystem:ClientWrite
                   - elasticfilesystem:ClientRootAccess
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${EfsId}"
+                      - EfsId:
+                          Fn::If:
+                            - HasEFS
+                            - !Ref EFSFileSystemId
+                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-EFSFileSystemId"
+                  - Fn::Sub:
+                      - "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:access-point/${ApId}"
+                      - ApId:
+                          Fn::If:
+                            - HasDefaultEFSAccessPointId
+                            - !Ref DefaultEFSAccessPointId
+                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DefaultEFSAccessPointId"
+              - Effect: Allow
+                Action:
                   - elasticfilesystem:DescribeFileSystems
+                  - elasticfilesystem:DescribeMountTargets
                 Resource: "*"
 
   ECSTaskRole:
@@ -478,6 +496,9 @@ Resources:
                 Action:
                   - bedrock:InvokeModel
                   - bedrock:InvokeModelWithResponseStream
+                Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+              - Effect: Allow
+                Action:
                   - bedrock:ListFoundationModels
                 Resource: "*"
         - PolicyName: EFSAccessPolicy
@@ -489,11 +510,26 @@ Resources:
                   - elasticfilesystem:ClientMount
                   - elasticfilesystem:ClientWrite
                   - elasticfilesystem:ClientRootAccess
+                Resource:
+                  - Fn::Sub:
+                      - "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${EfsId}"
+                      - EfsId:
+                          Fn::If:
+                            - HasEFS
+                            - !Ref EFSFileSystemId
+                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-EFSFileSystemId"
+                  - Fn::Sub:
+                      - "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:access-point/${ApId}"
+                      - ApId:
+                          Fn::If:
+                            - HasDefaultEFSAccessPointId
+                            - !Ref DefaultEFSAccessPointId
+                            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DefaultEFSAccessPointId"
+              - Effect: Allow
+                Action:
                   - elasticfilesystem:DescribeFileSystems
-                Resource: !If
-                  - HasEFS
-                  - !Sub "arn:aws:elasticfilesystem:${AWS::Region}:${AWS::AccountId}:file-system/${EFSFileSystemId}"
-                  - "*"
+                  - elasticfilesystem:DescribeMountTargets
+                Resource: "*"
 
   NextcloudTaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -623,8 +659,8 @@ Resources:
               - "curl -f http://localhost/status.php || exit 1"
             Interval: 30
             Timeout: 15
-            Retries: 10
-            StartPeriod: 60
+            Retries: 15
+            StartPeriod: 300
 
   ECSService:
     Type: AWS::ECS::Service
@@ -641,7 +677,7 @@ Resources:
           Base: 0
           Weight: 3
       DesiredCount: !Ref DesiredCount
-      HealthCheckGracePeriodSeconds: 180
+      HealthCheckGracePeriodSeconds: 900
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
