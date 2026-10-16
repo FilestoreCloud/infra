@@ -65,31 +65,9 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Ensure ECR Repository Exists
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          ECR_REPOSITORY: ${{ inputs.environment }}-nextcloud-enterprise
-        run: |
-          python3 -c "
-          import os, sys, boto3
-          from botocore.exceptions import ClientError
-          region = os.environ['AWS_REGION']
-          repo = os.environ['ECR_REPOSITORY']
-          client = boto3.client('ecr', region_name=region)
-          try:
-              client.describe_repositories(repositoryNames=[repo])
-              print(f'ECR repository {repo} already exists.')
-          except ClientError as e:
-              if e.response['Error']['Code'] == 'RepositoryNotFoundException':
-                  client.create_repository(
-                      repositoryName=repo,
-                      imageScanningConfiguration={'scanOnPush': True},
-                      tags=[{'Key': 'Environment', 'Value': '${{ inputs.environment }}'}]
-                  )
-                  print(f'Created ECR repository {repo}.')
-              else:
-                  print(f'Error describing ECR repo: {e}', file=sys.stderr)
-                  sys.exit(1)
-          "
+        uses: int128/create-ecr-repository-action@v1
+        with:
+          repository: ${{ inputs.environment }}-nextcloud-enterprise
 
       - name: Build & Push Docker Image
         if: ${{ !inputs.skip_runtime_build }}
@@ -216,6 +194,9 @@ jobs:
     name: 2e. Infra — 05-Compute
     needs: [build-runtime, deploy-storage, deploy-database]
     runs-on: ubuntu-latest
+    outputs:
+      alb_dns: ${{ steps.deploy-ecs.outputs.LoadBalancerDNSName }}
+      alb_url: ${{ steps.deploy-ecs.outputs.LoadBalancerURL }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -229,39 +210,13 @@ jobs:
           audience: sts.amazonaws.com
           output-credentials: true
 
-      - name: Resolve Golden Image URI
-        id: image-resolver
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          ENV: ${{ inputs.environment }}
-          ACCOUNT_ID: ${{ steps.aws-creds.outputs.aws-account-id }}
-        run: |
-          python3 -c "
-          import os, sys, boto3
-          region = os.environ['AWS_REGION']
-          env_name = os.environ['ENV']
-          account_id = os.environ['ACCOUNT_ID']
-          repo = f'{env_name}-nextcloud-enterprise'
-
-          ecr = boto3.client('ecr', region_name=region)
-          try:
-              desc = ecr.describe_images(repositoryName=repo, imageIds=[{'imageTag': env_name}])
-              digest = desc['imageDetails'][0]['imageDigest']
-              image_uri = f'{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}@{digest}'
-              print(f'Using Golden Image Digest URI: {image_uri}')
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f'image={image_uri}\n')
-          except Exception as e:
-              print(f'Error resolving image digest: {e}', file=sys.stderr)
-              sys.exit(1)
-          "
-
       - name: Deploy 05-Compute Stack
+        id: deploy-ecs
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.aws-creds.outputs.aws-account-id }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }},CreateECRRepository=false"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -269,132 +224,34 @@ jobs:
     name: 2f. Infra — 06-SuperAdmin
     needs: [deploy-compute]
     runs-on: ubuntu-latest
+    outputs:
+      admin_web_bucket: ${{ steps.deploy-sa.outputs.AdminWebBucketName }}
+      admin_web_distribution_id: ${{ steps.deploy-sa.outputs.AdminWebDistributionId }}
+      admin_web_url: ${{ steps.deploy-sa.outputs.AdminWebURL }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
+        id: aws-creds
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
-
-      - name: Resolve Deployment S3 Bucket
-        id: resolve-bucket
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          ENV: ${{ inputs.environment }}
-        run: |
-          python3 -c "
-          import os, sys, boto3
-          region = os.environ['AWS_REGION']
-          env_name = os.environ['ENV']
-          cfn = boto3.client('cloudformation', region_name=region)
-          try:
-              storage_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-03-storage')['Stacks'][0]
-              bucket = [o['OutputValue'] for o in storage_stack['Outputs'] if o['OutputKey'] == 'S3VaultBucketName'][0]
-              print(f'Using S3 Bucket for large templates: {bucket}')
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f'bucket={bucket}\n')
-          except Exception as e:
-              print(f'Error resolving S3 bucket: {e}', file=sys.stderr)
-              sys.exit(1)
-          "
-
-      - name: Package Tenant Operator Lambda Bundle
-        run: |
-          python3 scripts/package_lambda.py
-
-      - name: Upload Lambda Package to S3 (AWS Python SDK)
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
-        run: |
-          python3 -c "
-          import os, boto3
-          s3 = boto3.client('s3', region_name=os.environ['AWS_REGION'])
-          s3.upload_file('build/tenant_operator_lambda.zip', os.environ['BUCKET'], 'cfn-templates/tenant_operator_lambda.zip')
-          print('Uploaded Lambda zip to S3 via boto3.')
-          "
+          output-credentials: true
 
       - name: Deploy 06-SuperAdmin Stack
+        id: deploy-sa
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
           name: ${{ inputs.environment }}-nextcloud-06-superadmin
           template: infra/modules/06-superadmin/template.yaml
-          s3-bucket: ${{ steps.resolve-bucket.outputs.bucket }}
+          s3-bucket: ${{ inputs.environment }}-nextcloud-vault-${{ steps.aws-creds.outputs.aws-account-id }}
           s3-prefix: cfn-templates
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},LambdaCodeBucket=${{ steps.resolve-bucket.outputs.bucket }},LambdaCodeKey=cfn-templates/tenant_operator_lambda.zip"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
-
-      - name: Update Lambda Function Code Directly (AWS Python SDK)
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          ENV: ${{ inputs.environment }}
-          BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
-        run: |
-          python3 -c "
-          import os, boto3
-          region = os.environ['AWS_REGION']
-          fn = f\"{os.environ['ENV']}-nextcloud-tenant-operator\"
-          bucket = os.environ['BUCKET']
-          client = boto3.client('lambda', region_name=region)
-          try:
-              client.update_function_code(FunctionName=fn, S3Bucket=bucket, S3Key='cfn-templates/tenant_operator_lambda.zip')
-              print('Lambda function code updated via boto3.')
-          except Exception as e:
-              print(f'Lambda function code update notice: {e}')
-          "
-
-
-      - name: Seed SuperAdmin User & Initial Tenant (AWS Python SDK)
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          ENV: ${{ inputs.environment }}
-          TENANT_ID: ${{ vars.TENANT_ID }}
-          ADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-        run: |
-          python3 -c "
-          import os, boto3, hashlib, time
-          region = os.environ['AWS_REGION']
-          env_name = os.environ['ENV']
-          username = os.environ.get('ADMIN_USERNAME', '').strip().lower()
-          pwd = os.environ.get('ADMIN_PASSWORD', '').strip()
-          tenant_id = os.environ.get('TENANT_ID', '').strip()
-
-          ddb = boto3.resource('dynamodb', region_name=region)
-          if username and pwd:
-              user_tbl = ddb.Table(f'{env_name}-nextcloud-admin-users')
-              pwd_hash = hashlib.sha256(pwd.encode()).hexdigest()
-              user_tbl.put_item(Item={
-                  'username': username,
-                  'password_hash': pwd_hash,
-                  'role': 'SuperAdmin',
-                  'created_at': int(time.time()),
-                  'updated_at': int(time.time())
-              })
-              print(f'DynamoDB SuperAdmin credentials seeded successfully.')
-
-          if tenant_id:
-              tenant_tbl = ddb.Table(f'{env_name}-nextcloud-tenant-registry')
-              tenant_tbl.put_item(Item={
-                  'tenant_id': tenant_id,
-                  'status': 'ACTIVE',
-                  'tier': 'ENTERPRISE',
-                  'progress': 100,
-                  'current_step': 'Ready & Operational',
-                  'created_at': int(time.time()),
-                  'updated_at': int(time.time()),
-                  'domain': f'{tenant_id}.png261.dev',
-                  'admin_email': f'admin@{tenant_id}.com',
-                  'quota_gb': 100,
-                  'storage_quota_gb': 100
-              })
-              print(f'DynamoDB Tenant record seeded: {tenant_id}')
-          "
 
 
   deploy-observability:
@@ -464,64 +321,24 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
-      - name: Deploy Static Assets & Invalidate Cache (AWS Python SDK)
-        id: deploy-spa
-        env:
+      - name: Deploy Static Assets to S3 & Invalidate CloudFront Cache
+        uses: raulanatol/aws-s3-js-action@v1
+        with:
           AWS_REGION: ${{ vars.AWS_REGION }}
-          DEPLOY_ENV: ${{ inputs.environment }}
-        working-directory: console-src
-        run: |
-          pip install boto3
-          python3 -c "
-          import os, sys, boto3, mimetypes, time
-
-          region = os.environ['AWS_REGION']
-          env_name = os.environ['DEPLOY_ENV']
-          ssm = boto3.client('ssm', region_name=region)
-          s3 = boto3.client('s3', region_name=region)
-          cf = boto3.client('cloudfront', region_name=region)
-
-          bucket = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-bucket')['Parameter']['Value']
-          dist_id = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/cloudfront-distribution-id')['Parameter']['Value']
-          console_url = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-url')['Parameter']['Value']
-
-          print(f'Deploying static bundle to s3://{bucket}...')
-          dist_dir = 'dist'
-          for root, _, files in os.walk(dist_dir):
-              for file in files:
-                  full_path = os.path.join(root, file)
-                  rel_path = os.path.relpath(full_path, dist_dir)
-                  mime_type, _ = mimetypes.guess_type(full_path)
-                  mime_type = mime_type or 'application/octet-stream'
-
-                  extra_args = {'ContentType': mime_type}
-                  if file.endswith('.html') or file == 'index.html':
-                      extra_args['CacheControl'] = 'no-cache, no-store, must-revalidate'
-                  else:
-                      extra_args['CacheControl'] = 'public, max-age=31536000, immutable'
-
-                  s3.upload_file(full_path, bucket, rel_path, ExtraArgs=extra_args)
-
-          print(f'Invalidating CloudFront cache for {dist_id}...')
-          cf.create_invalidation(
-              DistributionId=dist_id,
-              InvalidationBatch={
-                  'Paths': {'Quantity': 1, 'Items': ['/*']},
-                  'CallerReference': str(time.time())
-              }
-          )
-
-          print(f'Successfully deployed to {console_url}')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-              f.write(f'console_url={console_url}\n')
-          "
+          AWS_BUCKET_NAME: ${{ needs.deploy-superadmin.outputs.admin_web_bucket }}
+          SOURCE: console-src/dist
+          TARGET: /
+          WITH_DELETE: 'TRUE'
+          WITH_CLOUDFRONT_INVALIDATION: 'TRUE'
+          AWS_CLOUDFRONT_DISTRIBUTION_ID: ${{ needs.deploy-superadmin.outputs.admin_web_distribution_id }}
+          AWS_CLOUDFRONT_INVALIDATION_PATH: '/*'
 
   # ============================================================================
   # STAGE 4: FULL-STACK ACCEPTANCE & REPORTING (Terratest + Playwright)
   # ============================================================================
   full-acceptance-and-summary:
     name: 4. Acceptance — Full-Stack Verification & Live Audit
-    needs: [deploy-console, deploy-observability]
+    needs: [deploy-compute, deploy-superadmin, deploy-console, deploy-observability]
     runs-on: ubuntu-latest
     if: ${{ always() && (needs.deploy-console.result == 'success') }}
     steps:
@@ -582,49 +399,13 @@ jobs:
           npm ci
           npx playwright install --with-deps chromium
 
-      - name: Resolve Acceptance Target Endpoints
-        id: resolve-endpoints
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          ENV: ${{ inputs.environment }}
-        run: |
-          python3 -c "
-          import os, sys, boto3
-          region = os.environ['AWS_REGION']
-          env_name = os.environ['ENV']
-          ssm = boto3.client('ssm', region_name=region)
-          cfn = boto3.client('cloudformation', region_name=region)
-
-          try:
-              try:
-                  alb_dns = ssm.get_parameter(Name=f'/nextcloud/{env_name}/infra/alb-dns')['Parameter']['Value']
-              except Exception:
-                  compute_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-05-compute')['Stacks'][0]
-                  alb_dns = [o['OutputValue'] for o in compute_stack['Outputs'] if o['OutputKey'] in ('LoadBalancerDNS', 'LoadBalancerDNSName')][0]
-
-              try:
-                  superadmin_url = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-url')['Parameter']['Value']
-              except Exception:
-                  sa_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-06-superadmin')['Stacks'][0]
-                  superadmin_url = [o['OutputValue'] for o in sa_stack['Outputs'] if o['OutputKey'] == 'AdminWebURL'][0]
-
-              print(f'Resolved ALB URL: http://{alb_dns}')
-              print(f'Resolved SuperAdmin URL: {superadmin_url}')
-              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-                  f.write(f'alb_url=http://{alb_dns}\n')
-                  f.write(f'superadmin_url={superadmin_url}\n')
-          except Exception as e:
-              print(f'Error resolving endpoints: {e}', file=sys.stderr)
-              sys.exit(1)
-          "
-
       - name: Run Playwright Nextcloud & SuperAdmin E2E Suite
         if: ${{ inputs.run_acceptance_tests }}
         env:
-          TENANT_URL: ${{ steps.resolve-endpoints.outputs.alb_url }}
-          TARGET_URL: ${{ steps.resolve-endpoints.outputs.alb_url }}
-          CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
-          SUPERADMIN_CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
+          TENANT_URL: ${{ needs.deploy-compute.outputs.alb_url }}
+          TARGET_URL: ${{ needs.deploy-compute.outputs.alb_url }}
+          CONSOLE_URL: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
+          SUPERADMIN_CONSOLE_URL: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
           NEXTCLOUD_USER: ${{ vars.NEXTCLOUD_USER }}
           NEXTCLOUD_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
@@ -635,7 +416,6 @@ jobs:
         working-directory: tests/nextcloud/e2e
         run: |
           npx playwright test specs/
-
 
       - name: Upload Playwright Test Report
         if: ${{ always() && inputs.run_acceptance_tests }}
@@ -649,8 +429,8 @@ jobs:
         if: ${{ always() }}
         env:
           ENV: ${{ inputs.environment }}
-          CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
-          ALB_URL: ${{ steps.resolve-endpoints.outputs.alb_url }}
+          CONSOLE_URL: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
+          ALB_URL: ${{ needs.deploy-compute.outputs.alb_url }}
           TENANT_ID: ${{ vars.TENANT_ID }}
         run: |
           cat << 'EOF' >> $GITHUB_STEP_SUMMARY

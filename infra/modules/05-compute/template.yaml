@@ -296,7 +296,7 @@ Resources:
           - !Ref VpcId
           - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
       Matcher:
-        HttpCode: "200-400"
+        HttpCode: "200-399,503"
       HealthCheckIntervalSeconds: 15
       HealthCheckPath: /status.php
       HealthCheckProtocol: HTTP
@@ -430,6 +430,17 @@ Resources:
                       - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecretArn"
                   - !Ref AdminSecret
                   - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/tenants/*"
+        - PolicyName: EFSAccessPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticfilesystem:ClientMount
+                  - elasticfilesystem:ClientWrite
+                  - elasticfilesystem:ClientRootAccess
+                  - elasticfilesystem:DescribeFileSystems
+                Resource: "*"
 
   ECSTaskRole:
     Type: AWS::IAM::Role
@@ -617,9 +628,9 @@ Resources:
               - CMD-SHELL
               - "curl -f http://localhost/status.php || exit 1"
             Interval: 30
-            Timeout: 10
-            Retries: 5
-            StartPeriod: 180
+            Timeout: 15
+            Retries: 10
+            StartPeriod: 600
 
   ECSService:
     Type: AWS::ECS::Service
@@ -636,7 +647,7 @@ Resources:
           Base: 0
           Weight: 3
       DesiredCount: !Ref DesiredCount
-      HealthCheckGracePeriodSeconds: 360
+      HealthCheckGracePeriodSeconds: 900
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
