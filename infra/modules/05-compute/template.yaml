@@ -659,7 +659,7 @@ Resources:
               - "curl -f http://localhost/status.php || exit 1"
             Interval: 30
             Timeout: 15
-            Retries: 15
+            Retries: 10
             StartPeriod: 300
 
   ECSService:
