@@ -202,3 +202,29 @@ def unmarshal_ddb_item(item):
     for k, v in item.items():
         result[k] = unmarshal_ddb_val(v)
     return result
+
+
+def get_audit_logs(limit=50):
+    """Retrieve recent immutable audit trail records."""
+    audit_records = []
+    try:
+        resp = dynamodb.scan(TableName=AUDIT_LOGS_TABLE, Limit=limit)
+        for item in resp.get("Items", []):
+            audit_records.append(
+                {
+                    "event_id": item.get("event_id", {}).get("S", ""),
+                    "timestamp": item.get("timestamp", {}).get("S", ""),
+                    "actor": item.get("actor", {}).get("S", ""),
+                    "role": item.get("role", {}).get("S", ""),
+                    "action": item.get("action", {}).get("S", ""),
+                    "target": item.get("target", {}).get("S", ""),
+                    "status": item.get("status", {}).get("S", "SUCCESS"),
+                    "details": item.get("details", {}).get("S", ""),
+                    "ip_address": item.get("ip_address", {}).get("S", ""),
+                }
+            )
+        audit_records.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    except Exception as e:
+        print(f"Warning scanning audit logs from DynamoDB: {e}")
+    return audit_records[:limit]
+
