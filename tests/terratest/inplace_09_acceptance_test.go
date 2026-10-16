@@ -203,26 +203,29 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	statusURL := fmt.Sprintf("http://%s/status.php", albDNS)
 
-	http_helper.HTTPDoWithCustomValidationWithOptions(
-		t,
-		http_helper.HttpDoOptions{
-			Method:    "GET",
-			Url:       statusURL,
-			TlsConfig: tlsConfig,
-			Headers: map[string]string{
-				"User-Agent": "Terratest-Acceptance-Tester",
-			},
-		},
-		func(statusCode int, body string) bool {
-			if statusCode == http.StatusOK {
-				var statusData map[string]interface{}
-				if err := json.Unmarshal([]byte(body), &statusData); err == nil {
-					return statusData["installed"] == true
+	maxRetries := 30
+	sleepBetweenRetries := 5 * time.Second
+	var lastStatus int
+	var lastBody string
+	var success bool
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		statusCode, body, err := http_helper.HttpGetE(t, statusURL, tlsConfig)
+		lastStatus = statusCode
+		lastBody = body
+		if err == nil && statusCode == http.StatusOK {
+			var statusData map[string]interface{}
+			if err := json.Unmarshal([]byte(body), &statusData); err == nil {
+				if statusData["installed"] == true {
+					success = true
+					break
 				}
 			}
-			return false
-		},
-	)
+		}
+		t.Logf("   -> Awaiting Nextcloud status.php (attempt %d/%d, status=%d)...", attempt, maxRetries, statusCode)
+		time.Sleep(sleepBetweenRetries)
+	}
+	require.True(t, success, fmt.Sprintf("Nextcloud status.php must return HTTP 200 with installed=true. Last status: %d, body: %s", lastStatus, lastBody))
 	t.Logf("✅ Nextcloud status.php returned HTTP 200 with installed=true.")
 
 	// 4. Tenant Scaling Lifecycle & Dynamic Scale Verification
