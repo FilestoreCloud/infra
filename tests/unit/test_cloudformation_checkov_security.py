@@ -3,7 +3,6 @@ CloudFormation Security & Policy Compliance Invariant Tests.
 Validates that CloudFormation templates comply with CIS AWS Foundations benchmarks
 and Prisma Cloud / Checkov security rules.
 """
-import json
 import shutil
 import subprocess
 import unittest

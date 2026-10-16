@@ -6,7 +6,6 @@ without type errors or implicit Any degradation.
 import os
 import shutil
 import subprocess
-import sys
 import unittest
 from pathlib import Path
 
