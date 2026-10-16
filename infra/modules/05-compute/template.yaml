@@ -296,7 +296,7 @@ Resources:
           - !Ref VpcId
           - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
       Matcher:
-        HttpCode: "200-399,503"
+        HttpCode: "200-499"
       HealthCheckIntervalSeconds: 15
       HealthCheckPath: /status.php
       HealthCheckProtocol: HTTP
