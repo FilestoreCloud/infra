@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dynamoTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
@@ -225,6 +226,41 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		t.Logf("   -> Awaiting Nextcloud status.php (attempt %d/%d, status=%d)...", attempt, maxRetries, statusCode)
 		time.Sleep(sleepBetweenRetries)
 	}
+
+	if !success {
+		logGroupName := fmt.Sprintf("/ecs/%s-nextcloud", cfg.Environment)
+		t.Logf("⚠️ Nextcloud status.php probe failed (lastStatus=%d). Inspecting recent ECS logs from CloudWatch group '%s'...", lastStatus, logGroupName)
+		cwLogsClient := cloudwatchlogs.NewFromConfig(cfg.awsConfig)
+		streamsOut, streamErr := cwLogsClient.DescribeLogStreams(context.TODO(), &cloudwatchlogs.DescribeLogStreamsInput{
+			LogGroupName: aws.String(logGroupName),
+			OrderBy:      "LastEventTime",
+			Descending:   aws.Bool(true),
+			Limit:        aws.Int32(3),
+		})
+		if streamErr != nil {
+			t.Logf("⚠️ Failed to describe log streams in %s: %v", logGroupName, streamErr)
+		} else {
+			for _, stream := range streamsOut.LogStreams {
+				if stream.LogStreamName == nil {
+					continue
+				}
+				t.Logf("📜 ECS Log Stream: %s", *stream.LogStreamName)
+				eventsOut, eventErr := cwLogsClient.GetLogEvents(context.TODO(), &cloudwatchlogs.GetLogEventsInput{
+					LogGroupName:  aws.String(logGroupName),
+					LogStreamName: stream.LogStreamName,
+					Limit:         aws.Int32(60),
+				})
+				if eventErr == nil {
+					for _, ev := range eventsOut.Events {
+						if ev.Timestamp != nil && ev.Message != nil {
+							t.Logf("   [%s] %s", time.UnixMilli(*ev.Timestamp).Format("15:04:05"), strings.TrimSpace(*ev.Message))
+						}
+					}
+				}
+			}
+		}
+	}
+
 	require.True(t, success, fmt.Sprintf("Nextcloud status.php must return HTTP 200 with installed=true. Last status: %d, body: %s", lastStatus, lastBody))
 	t.Logf("✅ Nextcloud status.php returned HTTP 200 with installed=true.")
 
