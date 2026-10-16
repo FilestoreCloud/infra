@@ -287,7 +287,7 @@ Resources:
       Matcher:
         HttpCode: "200-499"
       HealthCheckIntervalSeconds: 15
-      HealthCheckPath: /status.php
+      HealthCheckPath: /robots.txt
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 2
@@ -659,11 +659,11 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - "curl -s http://localhost/status.php | grep -q 'installed' || exit 1"
-            Interval: 20
-            Timeout: 10
-            Retries: 10
-            StartPeriod: 240
+              - "curl -f -s http://localhost/robots.txt || exit 1"
+            Interval: 15
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 120
 
   ECSService:
     Type: AWS::ECS::Service
@@ -680,7 +680,7 @@ Resources:
           Base: 0
           Weight: 3
       DesiredCount: !Ref DesiredCount
-      HealthCheckGracePeriodSeconds: 360
+      HealthCheckGracePeriodSeconds: 300
       DeploymentConfiguration:
         MaximumPercent: 200
         MinimumHealthyPercent: 100
