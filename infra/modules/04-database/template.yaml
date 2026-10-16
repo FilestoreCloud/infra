@@ -51,10 +51,17 @@ Parameters:
     NoEcho: true
     Description: Master password for RDS PostgreSQL
 
+  EnableRDSProxy:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Whether to provision AWS RDS Proxy for connection pooling and PostgreSQL connection offloading
+
 Conditions:
   HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
   HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
   HasDBSecurityGroupId: !Not [!Equals [!Ref DBSecurityGroupId, ""]]
+  ShouldEnableRDSProxy: !Equals [!Ref EnableRDSProxy, "true"]
 
 Resources:
   DBSubnetGroup:
@@ -85,6 +92,10 @@ Resources:
         rds.force_ssl: "1"
         idle_in_transaction_session_timeout: "60000"
         log_min_duration_statement: "2000"
+        tcp_keepalives_idle: "30"
+        tcp_keepalives_interval: "10"
+        tcp_keepalives_count: "5"
+        statement_timeout: "60000"
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-db-parameter-group"
@@ -142,14 +153,89 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  # ============================================================================
+  # RDS PROXY & CONNECTION POOLING (Requirement 3: Connection Offloading)
+  # ============================================================================
+  RDSProxyIAMRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldEnableRDSProxy
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-nextcloud-rds-proxy-role"
+      Description: IAM role allowing RDS Proxy to read master credentials from Secrets Manager
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ProxySecretAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: !Ref DBSecret
+
+  DBProxy:
+    Type: AWS::RDS::DBProxy
+    Condition: ShouldEnableRDSProxy
+    Properties:
+      DBProxyName: !Sub "${EnvironmentName}-nextcloud-db-proxy"
+      EngineFamily: POSTGRESQL
+      RoleArn: !GetAtt RDSProxyIAMRole.Arn
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !Ref DBSecret
+          IAMAuth: DISABLED
+      VpcSubnetIds:
+        - Fn::If:
+            - HasPrivateSubnet1Id
+            - !Ref PrivateSubnet1Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
+        - Fn::If:
+            - HasPrivateSubnet2Id
+            - !Ref PrivateSubnet2Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
+      VpcSecurityGroupIds:
+        - Fn::If:
+            - HasDBSecurityGroupId
+            - !Ref DBSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecurityGroupId"
+      RequireTLS: true
+      IdleClientTimeout: 1800
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Service
+          Value: RDS-Proxy-Pooling
+
+  DBProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Condition: ShouldEnableRDSProxy
+    Properties:
+      DBProxyName: !Ref DBProxy
+      TargetGroupName: default
+      DBInstanceIdentifiers:
+        - !Ref RDSInstance
+      ConnectionPoolConfigurationInfo:
+        MaxConnectionsPercent: 90
+        MaxIdleConnectionsPercent: 50
+        ConnectionBorrowTimeout: 120
+
   # SSM Parameter Store exports
   SSMDBEndpoint:
     Type: AWS::SSM::Parameter
     Properties:
       Name: !Sub "/nextcloud/${EnvironmentName}/infra/db-endpoint"
       Type: String
-      Value: !GetAtt RDSInstance.Endpoint.Address
-      Description: RDS PostgreSQL Endpoint Address
+      Value:
+        Fn::If:
+          - ShouldEnableRDSProxy
+          - !GetAtt DBProxy.Endpoint
+          - !GetAtt RDSInstance.Endpoint.Address
+      Description: RDS PostgreSQL (or Proxy) Endpoint Address
       Tags:
         Environment: !Ref EnvironmentName
 
@@ -165,8 +251,12 @@ Resources:
 
 Outputs:
   DatabaseEndpoint:
-    Description: Private RDS PostgreSQL Endpoint Address
-    Value: !GetAtt RDSInstance.Endpoint.Address
+    Description: Private RDS PostgreSQL Endpoint Address (or Proxy Endpoint if enabled)
+    Value:
+      Fn::If:
+        - ShouldEnableRDSProxy
+        - !GetAtt DBProxy.Endpoint
+        - !GetAtt RDSInstance.Endpoint.Address
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-DatabaseEndpoint"
 

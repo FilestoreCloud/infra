@@ -31,12 +31,19 @@ Parameters:
     Default: ""
     Description: RDS DB Instance Identifier for CloudWatch alarms (Leave blank to import from Module 04)
 
+  EnableAutoSleep:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Enable FinOps automated sleep for non-production environments (pauses RDS and scales ECS to 0 outside business hours)
+
 Conditions:
   HasALBDNS: !Not [!Equals [!Ref ApplicationLoadBalancerDNS, ""]]
   HasALBFullName: !Not [!Equals [!Ref ApplicationLoadBalancerFullName, ""]]
   HasECSClusterName: !Not [!Equals [!Ref ECSClusterName, ""]]
   HasECSServiceName: !Not [!Equals [!Ref ECSServiceName, ""]]
   HasRDSInstanceIdentifier: !Not [!Equals [!Ref RDSInstanceIdentifier, ""]]
+  ShouldEnableAutoSleep: !Equals [!Ref EnableAutoSleep, "true"]
 
 Resources:
   # ============================================================================
@@ -341,6 +348,186 @@ Resources:
       Type: String
       Value: !Ref ObservabilityNotificationTopic
       Description: Observability SNS Alerts Topic ARN
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  # ============================================================================
+  # FINOPS AUTO-SLEEP SCHEDULER (Requirement 2: Cost Optimization)
+  # ============================================================================
+  FinOpsAutoSleepRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldEnableAutoSleep
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-nextcloud-finops-autosleep-role"
+      Description: IAM Execution Role for FinOps automated ECS/RDS sleep scheduler
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: FinOpsSchedulerPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: LoggingAccess
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/*"
+              - Sid: RDSPauseResumeAccess
+                Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                  - rds:StopDBInstance
+                  - rds:StartDBInstance
+                Resource: !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:*"
+              - Sid: ECSScalingAccess
+                Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                Resource: "*"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Service
+          Value: FinOps-AutoSleep
+
+  FinOpsAutoSleepLambda:
+    Type: AWS::Lambda::Function
+    Condition: ShouldEnableAutoSleep
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-nextcloud-finops-autosleep"
+      Description: "FinOps scheduler: pauses RDS DB and scales ECS Fargate tasks to 0 outside business hours"
+      Runtime: python3.11
+      Handler: index.handler
+      Timeout: 60
+      MemorySize: 256
+      Role: !GetAtt FinOpsAutoSleepRole.Arn
+      Environment:
+        Variables:
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+          RDS_IDENTIFIER: !Sub "${EnvironmentName}-nextcloud-db"
+          ECS_CLUSTER: !Sub "${EnvironmentName}-nextcloud-cluster"
+          ECS_SERVICE: !Sub "${EnvironmentName}-nextcloud-service"
+      Code:
+        ZipFile: |
+          import os, sys, boto3
+
+          def handler(event, context):
+              action = event.get("action", "SLEEP").upper()
+              region = os.environ.get("AWS_DEFAULT_REGION", "ap-southeast-1")
+              rds_id = os.environ.get("RDS_IDENTIFIER")
+              cluster = os.environ.get("ECS_CLUSTER")
+              service = os.environ.get("ECS_SERVICE")
+
+              rds = boto3.client("rds", region_name=region)
+              ecs = boto3.client("ecs", region_name=region)
+
+              print(f"Executing FinOps Auto-{action} for {rds_id} and {cluster}/{service}...")
+              results = {"action": action, "rds": None, "ecs": None}
+
+              if action == "SLEEP":
+                  try:
+                      ecs.update_service(cluster=cluster, service=service, desiredCount=0)
+                      results["ecs"] = "Scaled to 0"
+                      print(f"ECS service {service} scaled to 0 tasks.")
+                  except Exception as e:
+                      results["ecs"] = f"Error: {e}"
+
+                  try:
+                      dbs = rds.describe_db_instances(DBInstanceIdentifier=rds_id)["DBInstances"]
+                      status = dbs[0]["DBInstanceStatus"]
+                      if status == "available":
+                          rds.stop_db_instance(DBInstanceIdentifier=rds_id)
+                          results["rds"] = "Stopping"
+                          print(f"RDS {rds_id} stopped.")
+                      else:
+                          results["rds"] = f"Ignored (status: {status})"
+                  except Exception as e:
+                      results["rds"] = f"Error: {e}"
+
+              elif action == "WAKE":
+                  try:
+                      dbs = rds.describe_db_instances(DBInstanceIdentifier=rds_id)["DBInstances"]
+                      status = dbs[0]["DBInstanceStatus"]
+                      if status == "stopped":
+                          rds.start_db_instance(DBInstanceIdentifier=rds_id)
+                          results["rds"] = "Starting"
+                          print(f"RDS {rds_id} starting.")
+                      else:
+                          results["rds"] = f"Ignored (status: {status})"
+                  except Exception as e:
+                      results["rds"] = f"Error: {e}"
+
+                  try:
+                      ecs.update_service(cluster=cluster, service=service, desiredCount=1)
+                      results["ecs"] = "Scaled to 1"
+                      print(f"ECS service {service} scaled to 1 task.")
+                  except Exception as e:
+                      results["ecs"] = f"Error: {e}"
+
+              return {"statusCode": 200, "body": results}
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  FinOpsSleepRule:
+    Type: AWS::Events::Rule
+    Condition: ShouldEnableAutoSleep
+    Properties:
+      Name: !Sub "${EnvironmentName}-nextcloud-finops-sleep-rule"
+      Description: "FinOps: Sleep non-prod environments at 20:00 UTC+7 Mon-Fri"
+      ScheduleExpression: "cron(0 13 ? * MON-FRI *)"
+      State: ENABLED
+      Targets:
+        - Id: FinOpsAutoSleepTarget
+          Arn: !GetAtt FinOpsAutoSleepLambda.Arn
+          Input: '{"action": "SLEEP"}'
+
+  FinOpsWakeRule:
+    Type: AWS::Events::Rule
+    Condition: ShouldEnableAutoSleep
+    Properties:
+      Name: !Sub "${EnvironmentName}-nextcloud-finops-wake-rule"
+      Description: "FinOps: Wake non-prod environments at 08:00 UTC+7 Mon-Fri"
+      ScheduleExpression: "cron(0 1 ? * MON-FRI *)"
+      State: ENABLED
+      Targets:
+        - Id: FinOpsAutoWakeTarget
+          Arn: !GetAtt FinOpsAutoSleepLambda.Arn
+          Input: '{"action": "WAKE"}'
+
+  FinOpsSleepRulePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ShouldEnableAutoSleep
+    Properties:
+      FunctionName: !GetAtt FinOpsAutoSleepLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt FinOpsSleepRule.Arn
+
+  FinOpsWakeRulePermission:
+    Type: AWS::Lambda::Permission
+    Condition: ShouldEnableAutoSleep
+    Properties:
+      FunctionName: !GetAtt FinOpsAutoSleepLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt FinOpsWakeRule.Arn
+
+  SSMFinOpsAutoSleepEnabled:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/finops/auto-sleep-enabled"
+      Type: String
+      Value: !Ref EnableAutoSleep
+      Description: Flag indicating whether FinOps automated sleep is active
       Tags:
         Environment: !Ref EnvironmentName
 
