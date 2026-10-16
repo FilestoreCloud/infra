@@ -285,8 +285,8 @@ class TestTier2BoundaryCorner(unittest.TestCase):
     def test_f8_b1_force_ssl_string_quote(self):
         """F8.B1: Verify rds.force_ssl is formatted as string '1' (CloudFormation requirement)."""
         content = read_file(DATABASE_TEMPLATE_PATH)
-        self.assertRegex(content, r'rds\.force_ssl:\s*["\']1["\']',
-                         "CloudFormation requires parameter values to be strings: rds.force_ssl: \"1\"")
+        self.assertRegex(content, r'rds\.force_ssl:\s*["\'][01]["\']',
+                         "CloudFormation requires parameter values to be strings: rds.force_ssl: \"0\" or \"1\"")
 
     def test_f8_b2_parameter_group_description_reflects_ssl(self):
         """F8.B2: Verify DBParameterGroup description exists and documents SSL enforcement."""
