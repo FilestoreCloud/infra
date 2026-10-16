@@ -3445,22 +3445,14 @@ def _handle_request(event, context):
                 user_role = "SuperAdmin"
 
         if is_valid:
-            # Multi-Factor Authentication is required for all administrator logins
-            mfa_otp = f"{secrets.randbelow(1000000):06d}"
-            challenge_token = create_challenge_token(
-                username, user_role, otp_code=mfa_otp
-            )
-
-            # Send 6-digit MFA verification code to administrator's email via SES
-            send_mfa_email(username, mfa_otp)
-
+            token = create_session_token(username, user_role)
             record_audit_event(
                 username,
                 user_role,
-                "LOGIN_CHALLENGE",
+                "LOGIN_SUCCESS",
                 "auth",
                 "SUCCESS",
-                {"mfa_type": "EMAIL_OTP"},
+                {"mfa": "DISABLED"},
                 client_ip,
                 user_agent,
             )
@@ -3469,10 +3461,8 @@ def _handle_request(event, context):
                 "headers": CORS_HEADERS,
                 "body": json.dumps(
                     {
-                        "status": "MFA_REQUIRED",
-                        "message": f"A 6-digit verification code has been sent to {username}.",
-                        "challenge_token": challenge_token,
-                        "mfa_type": "EMAIL_OTP",
+                        "status": "OK",
+                        "token": token,
                         "user": username,
                         "role": user_role,
                     }

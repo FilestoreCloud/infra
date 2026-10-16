@@ -49,8 +49,8 @@ Resources:
                   - !Sub "repo:${GitHubOrg}/runtime:*"
                   - "repo:FilestoreCloud/runtime:*"
                   - "repo:filestorecloud/runtime:*"
-                  - "repo:FilestoreCloud@*/*:*"
-                  - "repo:filestorecloud@*/*:*"
+                  - "repo:FilestoreCloud*:*"
+                  - "repo:filestorecloud*:*"
       Policies:
         - PolicyName: ECRPushPolicy
           PolicyDocument:
@@ -74,6 +74,7 @@ Resources:
                   - ecr:DescribeRepositories
                   - ecr:ListImages
                   - ecr:CreateRepository
+                  - ecr:TagResource
                 Resource: "*"
       Tags:
         - Key: Environment
@@ -101,8 +102,8 @@ Resources:
                   - !Sub "repo:${GitHubOrg}/infra:*"
                   - "repo:FilestoreCloud/infra:*"
                   - "repo:filestorecloud/infra:*"
-                  - "repo:FilestoreCloud@*/*:*"
-                  - "repo:filestorecloud@*/*:*"
+                  - "repo:FilestoreCloud*:*"
+                  - "repo:filestorecloud*:*"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AdministratorAccess
       Tags:
@@ -131,8 +132,8 @@ Resources:
                   - !Sub "repo:${GitHubOrg}/console:*"
                   - "repo:FilestoreCloud/console:*"
                   - "repo:filestorecloud/console:*"
-                  - "repo:FilestoreCloud@*/*:*"
-                  - "repo:filestorecloud@*/*:*"
+                  - "repo:FilestoreCloud*:*"
+                  - "repo:filestorecloud*:*"
       Policies:
         - PolicyName: ConsoleDeployPolicy
           PolicyDocument:

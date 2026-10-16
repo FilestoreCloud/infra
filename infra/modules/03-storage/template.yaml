@@ -45,8 +45,8 @@ Resources:
   # ── S3 Multi-Tenant Object Storage Vault ─────────────────────────────────────
   S3VaultBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       BucketName: !Sub "${EnvironmentName}-nextcloud-vault-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:

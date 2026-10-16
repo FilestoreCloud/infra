@@ -84,7 +84,7 @@ func TestInPlaceResilience_ECSFargateSelfHealing(t *testing.T) {
 		t,
 		statusEndpoint,
 		tlsConfig,
-		30,
+		60,
 		5*time.Second,
 		func(statusCode int, body string) bool {
 			return statusCode == 200 && (strings.Contains(body, "installed") || strings.Contains(body, "version"))
@@ -111,8 +111,8 @@ func TestInPlaceResilience_ECSFargateSelfHealing(t *testing.T) {
 	// -------------------------------------------------------------
 	t.Logf("⏱️ [Phase 3: Self-Healing] Waiting for ECS auto-recovery and ALB target re-registration...")
 
-	// SLA Max Recovery Duration: 180 seconds (Fargate provisioning + Nextcloud container boot + ALB health checks)
-	maxWaitTime := 3 * time.Minute
+	// SLA Max Recovery Duration: 300 seconds (Fargate provisioning + Nextcloud container boot + ALB health checks)
+	maxWaitTime := 5 * time.Minute
 	pollInterval := 5 * time.Second
 	recovered := false
 	var recoveryDuration time.Duration

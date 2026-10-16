@@ -46,7 +46,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
-          aws-region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
       - name: Verify AWS Identity
@@ -58,62 +58,62 @@ jobs:
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-root
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destroy 07-Observability
         continue-on-error: true
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-07-observability
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destroy 06-SuperAdmin
         continue-on-error: true
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-06-superadmin
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destroy 05-Compute
         continue-on-error: true
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-05-compute
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destroy 04-Database
         continue-on-error: true
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-04-database
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destroy 03-Storage
         continue-on-error: true
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-03-storage
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destroy 02-Security
         continue-on-error: true
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-02-security
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destroy 01-Networking
         continue-on-error: true
         uses: go-to-k/delstack-action@v1
         with:
           stack-name: ${{ inputs.environment }}-nextcloud-01-networking
-          region: ${{ vars.AWS_REGION || 'ap-southeast-1' }}
+          region: ${{ vars.AWS_REGION }}
 
       - name: Destruction Summary
         run: |
           echo "============================================================"
           echo "🎉 Infrastructure destruction sequence completed!"
           echo "Environment : ${{ inputs.environment }}"
-          echo "Region      : ${{ vars.AWS_REGION || 'ap-southeast-1' }}"
+          echo "Region      : ${{ vars.AWS_REGION }}"
           echo "Stacks targeted: 07-Observability, 06-SuperAdmin, 05-Compute, 04-Database, 03-Storage, 02-Security, 01-Networking, Root"
           echo "============================================================"

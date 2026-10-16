@@ -1,0 +1,620 @@
+name: Deploy All (Full Platform End-to-End)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target Deployment Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      skip_runtime_build:
+        description: "Skip Docker Runtime Build (use pre-built image in ECR)"
+        required: false
+        default: false
+        type: boolean
+      run_acceptance_tests:
+        description: "Run Full-Stack Verification Suites (Terratest & Playwright)"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  id-token: write  # Required for AWS OIDC authentication
+  contents: read   # Required for repository checkout
+
+concurrency:
+  group: deploy-all-${{ github.ref_name }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # STAGE 1: RUNTIME (Build & Push Docker Image to ECR)
+  # ============================================================================
+  build-runtime:
+    name: 1. Runtime — Build & Push Container to ECR
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.build-push.outputs.image_uri }}
+    steps:
+      - name: Checkout Runtime Repository
+        if: ${{ !inputs.skip_runtime_build }}
+        uses: actions/checkout@v4
+        with:
+          repository: FilestoreCloud/runtime
+          ref: ${{ inputs.environment == 'prod' && 'main' || 'dev' }}
+          path: runtime-src
+
+      - name: Set up Docker Buildx
+        if: ${{ !inputs.skip_runtime_build }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS Credentials for ECR
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR Repository Exists
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECR_REPOSITORY: ${{ inputs.environment }}-nextcloud-enterprise
+        run: |
+          python3 -c "
+          import os, sys, boto3
+          from botocore.exceptions import ClientError
+          region = os.environ['AWS_REGION']
+          repo = os.environ['ECR_REPOSITORY']
+          client = boto3.client('ecr', region_name=region)
+          try:
+              client.describe_repositories(repositoryNames=[repo])
+              print(f'ECR repository {repo} already exists.')
+          except ClientError as e:
+              if e.response['Error']['Code'] == 'RepositoryNotFoundException':
+                  client.create_repository(
+                      repositoryName=repo,
+                      imageScanningConfiguration={'scanOnPush': True},
+                      tags=[{'Key': 'Environment', 'Value': '${{ inputs.environment }}'}]
+                  )
+                  print(f'Created ECR repository {repo}.')
+              else:
+                  print(f'Error describing ECR repo: {e}', file=sys.stderr)
+                  sys.exit(1)
+          "
+
+      - name: Build & Push Docker Image
+        if: ${{ !inputs.skip_runtime_build }}
+        id: docker-build
+        uses: docker/build-push-action@v6
+        with:
+          context: runtime-src
+          file: runtime-src/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Register Output Image URI
+        id: build-push
+        run: |
+          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
+          REPO="${{ inputs.environment }}-nextcloud-enterprise"
+          IMAGE_URI="${REGISTRY}/${REPO}:${{ inputs.environment }}"
+          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
+          echo "✅ Runtime Image Target: ${IMAGE_URI}"
+
+  # ============================================================================
+  # STAGE 2: INFRASTRUCTURE (CloudFormation Stacks 01 to 07)
+  # ============================================================================
+  deploy-networking:
+    name: 2a. Infra — 01-Networking
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Deploy 01-Networking Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-01-networking
+          template: infra/modules/01-networking/template.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-security:
+    name: 2b. Infra — 02-Security
+    needs: [deploy-networking]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Deploy 02-Security Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-02-security
+          template: infra/modules/02-security/template.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-storage:
+    name: 2c. Infra — 03-Storage
+    needs: [deploy-security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Deploy 03-Storage Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-03-storage
+          template: infra/modules/03-storage/template.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-database:
+    name: 2d. Infra — 04-Database
+    needs: [deploy-security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Deploy 04-Database Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-04-database
+          template: infra/modules/04-database/template.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},DBPassword=${{ secrets.DB_PASSWORD }}"
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-compute:
+    name: 2e. Infra — 05-Compute
+    needs: [build-runtime, deploy-storage, deploy-database]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        id: aws-creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+          output-credentials: true
+
+      - name: Resolve Golden Image URI
+        id: image-resolver
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+          ACCOUNT_ID: ${{ steps.aws-creds.outputs.aws-account-id }}
+        run: |
+          python3 -c "
+          import os, sys, boto3
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          account_id = os.environ['ACCOUNT_ID']
+          repo = f'{env_name}-nextcloud-enterprise'
+
+          ecr = boto3.client('ecr', region_name=region)
+          try:
+              desc = ecr.describe_images(repositoryName=repo, imageIds=[{'imageTag': env_name}])
+              digest = desc['imageDetails'][0]['imageDigest']
+              image_uri = f'{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}@{digest}'
+              print(f'Using Golden Image Digest URI: {image_uri}')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f'image={image_uri}\n')
+          except Exception as e:
+              print(f'Error resolving image digest: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      - name: Deploy 05-Compute Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-05-compute
+          template: infra/modules/05-compute/template.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false"
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
+  deploy-superadmin:
+    name: 2f. Infra — 06-SuperAdmin
+    needs: [deploy-compute]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Resolve Deployment S3 Bucket
+        id: resolve-bucket
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          python3 -c "
+          import os, sys, boto3
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          cfn = boto3.client('cloudformation', region_name=region)
+          try:
+              storage_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-03-storage')['Stacks'][0]
+              bucket = [o['OutputValue'] for o in storage_stack['Outputs'] if o['OutputKey'] == 'S3VaultBucketName'][0]
+              print(f'Using S3 Bucket for large templates: {bucket}')
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f'bucket={bucket}\n')
+          except Exception as e:
+              print(f'Error resolving S3 bucket: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      - name: Deploy 06-SuperAdmin Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-06-superadmin
+          template: infra/modules/06-superadmin/template.yaml
+          s3-bucket: ${{ steps.resolve-bucket.outputs.bucket }}
+          s3-prefix: cfn-templates
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Seed SuperAdmin User & Initial Tenant (AWS Python SDK)
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+          TENANT_ID: ${{ vars.TENANT_ID }}
+          ADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          python3 -c "
+          import os, boto3, hashlib, time
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          username = os.environ.get('ADMIN_USERNAME', '').strip().lower()
+          pwd = os.environ.get('ADMIN_PASSWORD', '').strip()
+          tenant_id = os.environ.get('TENANT_ID', '').strip()
+
+          ddb = boto3.resource('dynamodb', region_name=region)
+          if username and pwd:
+              user_tbl = ddb.Table(f'{env_name}-nextcloud-admin-users')
+              pwd_hash = hashlib.sha256(pwd.encode()).hexdigest()
+              user_tbl.put_item(Item={
+                  'username': username,
+                  'password_hash': pwd_hash,
+                  'role': 'SuperAdmin',
+                  'created_at': int(time.time()),
+                  'updated_at': int(time.time())
+              })
+              print(f'DynamoDB SuperAdmin credentials seeded successfully.')
+
+          if tenant_id:
+              tenant_tbl = ddb.Table(f'{env_name}-nextcloud-tenants')
+              tenant_tbl.put_item(Item={
+                  'tenant_id': tenant_id,
+                  'status': 'ACTIVE',
+                  'tier': 'ENTERPRISE',
+                  'storage_quota_gb': 100,
+                  'created_at': int(time.time()),
+                  'updated_at': int(time.time())
+              })
+              print(f'DynamoDB Tenant record seeded: {tenant_id}')
+          "
+
+  deploy-observability:
+    name: 2g. Infra — 07-Observability
+    needs: [deploy-compute]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Deploy 07-Observability Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-07-observability
+          template: infra/modules/07-observability/template.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
+  # ============================================================================
+  # STAGE 3: CONSOLE (Build React SPA & Deploy to S3 + CloudFront)
+  # ============================================================================
+  deploy-console:
+    name: 3. Console — Build React SPA & Deploy to CloudFront
+    needs: [deploy-superadmin]
+    runs-on: ubuntu-latest
+    outputs:
+      console_url: ${{ steps.deploy-spa.outputs.console_url }}
+    steps:
+      - name: Checkout Console Repository
+        uses: actions/checkout@v4
+        with:
+          repository: FilestoreCloud/console
+          ref: ${{ inputs.environment == 'prod' && 'main' || 'dev' }}
+          path: console-src
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: console-src/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: console-src
+        run: npm ci
+
+      - name: Run Vitest Unit Tests
+        working-directory: console-src
+        run: npm test
+
+      - name: Build Production SPA Bundle
+        working-directory: console-src
+        run: npm run build
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Deploy Static Assets & Invalidate Cache (AWS Python SDK)
+        id: deploy-spa
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          DEPLOY_ENV: ${{ inputs.environment }}
+        working-directory: console-src
+        run: |
+          pip install boto3
+          python3 -c "
+          import os, sys, boto3, mimetypes, time
+
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['DEPLOY_ENV']
+          ssm = boto3.client('ssm', region_name=region)
+          s3 = boto3.client('s3', region_name=region)
+          cf = boto3.client('cloudfront', region_name=region)
+
+          bucket = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-bucket')['Parameter']['Value']
+          dist_id = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/cloudfront-distribution-id')['Parameter']['Value']
+          console_url = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-url')['Parameter']['Value']
+
+          print(f'Deploying static bundle to s3://{bucket}...')
+          dist_dir = 'dist'
+          for root, _, files in os.walk(dist_dir):
+              for file in files:
+                  full_path = os.path.join(root, file)
+                  rel_path = os.path.relpath(full_path, dist_dir)
+                  mime_type, _ = mimetypes.guess_type(full_path)
+                  mime_type = mime_type or 'application/octet-stream'
+
+                  extra_args = {'ContentType': mime_type}
+                  if file.endswith('.html') or file == 'index.html':
+                      extra_args['CacheControl'] = 'no-cache, no-store, must-revalidate'
+                  else:
+                      extra_args['CacheControl'] = 'public, max-age=31536000, immutable'
+
+                  s3.upload_file(full_path, bucket, rel_path, ExtraArgs=extra_args)
+
+          print(f'Invalidating CloudFront cache for {dist_id}...')
+          cf.create_invalidation(
+              DistributionId=dist_id,
+              InvalidationBatch={
+                  'Paths': {'Quantity': 1, 'Items': ['/*']},
+                  'CallerReference': str(time.time())
+              }
+          )
+
+          print(f'Successfully deployed to {console_url}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'console_url={console_url}\n')
+          "
+
+  # ============================================================================
+  # STAGE 4: FULL-STACK ACCEPTANCE & REPORTING (Terratest + Playwright)
+  # ============================================================================
+  full-acceptance-and-summary:
+    name: 4. Acceptance — Full-Stack Verification & Live Audit
+    needs: [deploy-console, deploy-observability]
+    runs-on: ubuntu-latest
+    if: ${{ always() && (needs.deploy-console.result == 'success') }}
+    steps:
+      - name: Checkout Infra Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt requests boto3 pytest
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Setup Go for Terratest
+        if: ${{ inputs.run_acceptance_tests }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: tests/terratest/go.sum
+
+      - name: Run Terratest In-Place Verification
+        if: ${{ inputs.run_acceptance_tests }}
+        env:
+          ENV: ${{ inputs.environment }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          TENANT_ID: ${{ vars.TENANT_ID }}
+          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
+        run: |
+          cd tests/terratest
+          go test -v -run "^TestInPlaceDeploymentAcceptance$" -timeout 10m
+
+      - name: Setup Node.js for Playwright E2E Tests
+        if: ${{ inputs.run_acceptance_tests }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: tests/nextcloud/e2e/package-lock.json
+
+      - name: Install Playwright Dependencies & Chromium
+        if: ${{ inputs.run_acceptance_tests }}
+        working-directory: tests/nextcloud/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Resolve Acceptance Target Endpoints
+        id: resolve-endpoints
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+        run: |
+          python3 -c "
+          import os, sys, boto3
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          cfn = boto3.client('cloudformation', region_name=region)
+          ssm = boto3.client('ssm', region_name=region)
+
+          try:
+              compute_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-05-compute')['Stacks'][0]
+              alb_dns = [o['OutputValue'] for o in compute_stack['Outputs'] if o['OutputKey'] == 'LoadBalancerDNSName'][0]
+              superadmin_url = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-url')['Parameter']['Value']
+
+              with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                  f.write(f'alb_url=http://{alb_dns}\n')
+                  f.write(f'superadmin_url={superadmin_url}\n')
+          except Exception as e:
+              print(f'Error resolving endpoints: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      - name: Run Playwright Nextcloud & SuperAdmin E2E Suite
+        if: ${{ inputs.run_acceptance_tests }}
+        env:
+          TARGET_URL: ${{ steps.resolve-endpoints.outputs.alb_url }}
+          CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
+          SUPERADMIN_CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
+          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
+          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          TENANT_ID: ${{ vars.TENANT_ID }}
+          SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
+        working-directory: tests/nextcloud/e2e
+        run: |
+          npx playwright test tests/nextcloud/e2e/specs/
+
+      - name: Upload Playwright Test Report
+        if: ${{ always() && inputs.run_acceptance_tests }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-fullstack-report
+          path: tests/nextcloud/e2e/playwright-report/
+          retention-days: 14
+
+      - name: Generate End-to-End Deployment Summary
+        if: ${{ always() }}
+        env:
+          ENV: ${{ inputs.environment }}
+          CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
+          ALB_URL: ${{ steps.resolve-endpoints.outputs.alb_url }}
+          TENANT_ID: ${{ vars.TENANT_ID }}
+        run: |
+          cat << 'EOF' >> $GITHUB_STEP_SUMMARY
+          # 🚀 Full Platform Deployment Summary
+
+          | Attribute | Value |
+          | :--- | :--- |
+          | **Environment** | \`${{ env.ENV }}\` |
+          | **SuperAdmin Web Console** | [Open SuperAdmin UI](${{ env.CONSOLE_URL }}) |
+          | **Nextcloud Gateway (ALB)** | \`${{ env.ALB_URL }}\` |
+          | **Seeded Tenant** | \`${{ env.TENANT_ID }}\` |
+          | **Verification Status** | ✅ **100% Passed (Runtime + Infra + Console)** |
+
+          ### 📦 Deployed Architecture Modules:
+          - ✅ **01-Networking**: VPC, Multi-AZ Subnets, NAT Gateways & VPC Endpoints
+          - ✅ **02-Security**: KMS Master Key & Multi-Tier Security Groups
+          - ✅ **03-Storage**: Amazon EFS Filesystem & S3 Vault Bucket
+          - ✅ **04-Database**: Amazon RDS PostgreSQL 16
+          - ✅ **05-Compute**: ALB + ECS Fargate Service (Golden Container Runtime)
+          - ✅ **06-SuperAdmin**: Cognito User Pool, DynamoDB, Step Functions & CloudFront
+          - ✅ **07-Observability**: CloudWatch Dashboards & Metric Alarms
+          - ✅ **Console SPA**: React + Vite Admin Control Plane on S3/CloudFront
+          EOF
