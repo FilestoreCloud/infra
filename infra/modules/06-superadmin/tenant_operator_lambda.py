@@ -9,6 +9,7 @@ import struct
 import sys
 import time
 import uuid
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -100,7 +101,7 @@ CORS_HEADERS = {
     "Content-Type": "application/json",
 }
 
-_CACHED_INFRA = {}
+_CACHED_INFRA: dict[str, Any] = {}
 _CACHED_MASTER_KEY = None
 _CACHED_MASTER_KEY_TIME = 0
 _CACHED_SM_ADMIN = None
@@ -205,7 +206,7 @@ def verify_password(password, stored_hash):
 
 
 # Enterprise Bootstrap User Directory (Zero hardcoded credentials - Dynamic authentication via Cognito/DynamoDB)
-BOOTSTRAP_USERS = {}
+BOOTSTRAP_USERS: dict[str, Any] = {}
 
 
 def get_user_account(username):
