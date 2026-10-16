@@ -630,7 +630,7 @@ Resources:
             Interval: 30
             Timeout: 15
             Retries: 10
-            StartPeriod: 600
+            StartPeriod: 300
 
   ECSService:
     Type: AWS::ECS::Service
