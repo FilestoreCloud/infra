@@ -41,3 +41,12 @@ jobs:
         run: |
           cd tests/terratest
           make test-compile
+
+      - name: Install Python Test Dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Lambda Unit, Moto Integration & Property Tests
+        run: python3 -m unittest discover -s tests/unit -v
+
+      - name: Run Concurrent Load Benchmark
+        run: python3 -m unittest tests/load/run_concurrent_stress.py -v
