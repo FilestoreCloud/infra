@@ -572,6 +572,22 @@ Resources:
                     return resp(200,{"status":"DEPROVISIONED","tenant_id":tid})
                 if act=="AUDIT_LOGS":
                     return resp(200,{"status":"OK","audit_logs":[{"event_id":"evt-1","action":"TENANT_LIST","actor":"nhphuong.code@gmail.com","timestamp":int(time.time()),"status":"SUCCESS"}]})
+                if act in ("STREAM_SFN_PROGRESS","GET_LIVE_EXECUTION_PROGRESS","GET_EXECUTION_PROGRESS"):
+                    tid=b.get("tenant_id") or q.get("tenant_id") or "tenant-alpha"
+                    r=tbl.get_item(Key={"tenant_id":tid}) if TBL else {}
+                    it=r.get("Item",{})
+                    p=int(it.get("progress",15)) if it.get("progress") else 15
+                    st=it.get("status","PROVISIONING")
+                    cs=it.get("current_step","Allocating Dedicated Infrastructure (EFS, ECS, ALB)")
+                    ms=[
+                        {"id":"VALIDATE","name":"Validation & Registry","percent":15,"status":"completed" if p>=15 else "active"},
+                        {"id":"DATABASE","name":"Postgres Isolation","percent":35,"status":"completed" if p>35 else ("active" if p==35 else "pending")},
+                        {"id":"STORAGE","name":"EFS Storage Allocation","percent":55,"status":"completed" if p>55 else ("active" if p==55 else "pending")},
+                        {"id":"COMPUTE","name":"ECS Task Registration","percent":75,"status":"completed" if p>75 else ("active" if p==75 else "pending")},
+                        {"id":"HEALTH_CHECK","name":"Health Probe & Ingress","percent":90,"status":"completed" if p>90 else ("active" if p==90 else "pending")},
+                        {"id":"ACTIVE","name":"Operational Active","percent":100,"status":"completed" if p>=100 else "pending"}
+                    ]
+                    return resp(200,{"tenantId":tid,"status":st,"progress":p,"currentStep":cs,"elapsedSeconds":24,"estimatedRemainingSeconds":max(0,int((100-p)*0.8)),"milestones":ms,"liveStream":True})
                 return resp(200,{"status":"OK","action":act or "HEALTH","service":"Nextcloud-SaaS-Control-Plane"})
       Tags:
         - Key: Environment

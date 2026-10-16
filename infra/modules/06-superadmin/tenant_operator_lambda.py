@@ -2206,6 +2206,263 @@ def get_step_functions_observability(
     }
 
 
+def get_live_execution_stream(tenant_id=None, execution_arn=None):
+    """Retrieve real-time Step Functions execution progress, active step tracking,
+    elapsed time, and milestone mappings for tenant lifecycle visualizer.
+    """
+    now = time.time()
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
+
+    selected_arn = execution_arn
+    discovered_workflow = "PROVISION"
+    tenant_status = "PROVISIONING"
+    current_progress = 15
+    current_step = "Initializing Registry & Allocating Ingress"
+    current_desc = "Allocating dedicated resources and validating tenant parameters"
+
+    # 1. If execution_arn not provided, discover the latest running/recent execution for tenant_id
+    if not selected_arn and tenant_id:
+        try:
+            ddb_resp = dynamodb.get_item(
+                TableName=TABLE_NAME,
+                Key={"tenant_id": {"S": tenant_id}},
+            )
+            item = ddb_resp.get("Item", {})
+            if item:
+                tenant_status = item.get("status", {}).get("S", tenant_status)
+                if "progress" in item:
+                    try:
+                        current_progress = int(item["progress"].get("N", current_progress))
+                    except (ValueError, TypeError):
+                        pass
+                if "current_step" in item:
+                    current_step = item["current_step"].get("S", current_step)
+        except Exception as e:
+            print(f"Notice: DynamoDB check in get_live_execution_stream: {e}")
+
+        candidate_arns = [
+            (STATE_MACHINE_PROVISION_ARN, "PROVISION"),
+            (STATE_MACHINE_SEED_ARN, "SEED"),
+            (STATE_MACHINE_DEMO_ARN, "DEMO"),
+            (STATE_MACHINE_SUSPEND_ARN, "SUSPEND"),
+            (STATE_MACHINE_RESUME_ARN, "RESUME"),
+            (STATE_MACHINE_DEPROVISION_ARN, "DEPROVISION"),
+            (STATE_MACHINE_FLEET_UPGRADE_ARN, "FLEET_UPGRADE"),
+        ]
+        for sm_arn, wf_type in candidate_arns:
+            if not sm_arn:
+                continue
+            try:
+                list_resp = sfn.list_executions(
+                    stateMachineArn=sm_arn,
+                    statusFilter="RUNNING",
+                    maxResults=5,
+                )
+                for ex in list_resp.get("executions", []):
+                    if tenant_id in ex.get("name", ""):
+                        selected_arn = ex["executionArn"]
+                        discovered_workflow = wf_type
+                        break
+                if selected_arn:
+                    break
+            except Exception as e:
+                print(f"Notice: checking running executions for {sm_arn}: {e}")
+
+        if not selected_arn:
+            for sm_arn, wf_type in candidate_arns:
+                if not sm_arn:
+                    continue
+                try:
+                    list_resp = sfn.list_executions(
+                        stateMachineArn=sm_arn,
+                        maxResults=5,
+                    )
+                    for ex in list_resp.get("executions", []):
+                        if tenant_id in ex.get("name", ""):
+                            selected_arn = ex["executionArn"]
+                            discovered_workflow = wf_type
+                            break
+                    if selected_arn:
+                        break
+                except Exception as e:
+                    pass
+
+    # 2. Describe execution if ARN is known
+    recent_events = []
+    elapsed_seconds = 0
+    estimated_remaining = 30
+    exec_status = "RUNNING"
+    start_iso = now_iso
+    stop_iso = None
+
+    if selected_arn:
+        try:
+            desc = sfn.describe_execution(executionArn=selected_arn)
+            exec_status = desc.get("status", "RUNNING")
+            start_dt = desc.get("startDate")
+            stop_dt = desc.get("stopDate")
+            if start_dt and hasattr(start_dt, "timestamp"):
+                start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                end_time = stop_dt.timestamp() if (stop_dt and hasattr(stop_dt, "timestamp")) else now
+                elapsed_seconds = max(0, int(end_time - start_dt.timestamp()))
+            if stop_dt and hasattr(stop_dt, "strftime"):
+                stop_iso = stop_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            hist = sfn.get_execution_history(
+                executionArn=selected_arn, maxResults=15, reverseOrder=True
+            )
+            for ev in hist.get("events", []):
+                ev_type = ev.get("type", "")
+                step_name = None
+                for k in [
+                    "stateEnteredEventDetails",
+                    "stateExitedEventDetails",
+                    "taskStateEnteredEventDetails",
+                    "lambdaFunctionScheduledEventDetails",
+                ]:
+                    if k in ev and isinstance(ev[k], dict) and "name" in ev[k]:
+                        step_name = ev[k]["name"]
+                        break
+                recent_events.append(
+                    {
+                        "id": ev.get("id"),
+                        "type": ev_type,
+                        "stepName": step_name or ev_type,
+                        "timestamp": str(ev.get("timestamp", now_iso)),
+                    }
+                )
+
+            if recent_events:
+                latest_step = recent_events[0].get("stepName")
+                if latest_step and latest_step not in ["ExecutionStarted", "ExecutionSucceeded"]:
+                    current_step = latest_step
+        except Exception as e:
+            print(f"Notice: SFN describe_execution in get_live_execution_stream: {e}")
+
+    # Milestone mapping definitions per workflow
+    provision_milestones = [
+        {
+            "id": "VALIDATE",
+            "name": "Validation & Registry",
+            "description": "Validate tenant parameters & initialize DynamoDB registry record",
+            "percent": 15,
+            "states": ["ProvisionMarkDynamoDB", "ValidateInput"],
+        },
+        {
+            "id": "DATABASE",
+            "name": "Postgres Isolation",
+            "description": "Create isolated database schema and credentials",
+            "percent": 35,
+            "states": ["ProvisionTenantResources", "ProvisionDatabase"],
+        },
+        {
+            "id": "STORAGE",
+            "name": "EFS Storage Allocation",
+            "description": "Provision dedicated EFS access point & POSIX permissions",
+            "percent": 55,
+            "states": ["MarkInfraAllocated", "ProvisionEFS"],
+        },
+        {
+            "id": "COMPUTE",
+            "name": "ECS Task Registration",
+            "description": "Register container task definition & update service routing",
+            "percent": 75,
+            "states": ["WaitForContainerHealthy", "RegisterEcsService"],
+        },
+        {
+            "id": "HEALTH_CHECK",
+            "name": "Health Probe & Ingress",
+            "description": "Execute synthetic health check probes & verify ALB ingress",
+            "percent": 90,
+            "states": ["CheckHealthStatus", "IsContainerHealthy", "MarkContainerHealthy"],
+        },
+        {
+            "id": "ACTIVE",
+            "name": "Operational Active",
+            "description": "Tenant fully provisioned, DNS active & available to users",
+            "percent": 100,
+            "states": ["ProvisionComplete", "ExecutionSucceeded"],
+        },
+    ]
+
+    if exec_status == "SUCCEEDED":
+        current_progress = 100
+        current_step = "Provision Complete & Ready"
+        current_desc = "Tenant is fully provisioned and healthy"
+        estimated_remaining = 0
+    elif exec_status in ["FAILED", "TIMED_OUT", "ABORTED"]:
+        current_step = f"Workflow {exec_status}"
+        current_desc = "Execution encountered an error or timed out during provisioning"
+        estimated_remaining = 0
+    else:
+        for m in reversed(provision_milestones):
+            if any(s.lower() in current_step.lower() for s in m["states"]) or current_step == m["name"]:
+                current_progress = max(current_progress, m["percent"])
+                current_desc = m["description"]
+                break
+        estimated_remaining = max(5, int((100 - current_progress) * 0.8))
+
+    milestones_response = []
+    for m in provision_milestones:
+        m_status = "pending"
+        if exec_status in ["FAILED", "TIMED_OUT", "ABORTED"] and current_progress <= m["percent"]:
+            if current_progress == m["percent"] or (m["percent"] - current_progress <= 15 and m_status != "completed"):
+                m_status = "error"
+            else:
+                m_status = "pending"
+        elif current_progress > m["percent"]:
+            m_status = "completed"
+        elif current_progress == m["percent"]:
+            m_status = "completed" if current_progress == 100 else "active"
+        else:
+            m_status = "pending"
+
+        milestones_response.append(
+            {
+                "id": m["id"],
+                "name": m["name"],
+                "description": m["description"],
+                "percent": m["percent"],
+                "status": m_status,
+            }
+        )
+
+    if not recent_events:
+        recent_events = [
+            {
+                "id": 1,
+                "type": "ExecutionStarted",
+                "stepName": "ExecutionStarted",
+                "timestamp": start_iso,
+            },
+            {
+                "id": 2,
+                "type": "TaskStateEntered",
+                "stepName": current_step,
+                "timestamp": now_iso,
+            },
+        ]
+
+    return {
+        "tenantId": tenant_id,
+        "executionArn": selected_arn or f"arn:aws:states:{REGION}:123456789012:execution:TenantProvisioning:{tenant_id or 'demo'}",
+        "workflowType": discovered_workflow,
+        "status": exec_status,
+        "progress": current_progress,
+        "currentStep": current_step,
+        "currentStepDescription": current_desc,
+        "elapsedSeconds": elapsed_seconds,
+        "estimatedRemainingSeconds": estimated_remaining,
+        "startDate": start_iso,
+        "stopDate": stop_iso,
+        "milestones": milestones_response,
+        "recentEvents": recent_events,
+        "liveStream": True,
+        "timestamp": now_iso,
+    }
+
+
+
 def clone_tenant_to_sandbox(
     source_tenant_id,
     target_tenant_id,
@@ -3445,6 +3702,42 @@ def _handle_request(event, context):
                 user_role = "SuperAdmin"
 
         if is_valid:
+            require_mfa = os.environ.get("REQUIRE_MFA", "true").lower() in ("true", "1", "yes")
+            if require_mfa:
+                mfa_otp = f"{secrets.randbelow(1000000):06d}"
+                challenge_token = create_challenge_token(
+                    username, user_role, otp_code=mfa_otp
+                )
+                try:
+                    send_mfa_email(username, mfa_otp)
+                except Exception as exc:
+                    print(f"MFA email send warning: {exc}")
+
+                record_audit_event(
+                    username,
+                    user_role,
+                    "LOGIN_CHALLENGE",
+                    "auth",
+                    "SUCCESS",
+                    {"mfa_type": "TOTP"},
+                    client_ip,
+                    user_agent,
+                )
+                return {
+                    "statusCode": 200,
+                    "headers": CORS_HEADERS,
+                    "body": json.dumps(
+                        {
+                            "status": "MFA_REQUIRED",
+                            "message": f"Multi-Factor Authentication code required for {username}.",
+                            "challenge_token": challenge_token,
+                            "mfa_type": "TOTP",
+                            "user": username,
+                            "role": user_role,
+                        }
+                    ),
+                }
+
             token = create_session_token(username, user_role)
             record_audit_event(
                 username,
@@ -4053,6 +4346,29 @@ def _handle_request(event, context):
             "headers": CORS_HEADERS,
             "body": json.dumps(obs_result),
         }
+
+    if action in [
+        "STREAM_SFN_PROGRESS",
+        "GET_LIVE_EXECUTION_PROGRESS",
+        "GET_EXECUTION_PROGRESS",
+    ]:
+        t_id = (
+            payload.get("tenant_id")
+            or payload.get("TenantId")
+            or query_params.get("tenant_id")
+        )
+        ex_arn = (
+            payload.get("execution_arn")
+            or payload.get("ExecutionArn")
+            or query_params.get("execution_arn")
+        )
+        stream_result = get_live_execution_stream(tenant_id=t_id, execution_arn=ex_arn)
+        return {
+            "statusCode": 200,
+            "headers": CORS_HEADERS,
+            "body": json.dumps(stream_result),
+        }
+
 
     tenant_id = (
         payload.get("tenant_id")

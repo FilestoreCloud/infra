@@ -507,6 +507,7 @@ Resources:
       ContainerDefinitions:
         - Name: nextcloud
           Image: !Ref ContainerImage
+          StopTimeout: 120
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
@@ -557,9 +558,15 @@ Resources:
             - Name: BEDROCK_DEFAULT_MODEL
               Value: "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
             - Name: OVERWRITEPROTOCOL
-              Value: "http"
+              Value: !If
+                - HasTlsCertificate
+                - "https"
+                - "http"
             - Name: OVERWRITECLIURL
-              Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
+              Value: !If
+                - HasTlsCertificate
+                - !Sub "https://${ApplicationLoadBalancer.DNSName}"
+                - !Sub "http://${ApplicationLoadBalancer.DNSName}"
             - Name: NC_maintenance_window_start
               Value: "2"
             - Name: NC_default_phone_region
