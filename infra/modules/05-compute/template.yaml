@@ -285,7 +285,7 @@ Resources:
           - !Ref VpcId
           - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
       Matcher:
-        HttpCode: "200-499"
+        HttpCode: "200-499,503"
       HealthCheckIntervalSeconds: 15
       HealthCheckPath: /status.php
       HealthCheckProtocol: HTTP
@@ -476,6 +476,9 @@ Resources:
                   - s3:PutObject
                   - s3:DeleteObject
                   - s3:ListBucket
+                  - s3:GetBucketLocation
+                  - s3:AbortMultipartUpload
+                  - s3:ListMultipartUploadParts
                 Resource:
                   - Fn::If:
                       - HasS3VaultBucketArn
@@ -656,7 +659,7 @@ Resources:
           HealthCheck:
             Command:
               - CMD-SHELL
-              - "curl -f http://localhost/status.php || exit 1"
+              - "curl -s http://localhost/status.php | grep -q 'installed' || exit 1"
             Interval: 30
             Timeout: 15
             Retries: 10

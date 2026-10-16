@@ -80,9 +80,7 @@ Resources:
           ToPort: 5432
           SourceSecurityGroupId: !Ref ECSSecurityGroup
       SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 1024
-          ToPort: 65535
+        - IpProtocol: -1
           DestinationSecurityGroupId: !Ref ECSSecurityGroup
           Description: Response traffic to ECS Fargate
       Tags:
@@ -107,9 +105,7 @@ Resources:
           SourceSecurityGroupId: !Ref ECSSecurityGroup
           Description: NFS traffic from ECS Fargate
       SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 1024
-          ToPort: 65535
+        - IpProtocol: -1
           DestinationSecurityGroupId: !Ref ECSSecurityGroup
           Description: NFS response traffic to ECS Fargate
       Tags:
