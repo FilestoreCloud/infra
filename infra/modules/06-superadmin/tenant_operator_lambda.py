@@ -159,11 +159,16 @@ def verify_totp_code(secret, code, window=1):
     """Verify 6-digit TOTP code with time drift window (default ±30s)."""
     if not secret or not code:
         return False
-    code = str(code).strip()
-    current_step = int(time.time() // 30)
-    for step in range(current_step - window, current_step + window + 1):
-        if hmac.compare_digest(generate_totp_code(secret, step), code):
-            return True
+    try:
+        code_str = str(code).strip()
+        if not code_str.isascii() or not code_str.isdigit():
+            return False
+        current_step = int(time.time() // 30)
+        for step in range(current_step - window, current_step + window + 1):
+            if hmac.compare_digest(generate_totp_code(secret, step), code_str):
+                return True
+    except Exception:
+        return False
     return False
 
 
