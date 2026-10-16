@@ -397,9 +397,9 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
             ],
             "networkConfiguration": {
                 "awsvpcConfiguration": {
-                    "subnets": infra["private_subnets"],
+                    "subnets": infra["public_subnets"],
                     "securityGroups": [infra["ecs_sg"]],
-                    "assignPublicIp": "DISABLED",
+                    "assignPublicIp": "ENABLED",
                 }
             },
         }

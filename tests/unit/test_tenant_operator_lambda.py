@@ -197,6 +197,80 @@ class TestTenantOperatorLambdaUnit(unittest.TestCase):
         self.assertEqual(res.get("tenant_id"), "tenant-unit-test")
         self.assertTrue(res.get("seeded"))
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # 7. Tenant Scaling & Auto-Scaling Lifecycle
+    # ──────────────────────────────────────────────────────────────────────────
+    def test_tenant_scaling_scale_to_zero_on_suspend(self):
+        """Verify SUSPEND action scales ECS desiredCount to 0, sets status to SUSPENDED, and emits 0.0 metric."""
+        token = tol.create_session_token("admin", "SuperAdmin", self.mock_signing_key)
+        event = {
+            "httpMethod": "POST",
+            "headers": {"authorization": f"Bearer {token}", "content-type": "application/json"},
+            "body": json.dumps({"action": "SUSPEND", "tenant_id": "tenant-scale-zero"}),
+        }
+        with patch.object(tol, "get_signing_key", return_value=self.mock_signing_key), \
+             patch.object(tol, "STATE_MACHINE_SUSPEND_ARN", ""), \
+             patch.object(tol.dynamodb, "update_item") as mock_dynamo, \
+             patch.object(tol.ecs, "update_service") as mock_ecs, \
+             patch.object(tol, "safe_put_metric_data") as mock_metric:
+
+            resp = tol.lambda_handler(event, None)
+            self.assertEqual(resp["statusCode"], 200)
+            body = json.loads(resp["body"])
+            self.assertEqual(body.get("status"), "SUSPENDED")
+            self.assertEqual(body.get("progress"), 100)
+            self.assertIn("Scale-to-Zero", body.get("current_step", ""))
+
+            # Verify ECS service desiredCount updated to 0 (scale-to-zero)
+            mock_ecs.assert_called_once()
+            _, ecs_kwargs = mock_ecs.call_args
+            self.assertEqual(ecs_kwargs.get("desiredCount"), 0)
+            self.assertEqual(ecs_kwargs.get("service"), "service-tenant-scale-zero")
+
+            # Verify DynamoDB updated
+            self.assertTrue(mock_dynamo.called)
+
+            # Verify CloudWatch metric emitted with 0.0
+            mock_metric.assert_called_once()
+            metric_args = mock_metric.call_args[1]
+            self.assertEqual(metric_args["MetricData"][0]["Value"], 0.0)
+            self.assertEqual(metric_args["MetricData"][0]["MetricName"], "TenantActiveStatus")
+
+    def test_tenant_scaling_scale_out_on_resume(self):
+        """Verify RESUME action scales ECS desiredCount to 1, sets status to ACTIVE, and emits 1.0 metric."""
+        token = tol.create_session_token("admin", "SuperAdmin", self.mock_signing_key)
+        event = {
+            "httpMethod": "POST",
+            "headers": {"authorization": f"Bearer {token}", "content-type": "application/json"},
+            "body": json.dumps({"action": "RESUME", "tenant_id": "tenant-scale-out"}),
+        }
+        with patch.object(tol, "get_signing_key", return_value=self.mock_signing_key), \
+             patch.object(tol, "STATE_MACHINE_RESUME_ARN", ""), \
+             patch.object(tol.dynamodb, "update_item") as mock_dynamo, \
+             patch.object(tol.ecs, "update_service") as mock_ecs, \
+             patch.object(tol, "safe_put_metric_data") as mock_metric:
+
+            resp = tol.lambda_handler(event, None)
+            self.assertEqual(resp["statusCode"], 200)
+            body = json.loads(resp["body"])
+            self.assertEqual(body.get("status"), "ACTIVE")
+            self.assertEqual(body.get("progress"), 100)
+
+            # Verify ECS service desiredCount updated to 1 (scale-out)
+            mock_ecs.assert_called_once()
+            _, ecs_kwargs = mock_ecs.call_args
+            self.assertEqual(ecs_kwargs.get("desiredCount"), 1)
+            self.assertEqual(ecs_kwargs.get("service"), "service-tenant-scale-out")
+
+            # Verify DynamoDB updated
+            self.assertTrue(mock_dynamo.called)
+
+            # Verify CloudWatch metric emitted with 1.0
+            mock_metric.assert_called_once()
+            metric_args = mock_metric.call_args[1]
+            self.assertEqual(metric_args["MetricData"][0]["Value"], 1.0)
+            self.assertEqual(metric_args["MetricData"][0]["MetricName"], "TenantActiveStatus")
+
 
 if __name__ == "__main__":
     unittest.main()

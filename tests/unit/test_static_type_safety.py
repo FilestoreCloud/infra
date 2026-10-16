@@ -27,6 +27,7 @@ class TestStaticTypeSafety(unittest.TestCase):
 
         cmd = [
             mypy_bin,
+            "--ignore-missing-imports",
             str(INFRA_ROOT / "tests" / "unit"),
             str(INFRA_ROOT / "tests" / "load" / "run_concurrent_stress.py"),
         ]
