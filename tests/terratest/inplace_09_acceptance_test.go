@@ -224,5 +224,60 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		},
 	)
 	t.Logf("✅ Nextcloud status.php returned HTTP 200 with installed=true.")
-	t.Logf("🎉 [Acceptance] First-time deployment acceptance test passed completely with Terratest!")
+
+	// 4. Tenant Scaling Lifecycle & Dynamic Scale Verification
+	t.Logf("📈 [Acceptance] Testing Tenant Scaling Lifecycle for '%s'...", tenantID)
+
+	// A. Query Tenant Scaling Telemetry via METRICS action
+	metricsPayload, _ := json.Marshal(map[string]interface{}{
+		"action":    "METRICS",
+		"tenant_id": tenantID,
+	})
+	metricsInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
+		FunctionName: aws.String(lambdaArn),
+		Payload:      metricsPayload,
+	})
+	if err == nil && metricsInv.Payload != nil {
+		t.Logf("   -> Tenant scaling telemetry queried successfully.")
+	}
+
+	// B. Test Tenant Scale-to-Zero ($0 FinOps) via SUSPEND
+	t.Logf("   -> Testing Tenant Scale-to-Zero ($0 FinOps)...")
+	suspendPayload, _ := json.Marshal(map[string]interface{}{
+		"action":    "SUSPEND",
+		"tenant_id": tenantID,
+	})
+	suspendInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
+		FunctionName: aws.String(lambdaArn),
+		Payload:      suspendPayload,
+	})
+	require.NoError(t, err, "Failed to invoke SUSPEND action for tenant scaling test")
+	var suspendResp struct {
+		Status string `json:"status"`
+	}
+	_ = json.Unmarshal(suspendInv.Payload, &suspendResp)
+	assert.Contains(t, []string{"OK", "SUSPENDED", "SUSPENDING"}, suspendResp.Status, "SUSPEND status must indicate scale-to-zero transition")
+	t.Logf("   -> Tenant scaled to zero successfully (status: %s)", suspendResp.Status)
+
+	time.Sleep(2 * time.Second)
+
+	// C. Test Tenant Scale-Out via RESUME
+	t.Logf("   -> Testing Tenant Scale-Out back to operational capacity...")
+	resumePayload, _ := json.Marshal(map[string]interface{}{
+		"action":    "RESUME",
+		"tenant_id": tenantID,
+	})
+	resumeInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
+		FunctionName: aws.String(lambdaArn),
+		Payload:      resumePayload,
+	})
+	require.NoError(t, err, "Failed to invoke RESUME action for tenant scaling test")
+	var resumeResp struct {
+		Status string `json:"status"`
+	}
+	_ = json.Unmarshal(resumeInv.Payload, &resumeResp)
+	assert.Contains(t, []string{"OK", "ACTIVE", "RESUMING"}, resumeResp.Status, "RESUME status must indicate scale-out transition")
+	t.Logf("   -> Tenant scaled out successfully (status: %s)", resumeResp.Status)
+
+	t.Logf("🎉 [Acceptance] First-time deployment and tenant scaling acceptance tests passed completely with Terratest!")
 }

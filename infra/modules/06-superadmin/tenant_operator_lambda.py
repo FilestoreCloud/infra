@@ -1665,9 +1665,9 @@ def _handle_request(event, context):
                     ],
                     "networkConfiguration": {
                         "awsvpcConfiguration": {
-                            "subnets": infra["private_subnets"],
+                            "subnets": infra["public_subnets"],
                             "securityGroups": [infra["ecs_sg"]],
-                            "assignPublicIp": "DISABLED",
+                            "assignPublicIp": "ENABLED",
                         }
                     },
                 }

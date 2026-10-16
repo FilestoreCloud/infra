@@ -285,7 +285,7 @@ def get_tenant_detail(tenant_id):
         "s3_vault_prefix": f"s3://{vault_bucket}/tenants/{tenant_id}/",
         "secrets_manager_path": f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials",
         "vpc_id": infra.get("vpc_id", "vpc-030257f65c0893745"),
-        "subnets": infra.get("private_subnets", ["subnet-08096079734609710"]),
+        "subnets": infra.get("public_subnets", ["subnet-08096079734609710"]),
         "security_group_id": infra.get("ecs_sg", "sg-020acf11e92c99ca4"),
     }
 
