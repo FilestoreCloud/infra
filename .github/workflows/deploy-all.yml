@@ -322,7 +322,7 @@ jobs:
           audience: sts.amazonaws.com
 
       - name: Deploy Static Assets to S3 & Invalidate CloudFront Cache
-        uses: raulanatol/aws-s3-js-action@v1
+        uses: raulanatol/aws-s3-js-action@v1.0.0
         with:
           AWS_REGION: ${{ vars.AWS_REGION }}
           AWS_BUCKET_NAME: ${{ needs.deploy-superadmin.outputs.admin_web_bucket }}
