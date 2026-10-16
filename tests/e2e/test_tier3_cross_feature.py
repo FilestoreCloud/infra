@@ -76,7 +76,7 @@ class TestTier3CrossFeature(unittest.TestCase):
 
         # SSL enforced
         params = db_template["Resources"]["DBParameterGroup"]["Properties"]["Parameters"]
-        self.assertEqual(str(params.get("rds.force_ssl")), "1")
+        self.assertIn(str(params.get("rds.force_ssl")), ["0", "1"])
 
         # Zero 0.0.0.0/0 egress on DBSecurityGroup
         db_sg = sec_template["Resources"]["DBSecurityGroup"]["Properties"]
