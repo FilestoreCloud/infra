@@ -6,16 +6,28 @@ import datetime
 import json
 import os
 import secrets
-import sys
 import time
 import urllib.parse
 
 from operator_core.common import (
-    REGION, CLUSTER_NAME, ENVIRONMENT_NAME, TABLE_NAME, SFN_LOG_GROUP,
-    STATE_MACHINE_PROVISION_ARN, STATE_MACHINE_SUSPEND_ARN, STATE_MACHINE_RESUME_ARN,
-    STATE_MACHINE_DEPROVISION_ARN, STATE_MACHINE_SEED_ARN, STATE_MACHINE_DEMO_ARN,
-    STATE_MACHINE_FLEET_UPGRADE_ARN, dynamodb, logs, sfn, xray, cloudwatch,
-    get_infra_config, safe_put_metric_data,
+    CLUSTER_NAME,
+    ENVIRONMENT_NAME,
+    REGION,
+    SFN_LOG_GROUP,
+    STATE_MACHINE_DEMO_ARN,
+    STATE_MACHINE_DEPROVISION_ARN,
+    STATE_MACHINE_FLEET_UPGRADE_ARN,
+    STATE_MACHINE_PROVISION_ARN,
+    STATE_MACHINE_RESUME_ARN,
+    STATE_MACHINE_SEED_ARN,
+    STATE_MACHINE_SUSPEND_ARN,
+    TABLE_NAME,
+    cloudwatch,
+    dynamodb,
+    get_infra_config,
+    logs,
+    sfn,
+    xray,
 )
 
 

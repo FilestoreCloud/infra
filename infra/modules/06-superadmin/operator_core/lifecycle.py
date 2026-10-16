@@ -1,19 +1,24 @@
 """
 Tenant Lifecycle Provisioning, Deprovisioning, Sagas, and Task Handlers for Storix Control Plane.
 """
-import os
-import sys
-import time
 import json
-import urllib.request
-import urllib.error
+import time
 from botocore.exceptions import ClientError
 
 from operator_core.common import (
-    REGION, ENVIRONMENT_NAME, TABLE_NAME, efs, ecs, elbv2, dynamodb, get_infra_config,
+    CLUSTER_NAME,
+    ENVIRONMENT_NAME,
+    REGION,
+    TABLE_NAME,
+    dynamodb,
+    ecs,
+    efs,
+    elbv2,
+    get_infra_config,
+    unmarshal_ddb_item,
 )
-from operator_core.webhooks import dispatch_webhook_notification
 from operator_core.tenants import get_all_tenants, get_tenant_accounts_data
+from operator_core.webhooks import dispatch_webhook_notification
 
 
 def ensure_tenant_efs_access_point(tenant_id, efs_id):

@@ -57,11 +57,35 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: Whether to provision AWS RDS Proxy for connection pooling and PostgreSQL connection offloading
 
+  EnableRedis:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Whether to provision AWS ElastiCache Redis for distributed caching and transactional file locking
+
+  RedisNodeType:
+    Type: String
+    Default: cache.t4g.micro
+    Description: Cache node type for ElastiCache Redis cluster
+
+  VpcId:
+    Type: String
+    Default: ""
+    Description: VPC ID (leave blank to import from Module 01)
+
+  ECSSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: ECS Security Group ID for Redis access (leave blank to import from Module 02)
+
 Conditions:
   HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
   HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
   HasDBSecurityGroupId: !Not [!Equals [!Ref DBSecurityGroupId, ""]]
+  HasVpcId: !Not [!Equals [!Ref VpcId, ""]]
+  HasECSSecurityGroupId: !Not [!Equals [!Ref ECSSecurityGroupId, ""]]
   ShouldEnableRDSProxy: !Equals [!Ref EnableRDSProxy, "true"]
+  ShouldEnableRedis: !Equals [!Ref EnableRedis, "true"]
 
 Resources:
   DBSubnetGroup:
@@ -224,6 +248,91 @@ Resources:
         MaxIdleConnectionsPercent: 50
         ConnectionBorrowTimeout: 120
 
+  # ── ElastiCache Redis Cluster (Distributed Caching & Transactional Locking) ─
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: ShouldEnableRedis
+    Properties:
+      GroupDescription: Security group for Nextcloud ElastiCache Redis
+      VpcId:
+        Fn::If:
+          - HasVpcId
+          - !Ref VpcId
+          - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId:
+            Fn::If:
+              - HasECSSecurityGroupId
+              - !Ref ECSSecurityGroupId
+              - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSSecurityGroupId"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-redis-sg"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Condition: ShouldEnableRedis
+    Properties:
+      Description: Subnet group for Nextcloud Redis
+      SubnetIds:
+        - Fn::If:
+            - HasPrivateSubnet1Id
+            - !Ref PrivateSubnet1Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
+        - Fn::If:
+            - HasPrivateSubnet2Id
+            - !Ref PrivateSubnet2Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  RedisCluster:
+    Type: AWS::ElastiCache::CacheCluster
+    Condition: ShouldEnableRedis
+    Properties:
+      ClusterName: !Sub "${EnvironmentName}-nc-redis"
+      Engine: redis
+      EngineVersion: "7.1"
+      CacheNodeType: !Ref RedisNodeType
+      NumCacheNodes: 1
+      Port: 6379
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref RedisSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-redis-cluster"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  SSMRedisEndpoint:
+    Type: AWS::SSM::Parameter
+    Condition: ShouldEnableRedis
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/redis-endpoint"
+      Type: String
+      Value: !GetAtt RedisCluster.RedisEndpoint.Address
+      Description: ElastiCache Redis Cluster Endpoint Address
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  SSMRedisPort:
+    Type: AWS::SSM::Parameter
+    Condition: ShouldEnableRedis
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/redis-port"
+      Type: String
+      Value: !GetAtt RedisCluster.RedisEndpoint.Port
+      Description: ElastiCache Redis Port
+      Tags:
+        Environment: !Ref EnvironmentName
+
   # SSM Parameter Store exports
   SSMDBEndpoint:
     Type: AWS::SSM::Parameter
@@ -271,3 +380,18 @@ Outputs:
     Value: !Ref RDSInstance
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-RDSInstanceIdentifier"
+
+  RedisEndpoint:
+    Description: ElastiCache Redis Cluster Endpoint Address
+    Condition: ShouldEnableRedis
+    Value: !GetAtt RedisCluster.RedisEndpoint.Address
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-RedisEndpoint"
+
+  RedisPort:
+    Description: ElastiCache Redis Port
+    Condition: ShouldEnableRedis
+    Value: !GetAtt RedisCluster.RedisEndpoint.Port
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-RedisPort"
+

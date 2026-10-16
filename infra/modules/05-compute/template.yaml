@@ -130,8 +130,21 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: "Whether to create the ECR repository (set to false if repository already exists)"
 
+  EnableCloudFrontCDN:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "Whether to provision AWS CloudFront Edge CDN for static asset caching and DDoS offloading"
+
+  RedisEndpoint:
+    Type: String
+    Default: ""
+    Description: "ElastiCache Redis endpoint address for distributed caching and locking (leave blank if disabled)"
+
 Conditions:
   ShouldCreateECR: !Equals [!Ref CreateECRRepository, "true"]
+  ShouldEnableCloudFrontCDN: !Equals [!Ref EnableCloudFrontCDN, "true"]
+  HasRedisEndpoint: !Not [!Equals [!Ref RedisEndpoint, ""]]
   HasEFS: !Not [!Equals [!Ref EFSFileSystemId, ""]]
   HasDefaultEFSAccessPointId: !Not [!Equals [!Ref DefaultEFSAccessPointId, ""]]
   HasVpcId: !Not [!Equals [!Ref VpcId, ""]]
@@ -573,6 +586,14 @@ Resources:
               Value: "VN"
             - Name: NC_setup_create_db_user
               Value: "false"
+            - Name: REDIS_HOST
+              Value:
+                Fn::If:
+                  - HasRedisEndpoint
+                  - !Ref RedisEndpoint
+                  - ""
+            - Name: REDIS_PORT
+              Value: "6379"
           Secrets:
             - Name: POSTGRES_PASSWORD
               ValueFrom:
@@ -715,6 +736,108 @@ Resources:
       Type: String
       Value: "anthropic.claude-3-5-sonnet-20241022-v2:0"
       Description: AWS Bedrock Default Model for Nextcloud Assistant
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  # ── CloudFront CDN (Edge Caching for Static Assets & DDoS Shield) ───────────
+  CloudFrontCDN:
+    Type: AWS::CloudFront::Distribution
+    Condition: ShouldEnableCloudFrontCDN
+    Properties:
+      DistributionConfig:
+        Comment: !Sub "Nextcloud Edge CDN (${EnvironmentName})"
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Origins:
+          - Id: NextcloudALBOrigin
+            DomainName: !GetAtt ApplicationLoadBalancer.DNSName
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: !If [HasTlsCertificate, https-only, http-only]
+              OriginSSLProtocols:
+                - TLSv1.2
+        DefaultCacheBehavior:
+          TargetOriginId: NextcloudALBOrigin
+          ViewerProtocolPolicy: !If [HasTlsCertificate, redirect-to-https, allow-all]
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - POST
+            - PATCH
+            - DELETE
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
+          OriginRequestPolicyId: "b680b3d8-70b0-4474-a846-e16e6e837866"
+        CacheBehaviors:
+          - PathPattern: "/core/*"
+            TargetOriginId: NextcloudALBOrigin
+            ViewerProtocolPolicy: !If [HasTlsCertificate, redirect-to-https, allow-all]
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          - PathPattern: "/apps/*"
+            TargetOriginId: NextcloudALBOrigin
+            ViewerProtocolPolicy: !If [HasTlsCertificate, redirect-to-https, allow-all]
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          - PathPattern: "/dist/*"
+            TargetOriginId: NextcloudALBOrigin
+            ViewerProtocolPolicy: !If [HasTlsCertificate, redirect-to-https, allow-all]
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+          - PathPattern: "/custom_apps/*"
+            TargetOriginId: NextcloudALBOrigin
+            ViewerProtocolPolicy: !If [HasTlsCertificate, redirect-to-https, allow-all]
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            Compress: true
+            CachePolicyId: "658327ea-f89d-4fab-a63d-7e88639e58f6"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Application
+          Value: Nextcloud-SaaS
+
+  SSMCloudFrontDomain:
+    Type: AWS::SSM::Parameter
+    Condition: ShouldEnableCloudFrontCDN
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/cloudfront-domain"
+      Type: String
+      Value: !GetAtt CloudFrontCDN.DomainName
+      Description: CloudFront CDN Domain Name
       Tags:
         Environment: !Ref EnvironmentName
 
@@ -891,3 +1014,11 @@ Outputs:
     Value: !Ref AdminSecret
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-AdminSecretArn"
+
+  CloudFrontDomainName:
+    Condition: ShouldEnableCloudFrontCDN
+    Description: CloudFront CDN Distribution Domain Name
+    Value: !GetAtt CloudFrontCDN.DomainName
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-CloudFrontDomainName"
+
