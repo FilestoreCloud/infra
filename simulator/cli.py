@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import json
 from pathlib import Path
 from typing import Optional
 
@@ -12,7 +11,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .engine import SimulatorEngine, hash_password, generate_totp_secret
+from .engine import SimulatorEngine
 from .file_generator import generate_all_sample_files
 
 app = typer.Typer(help="Storix Real-Time State & Data Simulator CLI")

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel
 
 
 class TenantUserModel(BaseModel):

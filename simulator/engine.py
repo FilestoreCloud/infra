@@ -6,12 +6,11 @@ import base64
 import csv
 import datetime
 import hashlib
-import hmac
 import math
 import random
 import secrets
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from mimesis import Generic
@@ -240,7 +239,7 @@ class SimulatorEngine:
             )
 
         # Sort logs chronologically
-        logs.sort(key=lambda l: l.timestamp)
+        logs.sort(key=lambda log_item: log_item.timestamp)
         return logs
 
     def build_full_simulation(

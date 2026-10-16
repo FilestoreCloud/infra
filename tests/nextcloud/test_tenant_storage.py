@@ -1,10 +1,11 @@
-import os
-import json
 import base64
-import urllib.request
+import json
+import os
+import ssl
 import urllib.error
-import pytest
+import urllib.request
 import boto3
+import pytest
 
 AWS_REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 AWS_PROFILE = os.environ.get("AWS_PROFILE")
@@ -46,8 +47,6 @@ def get_tenant_credentials(tenant_id: str):
 
     return username, password
 
-
-import ssl
 
 ssl_ctx = ssl.create_default_context()
 ssl_ctx.check_hostname = False
