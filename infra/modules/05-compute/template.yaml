@@ -951,6 +951,13 @@ Outputs:
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-LoadBalancerDNS"
 
+  LoadBalancerDNSName:
+    Description: ALB DNS Name (Alias)
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-LoadBalancerDNSName"
+
+
   LoadBalancerFullName:
     Description: Full Name of the Load Balancer
     Value: !GetAtt ApplicationLoadBalancer.LoadBalancerFullName

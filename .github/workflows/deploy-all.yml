@@ -302,6 +302,17 @@ jobs:
               sys.exit(1)
           "
 
+      - name: Package Tenant Operator Lambda Bundle
+        run: |
+          python3 scripts/package_lambda.py
+
+      - name: Upload Lambda Package to S3
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
+        run: |
+          aws s3 cp build/tenant_operator_lambda.zip "s3://${BUCKET}/cfn-templates/tenant_operator_lambda.zip"
+
       - name: Deploy 06-SuperAdmin Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
@@ -309,9 +320,20 @@ jobs:
           template: infra/modules/06-superadmin/template.yaml
           s3-bucket: ${{ steps.resolve-bucket.outputs.bucket }}
           s3-prefix: cfn-templates
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},LambdaCodeBucket=${{ steps.resolve-bucket.outputs.bucket }},LambdaCodeKey=cfn-templates/tenant_operator_lambda.zip"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Update Lambda Function Code Directly
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+          BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
+        run: |
+          aws lambda update-function-code \
+            --function-name "${ENV}-nextcloud-tenant-operator" \
+            --s3-bucket "${BUCKET}" \
+            --s3-key "cfn-templates/tenant_operator_lambda.zip" || true
 
       - name: Seed SuperAdmin User & Initial Tenant (AWS Python SDK)
         env:
@@ -343,17 +365,23 @@ jobs:
               print(f'DynamoDB SuperAdmin credentials seeded successfully.')
 
           if tenant_id:
-              tenant_tbl = ddb.Table(f'{env_name}-nextcloud-tenants')
+              tenant_tbl = ddb.Table(f'{env_name}-nextcloud-tenant-registry')
               tenant_tbl.put_item(Item={
                   'tenant_id': tenant_id,
                   'status': 'ACTIVE',
                   'tier': 'ENTERPRISE',
-                  'storage_quota_gb': 100,
+                  'progress': 100,
+                  'current_step': 'Ready & Operational',
                   'created_at': int(time.time()),
-                  'updated_at': int(time.time())
+                  'updated_at': int(time.time()),
+                  'domain': f'{tenant_id}.png261.dev',
+                  'admin_email': f'admin@{tenant_id}.com',
+                  'quota_gb': 100,
+                  'storage_quota_gb': 100
               })
               print(f'DynamoDB Tenant record seeded: {tenant_id}')
           "
+
 
   deploy-observability:
     name: 2g. Infra — 07-Observability
@@ -550,14 +578,24 @@ jobs:
           import os, sys, boto3
           region = os.environ['AWS_REGION']
           env_name = os.environ['ENV']
-          cfn = boto3.client('cloudformation', region_name=region)
           ssm = boto3.client('ssm', region_name=region)
+          cfn = boto3.client('cloudformation', region_name=region)
 
           try:
-              compute_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-05-compute')['Stacks'][0]
-              alb_dns = [o['OutputValue'] for o in compute_stack['Outputs'] if o['OutputKey'] == 'LoadBalancerDNSName'][0]
-              superadmin_url = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-url')['Parameter']['Value']
+              try:
+                  alb_dns = ssm.get_parameter(Name=f'/nextcloud/{env_name}/infra/alb-dns')['Parameter']['Value']
+              except Exception:
+                  compute_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-05-compute')['Stacks'][0]
+                  alb_dns = [o['OutputValue'] for o in compute_stack['Outputs'] if o['OutputKey'] in ('LoadBalancerDNS', 'LoadBalancerDNSName')][0]
 
+              try:
+                  superadmin_url = ssm.get_parameter(Name=f'/nextcloud/{env_name}/control-plane/admin-web-url')['Parameter']['Value']
+              except Exception:
+                  sa_stack = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-06-superadmin')['Stacks'][0]
+                  superadmin_url = [o['OutputValue'] for o in sa_stack['Outputs'] if o['OutputKey'] == 'AdminWebURL'][0]
+
+              print(f'Resolved ALB URL: http://{alb_dns}')
+              print(f'Resolved SuperAdmin URL: {superadmin_url}')
               with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
                   f.write(f'alb_url=http://{alb_dns}\n')
                   f.write(f'superadmin_url={superadmin_url}\n')
@@ -569,9 +607,12 @@ jobs:
       - name: Run Playwright Nextcloud & SuperAdmin E2E Suite
         if: ${{ inputs.run_acceptance_tests }}
         env:
+          TENANT_URL: ${{ steps.resolve-endpoints.outputs.alb_url }}
           TARGET_URL: ${{ steps.resolve-endpoints.outputs.alb_url }}
           CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
           SUPERADMIN_CONSOLE_URL: ${{ steps.resolve-endpoints.outputs.superadmin_url }}
+          NEXTCLOUD_USER: ${{ vars.NEXTCLOUD_USER }}
+          NEXTCLOUD_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
           SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
@@ -579,7 +620,8 @@ jobs:
           SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
         working-directory: tests/nextcloud/e2e
         run: |
-          npx playwright test tests/nextcloud/e2e/specs/
+          npx playwright test specs/
+
 
       - name: Upload Playwright Test Report
         if: ${{ always() && inputs.run_acceptance_tests }}
