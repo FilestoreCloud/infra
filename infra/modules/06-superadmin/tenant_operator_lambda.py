@@ -9,6 +9,7 @@ import struct
 import sys
 import time
 import uuid
+from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
@@ -100,7 +101,7 @@ CORS_HEADERS = {
     "Content-Type": "application/json",
 }
 
-_CACHED_INFRA = {}
+_CACHED_INFRA: dict[str, Any] = {}
 _CACHED_MASTER_KEY = None
 _CACHED_MASTER_KEY_TIME = 0
 _CACHED_SM_ADMIN = None
@@ -159,11 +160,16 @@ def verify_totp_code(secret, code, window=1):
     """Verify 6-digit TOTP code with time drift window (default ±30s)."""
     if not secret or not code:
         return False
-    code = str(code).strip()
-    current_step = int(time.time() // 30)
-    for step in range(current_step - window, current_step + window + 1):
-        if hmac.compare_digest(generate_totp_code(secret, step), code):
-            return True
+    try:
+        code_str = str(code).strip()
+        if not code_str.isascii() or not code_str.isdigit():
+            return False
+        current_step = int(time.time() // 30)
+        for step in range(current_step - window, current_step + window + 1):
+            if hmac.compare_digest(generate_totp_code(secret, step), code_str):
+                return True
+    except Exception:
+        return False
     return False
 
 
@@ -200,7 +206,7 @@ def verify_password(password, stored_hash):
 
 
 # Enterprise Bootstrap User Directory (Zero hardcoded credentials - Dynamic authentication via Cognito/DynamoDB)
-BOOTSTRAP_USERS = {}
+BOOTSTRAP_USERS: dict[str, Any] = {}
 
 
 def get_user_account(username):

@@ -2,6 +2,7 @@
 Shared AWS clients, environment configurations, and DynamoDB unmarshaling utilities.
 """
 import os
+from typing import Any
 import boto3
 
 REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
@@ -52,7 +53,7 @@ CORS_HEADERS = {
     "Content-Type": "application/json",
 }
 
-_CACHED_INFRA = {}
+_CACHED_INFRA: dict[str, Any] = {}
 
 
 def safe_put_metric_data(Namespace, MetricData):
