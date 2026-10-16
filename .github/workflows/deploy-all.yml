@@ -247,7 +247,7 @@ jobs:
         with:
           name: ${{ inputs.environment }}-nextcloud-06-superadmin
           template: infra/modules/06-superadmin/template.yaml
-          s3-bucket: ${{ inputs.environment }}-nextcloud-vault-${{ steps.aws-creds.outputs.aws-account-id }}
+          s3-bucket: ${{ inputs.environment }}-nextcloud-vault-${{ steps.aws-creds.outputs.aws-account-id }}-${{ vars.AWS_REGION }}
           s3-prefix: cfn-templates
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
           fail-on-empty-changeset: "0"
