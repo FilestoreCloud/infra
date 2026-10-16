@@ -306,12 +306,17 @@ jobs:
         run: |
           python3 scripts/package_lambda.py
 
-      - name: Upload Lambda Package to S3
+      - name: Upload Lambda Package to S3 (AWS Python SDK)
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
         run: |
-          aws s3 cp build/tenant_operator_lambda.zip "s3://${BUCKET}/cfn-templates/tenant_operator_lambda.zip"
+          python3 -c "
+          import os, boto3
+          s3 = boto3.client('s3', region_name=os.environ['AWS_REGION'])
+          s3.upload_file('build/tenant_operator_lambda.zip', os.environ['BUCKET'], 'cfn-templates/tenant_operator_lambda.zip')
+          print('Uploaded Lambda zip to S3 via boto3.')
+          "
 
       - name: Deploy 06-SuperAdmin Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -324,16 +329,25 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
-      - name: Update Lambda Function Code Directly
+      - name: Update Lambda Function Code Directly (AWS Python SDK)
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
           ENV: ${{ inputs.environment }}
           BUCKET: ${{ steps.resolve-bucket.outputs.bucket }}
         run: |
-          aws lambda update-function-code \
-            --function-name "${ENV}-nextcloud-tenant-operator" \
-            --s3-bucket "${BUCKET}" \
-            --s3-key "cfn-templates/tenant_operator_lambda.zip" || true
+          python3 -c "
+          import os, boto3
+          region = os.environ['AWS_REGION']
+          fn = f\"{os.environ['ENV']}-nextcloud-tenant-operator\"
+          bucket = os.environ['BUCKET']
+          client = boto3.client('lambda', region_name=region)
+          try:
+              client.update_function_code(FunctionName=fn, S3Bucket=bucket, S3Key='cfn-templates/tenant_operator_lambda.zip')
+              print('Lambda function code updated via boto3.')
+          except Exception as e:
+              print(f'Lambda function code update notice: {e}')
+          "
+
 
       - name: Seed SuperAdmin User & Initial Tenant (AWS Python SDK)
         env:

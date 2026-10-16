@@ -54,49 +54,11 @@ jobs:
           echo "Connected to AWS Account ID: ${{ steps.aws-creds.outputs.aws-account-id }}"
 
       # ── PHASE 1: PRE-TEARDOWN DYNAMIC & PERSISTENT CLEANUP ───────────────────────
-      - name: Pre-Destruction — Stop ECS Services & Purge Dynamic Resources
+      - name: Pre-Destruction — Stop ECS Services & Purge Dynamic Resources (AWS Python SDK)
         continue-on-error: true
         run: |
-          ENV="${{ inputs.environment }}"
-          REGION="${{ vars.AWS_REGION }}"
-          echo "=== PHASE 1: Purging dynamic resources created outside CloudFormation ==="
+          python3 scripts/teardown_cleaner.py --phase pre-destruction --env "${{ inputs.environment }}" --region "${{ vars.AWS_REGION }}"
 
-          # 1. Scale down ECS Services to 0 tasks to release DB and EFS locks
-          CLUSTER_NAME="${ENV}-nextcloud-cluster"
-          if aws ecs describe-clusters --clusters "$CLUSTER_NAME" --region "$REGION" --query "clusters[?status=='ACTIVE'].clusterName" --output text | grep -q "$CLUSTER_NAME"; then
-            echo "Scaling down all ECS services in cluster $CLUSTER_NAME..."
-            SERVICES=$(aws ecs list-services --cluster "$CLUSTER_NAME" --region "$REGION" --query "serviceArns[]" --output text)
-            for svc in $SERVICES; do
-              echo "Scaling service to 0: $svc"
-              aws ecs update-service --cluster "$CLUSTER_NAME" --service "$svc" --desired-count 0 --region "$REGION" || true
-            done
-          fi
-
-          # 2. Delete dynamic EFS Access Points (prevents EFS deletion block)
-          echo "Scanning for dynamic EFS Access Points..."
-          EFS_IDS=$(aws efs describe-file-systems --region "$REGION" --query "FileSystems[?contains(Name, '${ENV}-nextcloud')].FileSystemId" --output text)
-          for fs_id in $EFS_IDS; do
-            AP_IDS=$(aws efs describe-access-points --file-system-id "$fs_id" --region "$REGION" --query "AccessPoints[].AccessPointId" --output text)
-            for ap_id in $AP_IDS; do
-              echo "Deleting dynamic EFS Access Point: $ap_id (FileSystem: $fs_id)"
-              aws efs delete-access-point --access-point-id "$ap_id" --region "$REGION" || true
-            done
-          done
-
-          # 3. Delete dynamic ALB Target Groups created by Lambda Control Plane
-          echo "Scanning for dynamic ALB Target Groups..."
-          TG_ARNS=$(aws elbv2 describe-target-groups --region "$REGION" --query "TargetGroups[?contains(TargetGroupName, 'tg-') || contains(TargetGroupName, '${ENV}-')].TargetGroupArn" --output text)
-          for tg in $TG_ARNS; do
-            echo "Deleting target group: $tg"
-            aws elbv2 delete-target-group --target-group-arn "$tg" --region "$REGION" || true
-          done
-
-          # 4. Force empty and delete ECR repository images
-          ECR_REPO="${ENV}-nextcloud-enterprise"
-          if aws ecr describe-repositories --repository-names "$ECR_REPO" --region "$REGION" >/dev/null 2>&1; then
-            echo "Purging all container images from ECR $ECR_REPO..."
-            aws ecr delete-repository --repository-name "$ECR_REPO" --force --region "$REGION" || true
-          fi
 
       # ── PHASE 2: CLOUDFORMATION STACKS DESTRUCTION (REVERSE ORDER) ──────────────
       - name: Destroy Nested Root (if deployed)
@@ -156,92 +118,13 @@ jobs:
           region: ${{ vars.AWS_REGION }}
 
       # ── PHASE 3: POST-TEARDOWN LINGERING DATA PURGE (ZERO COST ASSURANCE) ───────
-      - name: Post-Destruction — Purge Snapshots, S3 Buckets, Secrets & Log Groups
+      - name: Post-Destruction — Purge Snapshots, S3 Buckets, Secrets & Log Groups (AWS Python SDK)
         continue-on-error: true
         run: |
-          ENV="${{ inputs.environment }}"
-          REGION="${{ vars.AWS_REGION }}"
-          echo "=== PHASE 3: Purging lingering data, manual snapshots, and billable logs ==="
-
-          # 1. Purge RDS Manual Final Snapshots (created by DeletionPolicy: Snapshot)
-          echo "Scanning for lingering RDS snapshots..."
-          SNAPSHOTS=$(aws rds describe-db-snapshots --snapshot-type manual --region "$REGION" --query "DBSnapshots[?contains(DBSnapshotIdentifier, '${ENV}-nextcloud') || contains(DBInstanceIdentifier, '${ENV}-nextcloud')].DBSnapshotIdentifier" --output text)
-          for snap in $SNAPSHOTS; do
-            echo "Deleting RDS manual snapshot: $snap"
-            aws rds delete-db-snapshot --db-snapshot-identifier "$snap" --region "$REGION" || true
-          done
-
-          # 2. Force delete any remaining versioned S3 buckets matching environment prefix
-          echo "Scanning for remaining S3 buckets..."
-          BUCKETS=$(aws s3api list-buckets --query "Buckets[?contains(Name, '${ENV}-nextcloud')].Name" --output text)
-          for b in $BUCKETS; do
-            echo "Force emptying and purging S3 bucket: $b"
-            # Remove all objects
-            aws s3 rm "s3://$b" --recursive --region "$REGION" || true
-            # Remove versions and delete markers if versioning was enabled
-            VERSIONS=$(aws s3api list-object-versions --bucket "$b" --region "$REGION" --output json 2>/dev/null || echo "{}")
-            echo "$VERSIONS" | jq -r '.Versions[]? | "\(.Key)\t\(.VersionId)"' | while IFS=$'\t' read -r k v; do
-              [ -n "$k" ] && aws s3api delete-object --bucket "$b" --key "$k" --version-id "$v" --region "$REGION" || true
-            done
-            echo "$VERSIONS" | jq -r '.DeleteMarkers[]? | "\(.Key)\t\(.VersionId)"' | while IFS=$'\t' read -r k v; do
-              [ -n "$k" ] && aws s3api delete-object --bucket "$b" --key "$k" --version-id "$v" --region "$REGION" || true
-            done
-            aws s3api delete-bucket --bucket "$b" --region "$REGION" || true
-          done
-
-          # 3. Force delete lingering Secrets Manager secrets (immediate purge, bypass 30-day recovery)
-          echo "Scanning for Secrets Manager secrets..."
-          SECRETS=$(aws secretsmanager list-secrets --region "$REGION" --query "SecretList[?contains(Name, 'nextcloud/${ENV}') || contains(Name, '${ENV}-nextcloud')].Name" --output text)
-          for s in $SECRETS; do
-            echo "Force deleting secret: $s"
-            aws secretsmanager delete-secret --secret-id "$s" --force-delete-without-recovery --region "$REGION" || true
-          done
-
-          # 4. Purge CloudWatch Log Groups generated during operation
-          echo "Scanning for CloudWatch Log Groups..."
-          LOG_GROUPS=$(aws logs describe-log-groups --region "$REGION" --query "logGroups[?contains(logGroupName, '${ENV}-nextcloud') || contains(logGroupName, '/ecs/${ENV}-nextcloud') || contains(logGroupName, 'nextcloud/${ENV}') || contains(logGroupName, '${ENV}-Tenant') || contains(logGroupName, '/aws/vendedlogs/states/${ENV}')].logGroupName" --output text)
-          for lg in $LOG_GROUPS; do
-            echo "Deleting CloudWatch log group: $lg"
-            aws logs delete-log-group --log-group-name "$lg" --region "$REGION" || true
-          done
-
-          # 5. Clean up any lingering Cognito User Pools
-          echo "Scanning for Cognito User Pools..."
-          POOLS=$(aws cognito-idp list-user-pools --max-results 20 --region "$REGION" --query "UserPools[?contains(Name, '${ENV}-nextcloud')].Id" --output text)
-          for p in $POOLS; do
-            echo "Deleting Cognito User Pool: $p"
-            aws cognito-idp delete-user-pool --user-pool-id "$p" --region "$REGION" || true
-          done
+          python3 scripts/teardown_cleaner.py --phase post-destruction --env "${{ inputs.environment }}" --region "${{ vars.AWS_REGION }}"
 
       # ── PHASE 4: AUDIT VERIFICATION & FINAL REPORT ──────────────────────────────
-      - name: Final Comprehensive Audit Verification
+      - name: Final Comprehensive Audit Verification (AWS Python SDK)
         run: |
-          ENV="${{ inputs.environment }}"
-          REGION="${{ vars.AWS_REGION }}"
-          echo "============================================================"
-          echo "🔍 RUNNING FINAL TEARDOWN AUDIT CHECKLIST (${ENV} / ${REGION})"
-          echo "============================================================"
+          python3 scripts/teardown_cleaner.py --phase audit --env "${{ inputs.environment }}" --region "${{ vars.AWS_REGION }}"
 
-          STACKS=$(aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE --region "$REGION" --query "StackSummaries[?contains(StackName, '${ENV}-nextcloud')].StackName" --output text)
-          VPCS=$(aws ec2 describe-vpcs --region "$REGION" --query "Vpcs[?contains(Tags[?Key=='Name'].Value | [0], '${ENV}-nextcloud')].VpcId" --output text)
-          DBS=$(aws rds describe-db-instances --region "$REGION" --query "DBInstances[?contains(DBInstanceIdentifier, '${ENV}-nextcloud')].DBInstanceIdentifier" --output text)
-          SNAPS=$(aws rds describe-db-snapshots --snapshot-type manual --region "$REGION" --query "DBSnapshots[?contains(DBSnapshotIdentifier, '${ENV}-nextcloud')].DBSnapshotIdentifier" --output text)
-          EFS_COUNT=$(aws efs describe-file-systems --region "$REGION" --query "FileSystems[?contains(Name, '${ENV}-nextcloud')].FileSystemId" --output text)
-          LOGS_COUNT=$(aws logs describe-log-groups --region "$REGION" --query "logGroups[?contains(logGroupName, '${ENV}-nextcloud')].logGroupName" --output text)
-
-          echo "Remaining Stacks   : [${STACKS:-None}]"
-          echo "Remaining VPCs     : [${VPCS:-None}]"
-          echo "Remaining DBs      : [${DBS:-None}]"
-          echo "Remaining Snapshots: [${SNAPS:-None}]"
-          echo "Remaining EFS      : [${EFS_COUNT:-None}]"
-          echo "Remaining LogGroups: [${LOGS_COUNT:-None}]"
-
-          if [ -z "$STACKS" ] && [ -z "$VPCS" ] && [ -z "$DBS" ] && [ -z "$SNAPS" ] && [ -z "$EFS_COUNT" ]; then
-            echo ""
-            echo "🎉 AUDIT PASSED: 100% CLEAN SLATE ACHIEVED!"
-            echo "Zero active billable services detected for environment '${ENV}'."
-          else
-            echo ""
-            echo "⚠️ Notice: Some resources may still be de-provisioning asynchronously."
-          fi
-          echo "============================================================"
