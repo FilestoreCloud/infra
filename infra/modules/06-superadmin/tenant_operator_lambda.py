@@ -8,13 +8,40 @@ import secrets
 import struct
 import sys
 import time
-import urllib.error
-import urllib.parse
-import urllib.request
 import uuid
 
 import boto3
 from botocore.exceptions import ClientError
+
+# Ensure local package imports resolve properly
+_CURR_DIR = os.path.dirname(os.path.abspath(__file__))
+if _CURR_DIR not in sys.path:
+    sys.path.insert(0, _CURR_DIR)
+
+from operator_core import (  # noqa: E402
+    _handle_step_function_task,
+    _seed_tenant_data,
+    clone_tenant_to_sandbox,
+    dispatch_webhook_notification,
+    ensure_tenant_efs_access_point,
+    execute_tenant_occ,
+    get_all_tenants,
+    get_cloudwatch_stream_metrics,
+    get_cloudwatch_widget,
+    get_dashboard_html,
+    get_infra_config,
+    get_live_execution_stream,
+    get_step_functions_observability,
+    get_tenant_accounts_data,
+    get_tenant_container_logs,
+    get_tenant_detail,
+    get_tenant_metrics,
+    get_webhook_config,
+    register_tenant_task_definition,
+    save_tenant_accounts,
+    save_webhook_config,
+    test_webhook_endpoint,
+)
 
 REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
 TABLE_NAME = os.environ.get("TABLE_NAME", "prod-nextcloud-tenant-registry")
@@ -606,41 +633,6 @@ def _is_authenticated(event, payload):
 
 
 
-# Ensure local package imports resolve properly
-_CURR_DIR = os.path.dirname(os.path.abspath(__file__))
-if _CURR_DIR not in sys.path:
-    sys.path.insert(0, _CURR_DIR)
-
-from operator_core import (
-    CORS_HEADERS,
-    get_infra_config,
-    unmarshal_ddb_val,
-    unmarshal_ddb_item,
-    get_webhook_config,
-    save_webhook_config,
-    dispatch_webhook_notification,
-    test_webhook_endpoint,
-    execute_tenant_occ,
-    get_tenant_container_logs,
-    get_step_functions_observability,
-    get_live_execution_stream,
-    get_tenant_metrics,
-    get_dashboard_html,
-    get_cloudwatch_widget,
-    get_cloudwatch_stream_metrics,
-    get_all_tenants,
-    get_tenant_accounts_data,
-    save_tenant_accounts,
-    get_tenant_detail,
-    ensure_tenant_efs_access_point,
-    register_tenant_task_definition,
-    clone_tenant_to_sandbox,
-    _provision_tenant_resources,
-    _saga_cleanup_tenant,
-    _check_tenant_health,
-    _seed_tenant_data,
-    _handle_step_function_task,
-)
 
 
 def _alb_response(resp):
