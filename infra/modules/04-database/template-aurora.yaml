@@ -100,7 +100,7 @@ Resources:
     Properties:
       DBClusterIdentifier: !Sub "${EnvironmentName}-nextcloud-aurora-cluster"
       Engine: aurora-postgresql
-      EngineVersion: "16.6"
+      EngineVersion: "16.8"
       DatabaseName: !Ref DBName
       MasterUsername: !Ref DBMasterUsername
       MasterUserPassword: !Ref DBPassword
