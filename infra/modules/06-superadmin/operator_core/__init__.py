@@ -68,6 +68,24 @@ from operator_core.lifecycle import (
     _seed_tenant_data,
     _handle_step_function_task,
 )
+from operator_core.auth import (
+    check_rbac_permission,
+    generate_totp_secret,
+    generate_totp_code,
+    verify_totp_code,
+    get_totp_uri,
+    hash_password,
+    verify_password,
+    get_user_account,
+    record_audit_event,
+    get_audit_logs,
+    create_session_token,
+    verify_session_token,
+    extract_token,
+    is_authenticated,
+)
+from operator_core.events import publish_tenant_event
+from operator_core.openapi import get_openapi_spec
 
 __all__ = [
     "REGION",

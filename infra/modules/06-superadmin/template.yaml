@@ -132,6 +132,77 @@ Resources:
         - Key: Application
           Value: Nextcloud-SaaS-Control-Plane
 
+  # ============================================================================
+  # CUSTOM EVENTBUS, SQS QUEUE & DEAD-LETTER QUEUE (DLQ)
+  # ============================================================================
+  StorixEventBus:
+    Type: AWS::Events::EventBus
+    Properties:
+      Name: !Sub "${EnvironmentName}-storix-tenant-events"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Service
+          Value: Storix-Event-Driven-Architecture
+
+  TenantEventsDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${EnvironmentName}-storix-tenant-events-dlq"
+      MessageRetentionPeriod: 1209600
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  TenantEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${EnvironmentName}-storix-tenant-events-queue"
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt TenantEventsDLQ.Arn
+        maxReceiveCount: 5
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  TenantEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref TenantEventsQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt TenantEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !GetAtt TenantEventsRule.Arn
+
+  TenantEventsRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${EnvironmentName}-storix-tenant-lifecycle-rule"
+      Description: Routes domain events from storix-tenant-events EventBus to SQS with DLQ
+      EventBusName: !Ref StorixEventBus
+      EventPattern:
+        source:
+          - storix.controlplane
+        detail-type:
+          - TenantCreated
+          - TenantSuspended
+          - TenantResumed
+          - StorageLimitReached
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt TenantEventsQueue.Arn
+          Id: SQSAsyncWorkerTarget
+          DeadLetterConfig:
+            Arn: !GetAtt TenantEventsDLQ.Arn
+
   AdminUserPool:
     Type: AWS::Cognito::UserPool
     Properties:
@@ -434,6 +505,11 @@ Resources:
                   - xray:GetServiceGraph
                   - xray:GetTraceGraph
                 Resource: "*"
+              - Sid: EventBridgePutEvents
+                Effect: Allow
+                Action:
+                  - events:PutEvents
+                Resource: !GetAtt StorixEventBus.Arn
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
@@ -451,6 +527,7 @@ Resources:
       Environment:
         Variables:
           ENVIRONMENT_NAME: !Ref EnvironmentName
+          EVENT_BUS_NAME: !Ref StorixEventBus
           TABLE_NAME: !Ref DynamoDBTenantRegistry
           ADMIN_USERS_TABLE: !Ref DynamoDBAdminUsers
           AUDIT_LOGS_TABLE: !Ref DynamoDBAuditLogs
@@ -2462,3 +2539,21 @@ Outputs:
     Value: !Ref StepFunctionsLogGroup
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-StepFunctionsLogGroupName"
+
+  StorixEventBusArn:
+    Description: Custom EventBus ARN for Tenant Domain Events
+    Value: !GetAtt StorixEventBus.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-storix-TenantEventBusArn"
+
+  TenantEventsQueueUrl:
+    Description: SQS Queue URL for Async Tenant Domain Events
+    Value: !Ref TenantEventsQueue
+    Export:
+      Name: !Sub "${EnvironmentName}-storix-TenantEventsQueueUrl"
+
+  TenantEventsQueueArn:
+    Description: SQS Queue ARN for Async Tenant Domain Events
+    Value: !GetAtt TenantEventsQueue.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-storix-TenantEventsQueueArn"

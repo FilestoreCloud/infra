@@ -42,6 +42,8 @@ from operator_core import (  # noqa: E402
     save_tenant_accounts,
     save_webhook_config,
     test_webhook_endpoint,
+    publish_tenant_event,
+    get_openapi_spec,
 )
 
 REGION = os.environ.get("AWS_REGION", "ap-southeast-1")
@@ -749,6 +751,15 @@ def _handle_request(event, context):
     action = payload.get("action", "").upper() or query_params.get("action", "").upper()
     client_ip = get_client_ip(event)
     user_agent = get_user_agent(event)
+
+    # 0. Handle OpenAPI 3.1 & Swagger Documentation Endpoints
+    raw_path = event.get("rawPath") or event.get("path") or ""
+    if action in ["OPENAPI", "SWAGGER", "DOCS"] or raw_path in ["/openapi.json", "/api/v1/openapi.json"]:
+        return {
+            "statusCode": 200,
+            "headers": {"Content-Type": "application/json", **CORS_HEADERS},
+            "body": json.dumps(get_openapi_spec()),
+        }
 
     # 1. Handle LOGIN endpoint (Credentials validation & MFA challenge generation)
     if action == "LOGIN":
@@ -1542,6 +1553,12 @@ def _handle_request(event, context):
                             }
                         ),
                     )
+                    publish_tenant_event(
+                        "TenantCreated",
+                        tenant_id,
+                        {"domain": domain, "quota_gb": quota_gb, "is_demo": is_demo},
+                        actor=authenticated_user,
+                    )
                     return {
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
@@ -1852,6 +1869,12 @@ def _handle_request(event, context):
                         name=f"suspend-{tenant_id}-{int(time.time())}",
                         input=json.dumps({"TenantId": tenant_id}),
                     )
+                    publish_tenant_event(
+                        "TenantSuspended",
+                        tenant_id,
+                        {"reason": "Manual operator suspension / Scale-to-zero"},
+                        actor=authenticated_user,
+                    )
                     return {
                         "statusCode": 200,
                         "headers": CORS_HEADERS,
@@ -1950,6 +1973,12 @@ def _handle_request(event, context):
                         stateMachineArn=STATE_MACHINE_RESUME_ARN,
                         name=f"resume-{tenant_id}-{int(time.time())}",
                         input=json.dumps({"TenantId": tenant_id}),
+                    )
+                    publish_tenant_event(
+                        "TenantResumed",
+                        tenant_id,
+                        {"status": "RESUMING"},
+                        actor=authenticated_user,
                     )
                     return {
                         "statusCode": 200,

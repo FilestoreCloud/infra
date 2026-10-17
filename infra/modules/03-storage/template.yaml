@@ -36,10 +36,24 @@ Parameters:
     Default: 365
     Description: Number of days before permanently deleting noncurrent file versions
 
+  EnableObjectLock:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable S3 Object Lock (WORM compliance / governance mode) for anti-ransomware protection
+
+  EnableCustomerManagedKMS:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Provision dedicated AWS KMS Customer Managed Key (CMK) with Annual Rotation for cryptographic erasure
+
 Conditions:
   HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
   HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
   HasEFSSecurityGroupId: !Not [!Equals [!Ref EFSSecurityGroupId, ""]]
+  ShouldEnableObjectLock: !Equals [!Ref EnableObjectLock, "true"]
+  ShouldEnableKMS: !Equals [!Ref EnableCustomerManagedKMS, "true"]
 
 Resources:
   # ── S3 Multi-Tenant Object Storage Vault ─────────────────────────────────────
@@ -60,6 +74,7 @@ Resources:
               SSEAlgorithm: AES256
       VersioningConfiguration:
         Status: Enabled
+      ObjectLockEnabled: !If [ShouldEnableObjectLock, true, !Ref "AWS::NoValue"]
       LifecycleConfiguration:
         Rules:
           - Id: TenantStorageLifecycleOptimization
@@ -207,7 +222,56 @@ Resources:
       Tags:
         Environment: !Ref EnvironmentName
 
+  # ── Dedicated AWS KMS Customer Managed Key (CMK) ───────────────────────────
+  StorageKMSKey:
+    Type: AWS::KMS::Key
+    Condition: ShouldEnableKMS
+    DeletionPolicy: Delete
+    Properties:
+      Description: Dedicated Customer Managed Key (CMK) for Storix S3 Vault and EFS
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Id: StorageKeyPolicy
+        Statement:
+          - Sid: EnableRootAccess
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: AllowS3AndEFSServices
+            Effect: Allow
+            Principal:
+              Service:
+                - s3.amazonaws.com
+                - elasticfilesystem.amazonaws.com
+            Action:
+              - kms:GenerateDataKey*
+              - kms:Decrypt
+              - kms:Encrypt
+            Resource: "*"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: Cryptographic-Erasure-Key
+
+  StorageKMSKeyAlias:
+    Type: AWS::KMS::Alias
+    Condition: ShouldEnableKMS
+    Properties:
+      AliasName: !Sub "alias/${EnvironmentName}-storix-storage-cmk"
+      TargetKeyId: !Ref StorageKMSKey
+
 Outputs:
+  StorageKMSKeyArn:
+    Condition: ShouldEnableKMS
+    Description: Customer Managed Key (CMK) ARN for S3 Vault and EFS
+    Value: !GetAtt StorageKMSKey.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-StorageKMSKeyArn"
+
   S3VaultBucketName:
     Description: S3 Vault Bucket Name
     Value: !Ref S3VaultBucket

@@ -1,0 +1,194 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Module 04: Aurora Serverless v2 PostgreSQL Cluster (0.5 - 16.0 ACU, Multi-AZ Failover <30s)"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environment prefix (prod, staging, dev)
+
+  PrivateSubnet1Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 1 ID for DB Subnet Group (Leave blank to import from Module 01)
+
+  PrivateSubnet2Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 2 ID for DB Subnet Group (Leave blank to import from Module 01)
+
+  DBSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: Security Group ID for PostgreSQL (Leave blank to import from Module 02)
+
+  MinACU:
+    Type: Number
+    Default: 0.5
+    Description: Minimum Aurora Capacity Units (0.5 ACU = 1 GB RAM)
+
+  MaxACU:
+    Type: Number
+    Default: 16.0
+    Description: Maximum Aurora Capacity Units (16.0 ACU = 32 GB RAM)
+
+  DBName:
+    Type: String
+    Default: nextcloud
+    Description: Initial database name
+
+  DBMasterUsername:
+    Type: String
+    Default: nextcloud
+    Description: Master username for Aurora PostgreSQL
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Master password for Aurora PostgreSQL
+
+  EnableMultiAZReplica:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Provision dedicated reader instance for automated Multi-AZ failover (<30 seconds)
+
+Conditions:
+  HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
+  HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
+  HasDBSecurityGroupId: !Not [!Equals [!Ref DBSecurityGroupId, ""]]
+  ShouldEnableMultiAZ: !Equals [!Ref EnableMultiAZReplica, "true"]
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private Subnet Group for Aurora Serverless v2 PostgreSQL
+      SubnetIds:
+        - Fn::If:
+            - HasPrivateSubnet1Id
+            - !Ref PrivateSubnet1Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
+        - Fn::If:
+            - HasPrivateSubnet2Id
+            - !Ref PrivateSubnet2Id
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-aurora-subnet-group"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DBClusterParameterGroup:
+    Type: AWS::RDS::DBClusterParameterGroup
+    Properties:
+      Description: Cluster Parameter Group for Aurora PostgreSQL 16
+      Family: aurora-postgresql16
+      Parameters:
+        rds.force_ssl: "1"
+        idle_in_transaction_session_timeout: "60000"
+        statement_timeout: "60000"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-aurora-cluster-params"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBClusterIdentifier: !Sub "${EnvironmentName}-nextcloud-aurora-cluster"
+      Engine: aurora-postgresql
+      EngineVersion: "16.6"
+      DatabaseName: !Ref DBName
+      MasterUsername: !Ref DBMasterUsername
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      DBClusterParameterGroupName: !Ref DBClusterParameterGroup
+      VpcSecurityGroupIds:
+        - Fn::If:
+            - HasDBSecurityGroupId
+            - !Ref DBSecurityGroupId
+            - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecurityGroupId"
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MinACU
+        MaxCapacity: !Ref MaxACU
+      StorageEncrypted: true
+      BackupRetentionPeriod: 7
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-nextcloud-aurora"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  AuroraPrimaryInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub "${EnvironmentName}-nextcloud-aurora-instance-1"
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-aurora-primary"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  AuroraReaderInstance:
+    Type: AWS::RDS::DBInstance
+    Condition: ShouldEnableMultiAZ
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      DBInstanceIdentifier: !Sub "${EnvironmentName}-nextcloud-aurora-instance-2"
+      DBClusterIdentifier: !Ref AuroraCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-postgresql
+      PubliclyAccessible: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-aurora-reader-standby"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/secrets/aurora-db-credentials"
+      Description: Database credentials for Nextcloud Aurora Serverless v2 PostgreSQL
+      SecretString: !Sub |
+        {
+          "engine": "postgres",
+          "host": "${AuroraCluster.Endpoint.Address}",
+          "reader_host": "${AuroraCluster.ReadEndpoint.Address}",
+          "port": 5432,
+          "username": "${DBMasterUsername}",
+          "password": "${DBPassword}",
+          "dbname": "${DBName}"
+        }
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+Outputs:
+  ClusterEndpoint:
+    Description: Aurora Serverless v2 Writer Cluster Endpoint
+    Value: !GetAtt AuroraCluster.Endpoint.Address
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-AuroraEndpoint"
+
+  ClusterReadEndpoint:
+    Description: Aurora Serverless v2 Reader Read-Only Endpoint
+    Value: !GetAtt AuroraCluster.ReadEndpoint.Address
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-AuroraReadEndpoint"
+
+  DBSecretArn:
+    Description: Secrets Manager Secret ARN for Aurora Credentials
+    Value: !Ref DBSecret
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-AuroraSecretArn"
