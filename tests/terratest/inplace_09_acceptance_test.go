@@ -19,6 +19,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	dynamoTypes "github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
+	ecsTypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
@@ -228,6 +230,73 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	}
 
 	if !success {
+		// 1. Inspect ECS Cluster, Service Events & Deployments
+		ecsClient := ecs.NewFromConfig(cfg.awsConfig)
+		clusterName := fmt.Sprintf("%s-nextcloud-cluster", cfg.Environment)
+		serviceName := fmt.Sprintf("%s-nextcloud-service", cfg.Environment)
+		svcOut, svcErr := ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+			Cluster:  aws.String(clusterName),
+			Services: []string{serviceName},
+		})
+		if svcErr == nil && len(svcOut.Services) > 0 {
+			svc := svcOut.Services[0]
+			t.Logf("🔍 ECS Service Status: Running=%d, Desired=%d, Pending=%d", svc.RunningCount, svc.DesiredCount, svc.PendingCount)
+			for _, d := range svc.Deployments {
+				taskDef := ""
+				if d.TaskDefinition != nil {
+					taskDef = *d.TaskDefinition
+				}
+				rollout := ""
+				if d.RolloutState != "" {
+					rollout = string(d.RolloutState)
+				}
+				t.Logf("   -> Deployment [%s]: Status=%s, Desired=%d, Pending=%d, Running=%d, RolloutState=%s, TaskDef=%s",
+					*d.Id, *d.Status, d.DesiredCount, d.PendingCount, d.RunningCount, rollout, taskDef)
+			}
+			t.Logf("🔍 Recent ECS Service Events:")
+			eventCount := len(svc.Events)
+			if eventCount > 10 {
+				eventCount = 10
+			}
+			for i := 0; i < eventCount; i++ {
+				ev := svc.Events[i]
+				t.Logf("   [%s] %s", ev.CreatedAt.Format("15:04:05"), *ev.Message)
+			}
+		}
+
+		// 2. Inspect Stopped Tasks and reasons
+		tasksOut, tErr := ecsClient.ListTasks(context.TODO(), &ecs.ListTasksInput{
+			Cluster:       aws.String(clusterName),
+			DesiredStatus: ecsTypes.DesiredStatusStopped,
+			MaxResults:    aws.Int32(5),
+		})
+		if tErr == nil && len(tasksOut.TaskArns) > 0 {
+			descTasks, dtErr := ecsClient.DescribeTasks(context.TODO(), &ecs.DescribeTasksInput{
+				Cluster: aws.String(clusterName),
+				Tasks:   tasksOut.TaskArns,
+			})
+			if dtErr == nil {
+				for _, tk := range descTasks.Tasks {
+					stoppedReason := ""
+					if tk.StoppedReason != nil {
+						stoppedReason = *tk.StoppedReason
+					}
+					t.Logf("🔍 Stopped Task: %s, StopCode: %s, Reason: %s", *tk.TaskArn, tk.StopCode, stoppedReason)
+					for _, c := range tk.Containers {
+						exitCode := -1
+						if c.ExitCode != nil {
+							exitCode = int(*c.ExitCode)
+						}
+						cReason := ""
+						if c.Reason != nil {
+							cReason = *c.Reason
+						}
+						t.Logf("   -> Container: %s, ExitCode: %d, Reason: %s", *c.Name, exitCode, cReason)
+					}
+				}
+			}
+		}
+
 		logGroupName := fmt.Sprintf("/ecs/%s-nextcloud", cfg.Environment)
 		t.Logf("⚠️ Nextcloud status.php probe failed (lastStatus=%d). Inspecting recent ECS logs from CloudWatch group '%s'...", lastStatus, logGroupName)
 		cwLogsClient := cloudwatchlogs.NewFromConfig(cfg.awsConfig)
@@ -235,7 +304,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 			LogGroupName: aws.String(logGroupName),
 			OrderBy:      "LastEventTime",
 			Descending:   aws.Bool(true),
-			Limit:        aws.Int32(3),
+			Limit:        aws.Int32(5),
 		})
 		if streamErr != nil {
 			t.Logf("⚠️ Failed to describe log streams in %s: %v", logGroupName, streamErr)
