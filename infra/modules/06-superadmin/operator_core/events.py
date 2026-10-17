@@ -7,14 +7,13 @@ import json
 import logging
 import os
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-import boto3
-from botocore.exceptions import ClientError
+from operator_core.common import _LazyAwsClient
 
 logger = logging.getLogger(__name__)
 
-events_client = boto3.client("events", region_name=os.environ.get("AWS_REGION", "ap-southeast-1"))
+events_client = _LazyAwsClient("events", region_name=os.environ.get("AWS_REGION", "ap-southeast-1"))
 ENVIRONMENT_NAME = os.environ.get("ENVIRONMENT_NAME", "dev")
 EVENT_BUS_NAME = os.environ.get("EVENT_BUS_NAME", f"{ENVIRONMENT_NAME}-storix-tenant-events")
 

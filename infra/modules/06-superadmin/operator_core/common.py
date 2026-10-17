@@ -33,18 +33,52 @@ STATE_MACHINE_SEED_ARN = os.environ.get("STATE_MACHINE_SEED_ARN", "")
 STATE_MACHINE_DEMO_ARN = os.environ.get("STATE_MACHINE_DEMO_ARN", "")
 STATE_MACHINE_FLEET_UPGRADE_ARN = os.environ.get("STATE_MACHINE_FLEET_UPGRADE_ARN", "")
 
-dynamodb = boto3.client("dynamodb", region_name=REGION)
-ecs = boto3.client("ecs", region_name=REGION)
-elbv2 = boto3.client("elbv2", region_name=REGION)
-cloudwatch = boto3.client("cloudwatch", region_name=REGION)
-ssm = boto3.client("ssm", region_name=REGION)
-efs = boto3.client("efs", region_name=REGION)
-secretsmanager = boto3.client("secretsmanager", region_name=REGION)
-logs = boto3.client("logs", region_name=REGION)
-cognito_idp = boto3.client("cognito-idp", region_name=REGION)
-ses = boto3.client("ses", region_name=REGION)
-sfn = boto3.client("stepfunctions", region_name=REGION)
-xray = boto3.client("xray", region_name=REGION)
+class _LazyAwsClient:
+    """Zero-overhead lazy proxy for AWS boto3 clients to optimize cold-start import latency."""
+    def __init__(self, service_name: str, region_name: str = REGION):
+        self._service_name = service_name
+        self._region_name = region_name
+        self._client = None
+
+    def _get(self):
+        if self._client is None:
+            self._client = boto3.client(self._service_name, region_name=self._region_name)
+        return self._client
+
+    def __getattr__(self, name: str):
+        return getattr(self._get(), name)
+
+    def __setattr__(self, name: str, value: Any):
+        if name in ("_service_name", "_region_name", "_client"):
+            super().__setattr__(name, value)
+        else:
+            setattr(self._get(), name, value)
+
+    def __delattr__(self, name: str):
+        if name in ("_service_name", "_region_name", "_client"):
+            super().__delattr__(name)
+        else:
+            delattr(self._get(), name)
+
+    def __dir__(self):
+        return dir(self._get())
+
+    def __repr__(self):
+        return repr(self._get())
+
+
+dynamodb = _LazyAwsClient("dynamodb", region_name=REGION)
+ecs = _LazyAwsClient("ecs", region_name=REGION)
+elbv2 = _LazyAwsClient("elbv2", region_name=REGION)
+cloudwatch = _LazyAwsClient("cloudwatch", region_name=REGION)
+ssm = _LazyAwsClient("ssm", region_name=REGION)
+efs = _LazyAwsClient("efs", region_name=REGION)
+secretsmanager = _LazyAwsClient("secretsmanager", region_name=REGION)
+logs = _LazyAwsClient("logs", region_name=REGION)
+cognito_idp = _LazyAwsClient("cognito-idp", region_name=REGION)
+ses = _LazyAwsClient("ses", region_name=REGION)
+sfn = _LazyAwsClient("stepfunctions", region_name=REGION)
+xray = _LazyAwsClient("xray", region_name=REGION)
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",

@@ -126,12 +126,8 @@ def main():
     
     # 2. Process Icon
     icon_512 = make_square_icon(raw_icon, target_size=512)
-    icon_256 = icon_512.resize((256, 256), Image.Resampling.LANCZOS)
-    icon_192 = icon_512.resize((192, 192), Image.Resampling.LANCZOS)
-    icon_64 = icon_512.resize((64, 64), Image.Resampling.LANCZOS)
-    icon_48 = icon_512.resize((48, 48), Image.Resampling.LANCZOS)
     icon_32 = icon_512.resize((32, 32), Image.Resampling.LANCZOS)
-    icon_16 = icon_512.resize((16, 16), Image.Resampling.LANCZOS)
+
     
     # Generate Multi-size Favicon ICO
     ico_buf = io.BytesIO()
