@@ -5,10 +5,8 @@ Transfers schemas, multi-tenant tables (nc_<tenant_id>), sequences, and data wit
 """
 
 import argparse
-import json
 import logging
 import subprocess
-import sys
 import time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

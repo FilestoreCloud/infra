@@ -19,6 +19,18 @@ _CURR_DIR = os.path.dirname(os.path.abspath(__file__))
 if _CURR_DIR not in sys.path:
     sys.path.insert(0, _CURR_DIR)
 
+from operator_core.common import (  # noqa: E402
+    cognito_idp,
+    dynamodb,
+    ecs,
+    efs,
+    elbv2,
+    secretsmanager,
+    ses,
+    sfn,
+    ssm,
+)
+
 from operator_core import (  # noqa: E402
     _handle_step_function_task,
     _seed_tenant_data,
@@ -61,18 +73,9 @@ ENVIRONMENT_NAME = os.environ.get("ENVIRONMENT_NAME", "prod")
 COGNITO_USER_POOL_ID = os.environ.get("COGNITO_USER_POOL_ID", "")
 COGNITO_CLIENT_ID = os.environ.get("COGNITO_CLIENT_ID", "")
 
-dynamodb = boto3.client("dynamodb", region_name=REGION)
-ecs = boto3.client("ecs", region_name=REGION)
-elbv2 = boto3.client("elbv2", region_name=REGION)
 cloudwatch = boto3.client("cloudwatch", region_name=REGION)
-ssm = boto3.client("ssm", region_name=REGION)
-efs = boto3.client("efs", region_name=REGION)
-secretsmanager = boto3.client("secretsmanager", region_name=REGION)
-logs = boto3.client("logs", region_name=REGION)
-cognito_idp = boto3.client("cognito-idp", region_name=REGION)
-ses = boto3.client("ses", region_name=REGION)
-sfn = boto3.client("stepfunctions", region_name=REGION)
-xray = boto3.client("xray", region_name=REGION)
+
+
 
 SFN_LOG_GROUP = os.environ.get(
     "SFN_LOG_GROUP",
@@ -1557,7 +1560,7 @@ def _handle_request(event, context):
                         "TenantCreated",
                         tenant_id,
                         {"domain": domain, "quota_gb": quota_gb, "is_demo": is_demo},
-                        actor=authenticated_user,
+                        actor=(user_info.get("user") if user_info else "SYSTEM"),
                     )
                     return {
                         "statusCode": 200,
@@ -1873,7 +1876,7 @@ def _handle_request(event, context):
                         "TenantSuspended",
                         tenant_id,
                         {"reason": "Manual operator suspension / Scale-to-zero"},
-                        actor=authenticated_user,
+                        actor=(user_info.get("user") if user_info else "SYSTEM"),
                     )
                     return {
                         "statusCode": 200,
@@ -1978,7 +1981,7 @@ def _handle_request(event, context):
                         "TenantResumed",
                         tenant_id,
                         {"status": "RESUMING"},
-                        actor=authenticated_user,
+                        actor=(user_info.get("user") if user_info else "SYSTEM"),
                     )
                     return {
                         "statusCode": 200,

@@ -15,20 +15,13 @@ import struct
 import time
 from typing import Any, Dict, Optional, Tuple
 
-import boto3
-from botocore.exceptions import ClientError
 
 from operator_core.common import (
     ADMIN_USERS_TABLE,
     AUDIT_LOGS_TABLE,
-    COGNITO_CLIENT_ID,
-    COGNITO_USER_POOL_ID,
     ENVIRONMENT_NAME,
-    REGION,
-    cognito_idp,
     dynamodb,
     secretsmanager,
-    ses,
     unmarshal_ddb_item,
 )
 
