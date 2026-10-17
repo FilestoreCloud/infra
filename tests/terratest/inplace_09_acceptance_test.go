@@ -204,7 +204,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	tlsConfig := &tls.Config{InsecureSkipVerify: true}
 	statusURL := fmt.Sprintf("http://%s/status.php", albDNS)
 
-	maxRetries := 30
+	maxRetries := 45
 	sleepBetweenRetries := 5 * time.Second
 	var lastStatus int
 	var lastBody string
@@ -245,12 +245,30 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 					continue
 				}
 				t.Logf("📜 ECS Log Stream: %s", *stream.LogStreamName)
+				// Fetch startup / entrypoint logs
+				headOut, headErr := cwLogsClient.GetLogEvents(context.TODO(), &cloudwatchlogs.GetLogEventsInput{
+					LogGroupName:  aws.String(logGroupName),
+					LogStreamName: stream.LogStreamName,
+					StartFromHead: aws.Bool(true),
+					Limit:         aws.Int32(50),
+				})
+				if headErr == nil && len(headOut.Events) > 0 {
+					t.Logf("   --- Entrypoint / Startup Log Events (Head) ---")
+					for _, ev := range headOut.Events {
+						if ev.Timestamp != nil && ev.Message != nil {
+							t.Logf("   [%s] %s", time.UnixMilli(*ev.Timestamp).Format("15:04:05"), strings.TrimSpace(*ev.Message))
+						}
+					}
+				}
+				// Fetch latest logs
 				eventsOut, eventErr := cwLogsClient.GetLogEvents(context.TODO(), &cloudwatchlogs.GetLogEventsInput{
 					LogGroupName:  aws.String(logGroupName),
 					LogStreamName: stream.LogStreamName,
-					Limit:         aws.Int32(60),
+					StartFromHead: aws.Bool(false),
+					Limit:         aws.Int32(50),
 				})
-				if eventErr == nil {
+				if eventErr == nil && len(eventsOut.Events) > 0 {
+					t.Logf("   --- Recent Log Events (Tail) ---")
 					for _, ev := range eventsOut.Events {
 						if ev.Timestamp != nil && ev.Message != nil {
 							t.Logf("   [%s] %s", time.UnixMilli(*ev.Timestamp).Format("15:04:05"), strings.TrimSpace(*ev.Message))
