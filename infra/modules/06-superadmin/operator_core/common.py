@@ -65,6 +65,27 @@ def safe_put_metric_data(Namespace, MetricData):
 
 
 
+_CACHED_ACCOUNT_ID = None
+
+
+def get_aws_account_id() -> str:
+    """Retrieve AWS Account ID dynamically via STS or environment, with caching."""
+    global _CACHED_ACCOUNT_ID
+    if _CACHED_ACCOUNT_ID:
+        return _CACHED_ACCOUNT_ID
+    account_id = os.environ.get("AWS_ACCOUNT_ID")
+    if account_id:
+        _CACHED_ACCOUNT_ID = account_id
+        return _CACHED_ACCOUNT_ID
+    try:
+        sts_client = boto3.client("sts", region_name=REGION)
+        caller = sts_client.get_caller_identity()
+        _CACHED_ACCOUNT_ID = caller.get("Account", "")
+        return _CACHED_ACCOUNT_ID
+    except Exception:
+        return ""
+
+
 def get_infra_config():
     """Dynamically resolve infrastructure parameters from SSM Parameter Store with caching and fallbacks."""
     global _CACHED_INFRA
@@ -72,6 +93,13 @@ def get_infra_config():
         return _CACHED_INFRA
 
     prefix = f"/nextcloud/{ENVIRONMENT_NAME}"
+    account_id = get_aws_account_id()
+    default_ecr_image = (
+        f"{account_id}.dkr.ecr.{REGION}.amazonaws.com/nextcloud-enterprise-ai:latest"
+        if account_id
+        else "nextcloud-enterprise-ai:latest"
+    )
+
     config = {
         "vpc_id": os.environ.get("VPC_ID"),
         "public_subnets": [
@@ -95,10 +123,7 @@ def get_infra_config():
         "cluster_name": os.environ.get("CLUSTER_NAME", CLUSTER_NAME),
         "task_role_arn": os.environ.get("TASK_ROLE_ARN"),
         "exec_role_arn": os.environ.get("EXEC_ROLE_ARN"),
-        "ecr_image": os.environ.get(
-            "CONTAINER_IMAGE",
-            "649519997247.dkr.ecr.ap-southeast-1.amazonaws.com/nextcloud-enterprise-ai:latest",
-        ),
+        "ecr_image": os.environ.get("CONTAINER_IMAGE", default_ecr_image),
     }
 
     try:
@@ -144,35 +169,11 @@ def get_infra_config():
     except Exception as e:
         print(f"Warning fetching SSM parameters: {e}")
 
-    # Fallback production defaults matching live AWS environment
-    if not config["vpc_id"]:
-        config["vpc_id"] = "vpc-030257f65c0893745"
-    if not config["public_subnets"]:
-        config["public_subnets"] = [
-            "subnet-08096079734609710",
-            "subnet-049b7e2945e7eddce",
-        ]
+    # Fail-closed safe defaults: no hardcoded AWS account or resource IDs
+    if not config.get("public_subnets"):
+        config["public_subnets"] = []
     if not config.get("private_subnets"):
-        config["private_subnets"] = [
-            "subnet-08096079734609710",
-            "subnet-049b7e2945e7eddce",
-        ]
-    if not config["ecs_sg"]:
-        config["ecs_sg"] = "sg-020acf11e92c99ca4"
-    if not config["https_listener_arn"]:
-        config["https_listener_arn"] = (
-            "arn:aws:elasticloadbalancing:ap-southeast-1:649519997247:listener/app/prod-nextcloud-alb/2f3dfb2e64adc7d0/bf8dbed65d432258"
-        )
-    if not config["alb_arn"]:
-        config["alb_arn"] = (
-            "arn:aws:elasticloadbalancing:ap-southeast-1:649519997247:loadbalancer/app/prod-nextcloud-alb/2f3dfb2e64adc7d0"
-        )
-    if not config["alb_dns"]:
-        config["alb_dns"] = (
-            "prod-nextcloud-alb-2111420535.ap-southeast-1.elb.amazonaws.com"
-        )
-    if not config["efs_id"]:
-        config["efs_id"] = "fs-0b7465bf80b2333eb"
+        config["private_subnets"] = []
 
     _CACHED_INFRA = config
     return _CACHED_INFRA

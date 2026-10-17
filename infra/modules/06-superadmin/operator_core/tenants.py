@@ -13,6 +13,7 @@ from operator_core.common import (
     dynamodb,
     ecs,
     get_audit_logs,
+    get_aws_account_id,
     get_infra_config,
     unmarshal_ddb_item,
 )
@@ -264,7 +265,10 @@ def get_tenant_detail(tenant_id):
     database_name = tenant_record.get("database_name") or f"nc_{clean_id}"
     tg_name = f"tg-{tenant_id}"[:32]
     cluster_name = infra.get("cluster_name", CLUSTER_NAME)
-    vault_bucket = infra.get("s3_vault_bucket", "prod-nextcloud-vault-649519997247")
+    account_id = get_aws_account_id() or "123456789012"
+    vault_bucket = infra.get(
+        "s3_vault_bucket"
+    ) or f"{ENVIRONMENT_NAME}-nextcloud-vault-{account_id}"
     ap_id = tenant_record.get("efs_access_point_id") or f"fsap-nc-{clean_id[:10]}"
 
     aws_topology = {
@@ -279,14 +283,14 @@ def get_tenant_detail(tenant_id):
         "database_name": database_name,
         "database_engine": "PostgreSQL 16.3",
         "database_endpoint": infra.get("db_endpoint", "postgres.internal:5432"),
-        "efs_id": infra.get("efs_id", "fs-0b7465bf80b2333eb"),
+        "efs_id": infra.get("efs_id", ""),
         "efs_access_point_id": ap_id,
         "efs_mount_path": f"/tenants/{tenant_id}/config",
         "s3_vault_prefix": f"s3://{vault_bucket}/tenants/{tenant_id}/",
         "secrets_manager_path": f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials",
-        "vpc_id": infra.get("vpc_id", "vpc-030257f65c0893745"),
-        "subnets": infra.get("public_subnets", ["subnet-08096079734609710"]),
-        "security_group_id": infra.get("ecs_sg", "sg-020acf11e92c99ca4"),
+        "vpc_id": infra.get("vpc_id", ""),
+        "subnets": infra.get("public_subnets") or infra.get("private_subnets") or [],
+        "security_group_id": infra.get("ecs_sg", ""),
     }
 
     agent_status = (
@@ -314,6 +318,12 @@ def get_tenant_detail(tenant_id):
         1 if status in ["ACTIVE", "DEGRADED", "INCIDENT", "MAINTENANCE"] else 0
     )
 
+    default_image = (
+        f"{account_id}.dkr.ecr.{REGION}.amazonaws.com/nextcloud-enterprise-ai:latest"
+        if account_id
+        else "nextcloud-enterprise-ai:latest"
+    )
+
     agent_details = {
         "cluster": cluster_name,
         "service_name": service_name,
@@ -322,8 +332,8 @@ def get_tenant_detail(tenant_id):
         "desired_count": desired_count,
         "running_count": running_count,
         "pending_count": 0,
-        "task_arn": f"arn:aws:ecs:{REGION}:649519997247:task/{cluster_name}/{uuid.uuid5(uuid.NAMESPACE_DNS, tenant_id).hex}",
-        "task_definition_arn": f"arn:aws:ecs:{REGION}:649519997247:task-definition/{ENVIRONMENT_NAME}-nextcloud-{tenant_id}:3",
+        "task_arn": f"arn:aws:ecs:{REGION}:{account_id}:task/{cluster_name}/{uuid.uuid5(uuid.NAMESPACE_DNS, tenant_id).hex}",
+        "task_definition_arn": f"arn:aws:ecs:{REGION}:{account_id}:task-definition/{ENVIRONMENT_NAME}-nextcloud-{tenant_id}:3",
         "cpu": "512",
         "memory": "1024",
         "platform_version": "1.4.0",
@@ -334,10 +344,7 @@ def get_tenant_detail(tenant_id):
         "containers": [
             {
                 "name": f"nextcloud-{tenant_id}",
-                "image": infra.get(
-                    "ecr_image",
-                    "649519997247.dkr.ecr.ap-southeast-1.amazonaws.com/nextcloud-enterprise-ai:latest",
-                ),
+                "image": infra.get("ecr_image", default_image),
                 "container_port": 80,
                 "protocol": "HTTP/1.1 (Apache 2.4 + PHP 8.2)",
                 "status": agent_status,
