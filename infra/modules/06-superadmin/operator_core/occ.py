@@ -1,7 +1,10 @@
 """
 Nextcloud OCC command execution handler.
 """
+import os
 import time
+
+from operator_core.common import ENVIRONMENT_NAME, get_aws_account_id
 
 
 def execute_tenant_occ(tenant_id, command, user="SuperAdmin"):
@@ -93,12 +96,17 @@ def execute_tenant_occ(tenant_id, command, user="SuperAdmin"):
         exit_code = 0
 
     elif cmd_clean in ["check", "system:check"]:
+        acc = get_aws_account_id()
+        vault_name = (
+            os.environ.get("S3_VAULT_BUCKET")
+            or (f"{ENVIRONMENT_NAME}-nextcloud-vault-{acc}" if acc else f"{ENVIRONMENT_NAME}-nextcloud-vault")
+        )
         output = (
             "PHP version: 8.2.22 (Supported)\n"
             "Memory limit: 512M (Adequate)\n"
             "Max execution time: 3600 (Adequate)\n"
             "Database: PostgreSQL 16.3 (Connected, latency 1.2ms)\n"
-            f"Object store: Amazon S3 Vault (s3://prod-nextcloud-vault-649519997247/tenants/{tenant_id}/)\n"
+            f"Object store: Amazon S3 Vault (s3://{vault_name}/tenants/{tenant_id}/)\n"
             "Config file: /var/www/html/config/config.php (Permissions 0640 UID 33)\n"
             "All system checks passed successfully."
         )
