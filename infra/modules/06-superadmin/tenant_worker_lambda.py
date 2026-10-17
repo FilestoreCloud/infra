@@ -211,7 +211,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
     clean_id = tenant_id.lower().replace("-", "_")
     env_vars = [
         {"name": "HOME", "value": "/var/www"},
-        {"name": "PGSSLMODE", "value": "require"},
+        {"name": "PGSSLMODE", "value": "prefer"},
         {
             "name": "POSTGRES_HOST",
             "value": infra.get("db_endpoint", "prod-nextcloud-postgres"),
