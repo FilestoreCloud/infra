@@ -590,7 +590,7 @@ Resources:
             - Name: HOME
               Value: /var/www
             - Name: PGSSLMODE
-              Value: prefer
+              Value: require
             - Name: POSTGRES_HOST
               Value:
                 Fn::If:
