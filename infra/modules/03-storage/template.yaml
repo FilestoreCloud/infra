@@ -66,6 +66,9 @@ Resources:
             Status: Enabled
             AbortIncompleteMultipartUpload:
               DaysAfterInitiation: 7
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: 0
             NoncurrentVersionTransitions:
               - StorageClass: STANDARD_IA
                 TransitionInDays: !Ref TransitionToIADays
