@@ -275,8 +275,8 @@ Resources:
   AuditVaultBucket:
     Type: AWS::S3::Bucket
     Condition: ShouldEnableAuditVault
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       BucketName: !Sub "${EnvironmentName}-storix-audit-vault-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:
