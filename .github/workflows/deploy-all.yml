@@ -332,7 +332,7 @@ jobs:
           AWS_REGION: ${{ vars.AWS_REGION }}
           AWS_BUCKET_NAME: ${{ needs.deploy-superadmin.outputs.admin_web_bucket }}
           SOURCE: console-src/dist
-          TARGET: ''
+          TARGET: '.'
           WITH_DELETE: 'TRUE'
           WITH_CLOUD_FRONT_INVALIDATION: 'TRUE'
           AWS_CLOUDFRONT_DISTRIBUTION_ID: ${{ needs.deploy-superadmin.outputs.admin_web_distribution_id }}
