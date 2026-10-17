@@ -379,9 +379,20 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	})
 	require.NoError(t, err, "Failed to invoke SUSPEND action for tenant scaling test")
 	var suspendResp struct {
-		Status string `json:"status"`
+		StatusCode int    `json:"statusCode"`
+		Body       string `json:"body"`
+		Status     string `json:"status"`
 	}
 	_ = json.Unmarshal(suspendInv.Payload, &suspendResp)
+	if suspendResp.Body != "" {
+		var inner struct {
+			Status string `json:"status"`
+		}
+		_ = json.Unmarshal([]byte(suspendResp.Body), &inner)
+		if inner.Status != "" {
+			suspendResp.Status = inner.Status
+		}
+	}
 	assert.Contains(t, []string{"OK", "SUSPENDED", "SUSPENDING"}, suspendResp.Status, "SUSPEND status must indicate scale-to-zero transition")
 	t.Logf("   -> Tenant scaled to zero successfully (status: %s)", suspendResp.Status)
 
@@ -399,9 +410,20 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	})
 	require.NoError(t, err, "Failed to invoke RESUME action for tenant scaling test")
 	var resumeResp struct {
-		Status string `json:"status"`
+		StatusCode int    `json:"statusCode"`
+		Body       string `json:"body"`
+		Status     string `json:"status"`
 	}
 	_ = json.Unmarshal(resumeInv.Payload, &resumeResp)
+	if resumeResp.Body != "" {
+		var inner struct {
+			Status string `json:"status"`
+		}
+		_ = json.Unmarshal([]byte(resumeResp.Body), &inner)
+		if inner.Status != "" {
+			resumeResp.Status = inner.Status
+		}
+	}
 	assert.Contains(t, []string{"OK", "ACTIVE", "RESUMING"}, resumeResp.Status, "RESUME status must indicate scale-out transition")
 	t.Logf("   -> Tenant scaled out successfully (status: %s)", resumeResp.Status)
 
