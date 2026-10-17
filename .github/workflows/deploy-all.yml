@@ -80,6 +80,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.login-ecr.outputs.registry }}/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }}
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.environment }}-nextcloud-enterprise:${{ github.sha }}-${{ github.run_id }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -88,7 +89,11 @@ jobs:
         run: |
           REGISTRY="${{ steps.login-ecr.outputs.registry }}"
           REPO="${{ inputs.environment }}-nextcloud-enterprise"
-          IMAGE_URI="${REGISTRY}/${REPO}:${{ inputs.environment }}"
+          if [ "${{ inputs.skip_runtime_build }}" = "true" ]; then
+            IMAGE_URI="${REGISTRY}/${REPO}:${{ inputs.environment }}"
+          else
+            IMAGE_URI="${REGISTRY}/${REPO}:${{ github.sha }}-${{ github.run_id }}"
+          fi
           echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
           echo "✅ Runtime Image Target: ${IMAGE_URI}"
 
@@ -216,7 +221,7 @@ jobs:
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.aws-creds.outputs.aws-account-id }}.dkr.ecr.${{ vars.AWS_REGION }}.amazonaws.com/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }},CreateECRRepository=false"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ needs.build-runtime.outputs.image_uri }},CreateECRRepository=false"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
