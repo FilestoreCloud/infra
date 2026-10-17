@@ -133,6 +133,7 @@ Parameters:
     Description: "ElastiCache Redis endpoint address for distributed caching and locking (leave blank if disabled)"
 
 Conditions:
+  IsProduction: !Equals [!Ref EnvironmentName, "prod"]
   ShouldCreateECR: !Equals [!Ref CreateECRRepository, "true"]
   ShouldEnableCloudFrontCDN: !Equals [!Ref EnableCloudFrontCDN, "true"]
   HasRedisEndpoint: !Not [!Equals [!Ref RedisEndpoint, ""]]
@@ -286,7 +287,7 @@ Resources:
           - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
       Matcher:
         HttpCode: "200-499"
-      HealthCheckIntervalSeconds: 15
+      HealthCheckIntervalSeconds: 10
       HealthCheckPath: /robots.txt
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
@@ -674,16 +675,16 @@ Resources:
       TaskDefinition: !Ref NextcloudTaskDefinition
       CapacityProviderStrategy:
         - CapacityProvider: FARGATE
-          Base: 1
-          Weight: 1
+          Base: !If [IsProduction, 1, 0]
+          Weight: !If [IsProduction, 1, 0]
         - CapacityProvider: FARGATE_SPOT
           Base: 0
-          Weight: 3
+          Weight: !If [IsProduction, 3, 1]
       DesiredCount: !Ref DesiredCount
-      HealthCheckGracePeriodSeconds: 300
+      HealthCheckGracePeriodSeconds: !If [IsProduction, 300, 120]
       DeploymentConfiguration:
         MaximumPercent: 200
-        MinimumHealthyPercent: 100
+        MinimumHealthyPercent: !If [IsProduction, 100, 0]
         DeploymentCircuitBreaker:
           Enable: true
           Rollback: true
