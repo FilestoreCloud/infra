@@ -675,11 +675,11 @@ Resources:
       TaskDefinition: !Ref NextcloudTaskDefinition
       CapacityProviderStrategy:
         - CapacityProvider: FARGATE
-          Base: !If [IsProduction, 1, 0]
-          Weight: !If [IsProduction, 1, 0]
+          Base: 1
+          Weight: 1
         - CapacityProvider: FARGATE_SPOT
           Base: 0
-          Weight: !If [IsProduction, 3, 1]
+          Weight: 3
       DesiredCount: !Ref DesiredCount
       HealthCheckGracePeriodSeconds: !If [IsProduction, 300, 120]
       DeploymentConfiguration:
@@ -979,6 +979,123 @@ Resources:
       Description: Admin Secret ARN
       Tags:
         Environment: !Ref EnvironmentName
+
+  # ============================================================================
+  # FARGATE SPOT DRAIN HANDLER & EVENTBRIDGE INTERRUPTION WARNING
+  # ============================================================================
+  SpotDrainLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-nextcloud-spot-drain-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SpotDrainELBAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - elasticloadbalancing:DeregisterTargets
+                  - elasticloadbalancing:DescribeTargetHealth
+                Resource: !Ref ALBTargetGroup
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeTasks
+                Resource: !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:task/${ECSCluster}/*"
+
+  SpotDrainHandlerLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-nextcloud-spot-drain-handler"
+      Runtime: python3.11
+      Handler: index.handler
+      Role: !GetAtt SpotDrainLambdaRole.Arn
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          TARGET_GROUP_ARN: !Ref ALBTargetGroup
+          CLUSTER_NAME: !Ref ECSCluster
+          ENVIRONMENT_NAME: !Ref EnvironmentName
+      Code:
+        ZipFile: |
+          import json
+          import os
+          import logging
+          import boto3
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          elbv2 = boto3.client('elbv2')
+          TARGET_GROUP_ARN = os.environ.get('TARGET_GROUP_ARN')
+
+          def handler(event, context):
+              logger.info("Received Spot Interruption event: %s", json.dumps(event))
+              detail = event.get('detail', {})
+              task_arn = detail.get('taskArn', '')
+              stop_code = detail.get('stopCode', '')
+              stopped_reason = detail.get('stoppedReason', '')
+
+              logger.warning("Fargate Spot task %s interruption warning! StopCode=%s Reason=%s", task_arn, stop_code, stopped_reason)
+
+              # Graceful target draining: identify private IP and deregister from ALB
+              containers = detail.get('containers', [])
+              deregistered_ips = []
+              for container in containers:
+                  for ni in container.get('networkInterfaces', []):
+                      ip = ni.get('privateIpv4Address')
+                      if ip and TARGET_GROUP_ARN:
+                          try:
+                              logger.info("Initiating graceful target deregistration for IP: %s on TG: %s", ip, TARGET_GROUP_ARN)
+                              elbv2.deregister_targets(
+                                  TargetGroupArn=TARGET_GROUP_ARN,
+                                  Targets=[{'Id': ip, 'Port': 80}]
+                              )
+                              deregistered_ips.append(ip)
+                          except Exception as exc:
+                              logger.error("Failed to deregister target %s: %s", ip, exc)
+
+              return {'status': 'DRAINING_INITIATED', 'taskArn': task_arn, 'deregistered': deregistered_ips}
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  SpotInterruptionRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${EnvironmentName}-ecs-spot-interruption-rule"
+      Description: Captures ECS Fargate Spot task interruption 2-minute warning
+      EventPattern:
+        source:
+          - aws.ecs
+        detail-type:
+          - ECS Task State Change
+        detail:
+          stopCode:
+            - SpotInterruption
+            - TaskHostAffinityError
+            - TerminationNotice
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt SpotDrainHandlerLambda.Arn
+          Id: SpotDrainTarget
+
+  SpotDrainLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt SpotDrainHandlerLambda.Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt SpotInterruptionRule.Arn
 
 Outputs:
   LoadBalancerURL:
