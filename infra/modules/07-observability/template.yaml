@@ -37,6 +37,12 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: Enable FinOps automated sleep for non-production environments (pauses RDS and scales ECS to 0 outside business hours)
 
+  EnableSyntheticsCanary:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable CloudWatch Synthetics Canary for active 5-minute automated user journey health probes
+
 Conditions:
   HasALBDNS: !Not [!Equals [!Ref ApplicationLoadBalancerDNS, ""]]
   HasALBFullName: !Not [!Equals [!Ref ApplicationLoadBalancerFullName, ""]]
@@ -44,6 +50,7 @@ Conditions:
   HasECSServiceName: !Not [!Equals [!Ref ECSServiceName, ""]]
   HasRDSInstanceIdentifier: !Not [!Equals [!Ref RDSInstanceIdentifier, ""]]
   ShouldEnableAutoSleep: !Equals [!Ref EnableAutoSleep, "true"]
+  ShouldEnableSyntheticsCanary: !Equals [!Ref EnableSyntheticsCanary, "true"]
 
 Resources:
   # ============================================================================
@@ -531,7 +538,162 @@ Resources:
       Tags:
         Environment: !Ref EnvironmentName
 
+  # ============================================================================
+  # ENTERPRISE SYNTHETICS CANARY (Active SRE User Simulation)
+  # ============================================================================
+  CanaryArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Condition: ShouldEnableSyntheticsCanary
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-storix-canary-artifacts-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireCanaryArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: Synthetics-Canary-Artifacts
+
+  SyntheticsCanaryRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldEnableSyntheticsCanary
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-storix-canary-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CanaryExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource:
+                  - !Sub "${CanaryArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                Resource:
+                  - !GetAtt CanaryArtifactsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/cwsyn-*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: CloudWatchSynthetics
+
+  StorixSyntheticsCanary:
+    Type: AWS::Synthetics::Canary
+    Condition: ShouldEnableSyntheticsCanary
+    Properties:
+      Name: !Sub "${EnvironmentName}-storix-probe"
+      ExecutionRoleArn: !GetAtt SyntheticsCanaryRole.Arn
+      ArtifactS3Location: !Sub "s3://${CanaryArtifactsBucket}"
+      RuntimeVersion: syn-nodejs-puppeteer-9.2
+      Schedule:
+        Expression: "rate(5 minutes)"
+        DurationInSeconds: 0
+      StartCanaryAfterCreation: false
+      Code:
+        Handler: pageLoadBlueprint.handler
+        Script: |
+          const synthetics = require('Synthetics');
+          const log = require('SyntheticsLogger');
+
+          const pageLoadBlueprint = async function () {
+              const url = process.env.TARGET_URL || 'http://localhost';
+              let page = await synthetics.getPage();
+              const response = await page.goto(url, {waitUntil: ['load', 'networkidle0'], timeout: 30000});
+              if (!response) {
+                  throw "Failed to load page!";
+              }
+              const status = response.status();
+              log.info(`Target URL ${url} returned status code: ${status}`);
+              if (status >= 400) {
+                  throw `Endpoint returned HTTP status ${status}`;
+              }
+          };
+
+          exports.handler = async () => {
+              return await pageLoadBlueprint();
+          };
+      RunConfig:
+        TimeoutInSeconds: 60
+        MemoryInMB: 960
+        EnvironmentVariables:
+          TARGET_URL:
+            Fn::If:
+              - HasALBDNS
+              - !Sub "http://${ApplicationLoadBalancerDNS}/status.php"
+              - "http://localhost/status.php"
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  CanarySuccessRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: ShouldEnableSyntheticsCanary
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-storix-canary-failure"
+      AlarmDescription: "Alert when Synthetics Canary success rate drops below 100% (User journey failing)"
+      Namespace: CloudWatchSynthetics
+      MetricName: SuccessPercent
+      Dimensions:
+        - Name: CanaryName
+          Value: !Ref StorixSyntheticsCanary
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 99
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref ObservabilityNotificationTopic
+
 Outputs:
+  CanaryName:
+    Condition: ShouldEnableSyntheticsCanary
+    Description: Synthetics Canary Name
+    Value: !Ref StorixSyntheticsCanary
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-CanaryName"
+
+  CanarySuccessRateAlarmArn:
+    Condition: ShouldEnableSyntheticsCanary
+    Description: Synthetics Canary Success Rate Alarm ARN
+    Value: !GetAtt CanarySuccessRateAlarm.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-CanarySuccessRateAlarmArn"
+
   CloudWatchDashboardName:
     Description: CloudWatch Dashboard Name
     Value: !Ref CloudWatchDashboard

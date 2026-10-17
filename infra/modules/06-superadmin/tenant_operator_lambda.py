@@ -91,8 +91,50 @@ STATE_MACHINE_DEMO_ARN = os.environ.get("STATE_MACHINE_DEMO_ARN", "")
 STATE_MACHINE_FLEET_UPGRADE_ARN = os.environ.get("STATE_MACHINE_FLEET_UPGRADE_ARN", "")
 
 
+def emit_emf_metric(Namespace, MetricName, Value, Dimensions=None, Unit="None"):
+    """Emit high-throughput metrics using AWS Embedded Metric Format (EMF) via structured stdout."""
+    try:
+        now_ms = int(time.time() * 1000)
+        dims = Dimensions or {}
+        dim_keys = list(dims.keys())
+        payload = {
+            "_aws": {
+                "Timestamp": now_ms,
+                "CloudWatchMetrics": [
+                    {
+                        "Namespace": Namespace,
+                        "Dimensions": [dim_keys] if dim_keys else [],
+                        "Metrics": [{"Name": MetricName, "Unit": Unit}],
+                    }
+                ],
+            },
+            MetricName: Value,
+        }
+        for k, v in dims.items():
+            payload[k] = v
+        print(json.dumps(payload))
+    except Exception as exc:
+        print(f"EMF emission warning: {exc}")
+
+
 def safe_put_metric_data(Namespace, MetricData):
     """Safely emit CloudWatch metrics without breaking request execution."""
+    try:
+        for item in MetricData:
+            try:
+                m_name = item.get("MetricName", "")
+                m_val = float(item.get("Value", 1.0))
+                m_unit = item.get("Unit", "None")
+                m_dims = {
+                    d.get("Name"): d.get("Value")
+                    for d in item.get("Dimensions", [])
+                }
+                emit_emf_metric(Namespace, m_name, m_val, m_dims, m_unit)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     try:
         cloudwatch.put_metric_data(Namespace=Namespace, MetricData=MetricData)
     except Exception as exc:

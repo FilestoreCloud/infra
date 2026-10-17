@@ -78,6 +78,25 @@ Parameters:
     Default: ""
     Description: ECS Security Group ID for Redis access (leave blank to import from Module 02)
 
+  EnableMultiAZ:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Whether to enable Multi-AZ deployment for automated failover (<60s) in Production
+
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 35
+    Description: Number of days to retain automated database backups for Point-In-Time Recovery (PITR)
+
+  EnablePerformanceInsights:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Whether to enable RDS Performance Insights for query-level database performance monitoring
+
 Conditions:
   HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
   HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
@@ -86,6 +105,8 @@ Conditions:
   HasECSSecurityGroupId: !Not [!Equals [!Ref ECSSecurityGroupId, ""]]
   ShouldEnableRDSProxy: !Equals [!Ref EnableRDSProxy, "true"]
   ShouldEnableRedis: !Equals [!Ref EnableRedis, "true"]
+  ShouldEnableMultiAZ: !Equals [!Ref EnableMultiAZ, "true"]
+  ShouldEnablePerformanceInsights: !Equals [!Ref EnablePerformanceInsights, "true"]
 
 Resources:
   DBSubnetGroup:
@@ -150,8 +171,9 @@ Resources:
             - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-DBSecurityGroupId"
       StorageEncrypted: true
       PubliclyAccessible: false
-      MultiAZ: false
-      BackupRetentionPeriod: 1
+      MultiAZ: !If [ShouldEnableMultiAZ, true, false]
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      EnablePerformanceInsights: !If [ShouldEnablePerformanceInsights, true, false]
       DeleteAutomatedBackups: true
       Tags:
         - Key: Name

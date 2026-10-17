@@ -48,12 +48,19 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: Provision dedicated AWS KMS Customer Managed Key (CMK) with Annual Rotation for cryptographic erasure
 
+  EnableAuditVault:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Provision dedicated Immutable S3 Audit Vault (WORM) for SOC 2 / HIPAA compliance
+
 Conditions:
   HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
   HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
   HasEFSSecurityGroupId: !Not [!Equals [!Ref EFSSecurityGroupId, ""]]
   ShouldEnableObjectLock: !Equals [!Ref EnableObjectLock, "true"]
   ShouldEnableKMS: !Equals [!Ref EnableCustomerManagedKMS, "true"]
+  ShouldEnableAuditVault: !Equals [!Ref EnableAuditVault, "true"]
 
 Resources:
   # ── S3 Multi-Tenant Object Storage Vault ─────────────────────────────────────
@@ -264,6 +271,69 @@ Resources:
       AliasName: !Sub "alias/${EnvironmentName}-storix-storage-cmk"
       TargetKeyId: !Ref StorageKMSKey
 
+  # ── S3 Immutable Audit Vault (SOC 2 / HIPAA WORM Compliance) ────────────────
+  AuditVaultBucket:
+    Type: AWS::S3::Bucket
+    Condition: ShouldEnableAuditVault
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-storix-audit-vault-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: !If [ShouldEnableKMS, "aws:kms", "AES256"]
+              KMSMasterKeyID: !If [ShouldEnableKMS, !GetAtt StorageKMSKey.Arn, !Ref "AWS::NoValue"]
+      VersioningConfiguration:
+        Status: Enabled
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: "Enabled"
+        Rule:
+          DefaultRetention:
+            Mode: GOVERNANCE
+            Days: 365
+      LifecycleConfiguration:
+        Rules:
+          - Id: AuditLogArchiveLifecycle
+            Status: Enabled
+            Transitions:
+              - StorageClass: GLACIER_IR
+                TransitionInDays: 90
+              - StorageClass: DEEP_ARCHIVE
+                TransitionInDays: 365
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-storix-audit-vault"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+        - Key: Purpose
+          Value: Immutable-Audit-Trail-WORM
+
+  AuditVaultBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: ShouldEnableAuditVault
+    Properties:
+      Bucket: !Ref AuditVaultBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnforceTLSOnly
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !Sub "${AuditVaultBucket.Arn}"
+              - !Sub "${AuditVaultBucket.Arn}/*"
+            Condition:
+              Bool:
+                "aws:SecureTransport": "false"
+
 Outputs:
   StorageKMSKeyArn:
     Condition: ShouldEnableKMS
@@ -283,6 +353,20 @@ Outputs:
     Value: !GetAtt S3VaultBucket.Arn
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-S3VaultBucketArn"
+
+  AuditVaultBucketName:
+    Condition: ShouldEnableAuditVault
+    Description: Immutable S3 Audit Vault Bucket Name
+    Value: !Ref AuditVaultBucket
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-AuditVaultBucketName"
+
+  AuditVaultBucketArn:
+    Condition: ShouldEnableAuditVault
+    Description: Immutable S3 Audit Vault Bucket ARN
+    Value: !GetAtt AuditVaultBucket.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-AuditVaultBucketArn"
 
   EFSFileSystemId:
     Description: EFS File System ID for Nextcloud Persistent Config

@@ -254,8 +254,20 @@ Resources:
             SampledRequestsEnabled: true
             CloudWatchMetricsEnabled: true
             MetricName: AWSManagedRulesSQLiRuleSetMetric
-        - Name: IPBasedRateLimitRule
+        - Name: AWS-AWSManagedRulesAmazonIpReputationList
           Priority: 4
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+          OverrideAction:
+            None: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesAmazonIpReputationListMetric
+        - Name: IPBasedRateLimitRule
+          Priority: 5
           Action:
             Block: {}
           Statement:
