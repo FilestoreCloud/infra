@@ -437,22 +437,20 @@ Resources:
                   - ecs:DescribeTasks
                   - ecs:ListTasks
                 Resource: "*"
-                Condition:
-                  ArnEquals:
-                    ecs:cluster:
-                      Fn::Sub:
-                        - "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:cluster/${CName}"
-                        - CName:
-                            Fn::If:
-                              - HasECSClusterName
-                              - !Ref ECSClusterName
-                              - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSClusterName"
               - Sid: ECSTaskDefinitionControl
                 Effect: Allow
                 Action:
                   - ecs:DescribeTaskDefinition
                   - ecs:RegisterTaskDefinition
                 Resource: "*"
+              - Sid: IAMPassRoleForTaskExecution
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: ecs-tasks.amazonaws.com
               - Sid: SSMParameterAccess
                 Effect: Allow
                 Action:
@@ -668,32 +666,38 @@ Resources:
                     tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #s=:s,#p=:p,#cs=:cs",ExpressionAttributeNames={"#s":"status","#p":"progress","#cs":"current_step"},ExpressionAttributeValues={":s":st,":p":100,":cs":"Suspended ($0 FinOps)" if st=="SUSPENDED" else "Ready & Operational"})
                     return resp(200,{"status":"OK","message":f"Tenant {tid} {st.lower()}","new_status":st})
                 if act in ("UPGRADE_TENANT_IMAGE","ROLLOUT_IMAGE","UPGRADE_IMAGE"):
-                    tid=b.get("tenant_id") or q.get("tenant_id") or "dev-tenant"
-                    img=b.get("image") or b.get("target_image")
-                    if not img:return resp(400,{"error":"image is required"})
-                    reg=os.environ.get("AWS_REGION","ap-southeast-1")
-                    ecs_cli=boto3.client("ecs",region_name=reg)
-                    cl_name=os.environ.get("CLUSTER_NAME") or f"{os.environ.get('ENVIRONMENT_NAME','dev')}-nextcloud-cluster"
-                    svc_name=f"{os.environ.get('ENVIRONMENT_NAME','dev')}-nextcloud-service"
                     try:
-                        r_desc=ecs_cli.describe_services(cluster=cl_name,services=[f"service-{tid}"])
-                        if r_desc.get("services") and r_desc["services"][0].get("status")=="ACTIVE":
-                            svc_name=f"service-{tid}"
-                    except:pass
-                    desc_svc=ecs_cli.describe_services(cluster=cl_name,services=[svc_name])
-                    cur_td=desc_svc["services"][0]["taskDefinition"]
-                    td_obj=ecs_cli.describe_task_definition(taskDefinition=cur_td)["taskDefinition"]
-                    for k in ["taskDefinitionArn","revision","status","requiresAttributes","compatibilities","registeredAt","registeredBy"]:
-                        td_obj.pop(k,None)
-                    for c in td_obj.get("containerDefinitions",[]):
-                        if c.get("name") in ["nextcloud","app"] or len(td_obj.get("containerDefinitions",[]))==1:
-                            c["image"]=img
-                    new_td=ecs_cli.register_task_definition(**td_obj)["taskDefinition"]["taskDefinitionArn"]
-                    ecs_cli.update_service(cluster=cl_name,service=svc_name,taskDefinition=new_td,deploymentConfiguration={"maximumPercent":200,"minimumHealthyPercent":100,"deploymentCircuitBreaker":{"enable":True,"rollback":True}},forceNewDeployment=True)
-                    try:
-                        tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #img=:img,#td=:td,#lu=:lu",ExpressionAttributeNames={"#img":"image","#td":"task_definition","#lu":"last_updated"},ExpressionAttributeValues={":img":img,":td":new_td,":lu":int(time.time())})
-                    except:pass
-                    return resp(200,{"status":"UPDATING","tenant_id":tid,"image":img,"task_definition":new_td,"service_name":svc_name,"message":f"Rolling container image upgrade initiated for tenant {tid} to {img}"})
+                        tid=b.get("tenant_id") or q.get("tenant_id") or "dev-tenant"
+                        img=b.get("image") or b.get("target_image")
+                        if not img:return resp(400,{"error":"image is required"})
+                        reg=os.environ.get("AWS_REGION","ap-southeast-1")
+                        ecs_cli=boto3.client("ecs",region_name=reg)
+                        cl_name=os.environ.get("CLUSTER_NAME") or f"{os.environ.get('ENVIRONMENT_NAME','dev')}-nextcloud-cluster"
+                        svc_name=f"{os.environ.get('ENVIRONMENT_NAME','dev')}-nextcloud-service"
+                        try:
+                            r_desc=ecs_cli.describe_services(cluster=cl_name,services=[f"service-{tid}"])
+                            if r_desc.get("services") and r_desc["services"][0].get("status")=="ACTIVE":
+                                svc_name=f"service-{tid}"
+                        except:pass
+                        desc_svc=ecs_cli.describe_services(cluster=cl_name,services=[svc_name])
+                        cur_td=desc_svc["services"][0]["taskDefinition"]
+                        td_raw=ecs_cli.describe_task_definition(taskDefinition=cur_td)["taskDefinition"]
+                        c_defs=td_raw.get("containerDefinitions",[])
+                        for c in c_defs:
+                            if c.get("name") in ["nextcloud","app"] or len(c_defs)==1:
+                                c["image"]=img
+                        reg_kwargs={"family":td_raw["family"],"containerDefinitions":c_defs,"volumes":td_raw.get("volumes",[])}
+                        for k in ["cpu","memory","networkMode","requiresCompatibilities","taskRoleArn","executionRoleArn"]:
+                            if k in td_raw and td_raw[k]:reg_kwargs[k]=td_raw[k]
+                        new_td=ecs_cli.register_task_definition(**reg_kwargs)["taskDefinition"]["taskDefinitionArn"]
+                        ecs_cli.update_service(cluster=cl_name,service=svc_name,taskDefinition=new_td,deploymentConfiguration={"maximumPercent":200,"minimumHealthyPercent":100,"deploymentCircuitBreaker":{"enable":True,"rollback":True}},forceNewDeployment=True)
+                        try:
+                            tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #img=:img,#td=:td,#lu=:lu",ExpressionAttributeNames={"#img":"image","#td":"task_definition","#lu":"last_updated"},ExpressionAttributeValues={":img":img,":td":new_td,":lu":int(time.time())})
+                        except:pass
+                        return resp(200,{"status":"UPDATING","tenant_id":tid,"image":img,"task_definition":new_td,"service_name":svc_name,"message":f"Rolling container image upgrade initiated for tenant {tid} to {img}"})
+                    except Exception as err:
+                        print(f"Error in UPGRADE_TENANT_IMAGE: {err}")
+                        return resp(500,{"status":"FAILED","error":str(err)})
                 if act in ("DELETE","DEPROVISION"):
                     tid=b.get("tenant_id") or q.get("tenant_id")
                     if tid:tbl.delete_item(Key={"tenant_id":tid})
