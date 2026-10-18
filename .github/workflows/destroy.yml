@@ -38,6 +38,16 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
+      - name: Checkout Infra Repository
+        uses: actions/checkout@v4
+
+      - name: Cleanup Cloudflare DNS Records
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          python3 scripts/manage_dns.py clean --env "${{ inputs.environment }}" --zone png261.dev
+
       - name: Destroy 07-Observability
         continue-on-error: true
         uses: go-to-k/delstack@main
