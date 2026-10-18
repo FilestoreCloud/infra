@@ -42,7 +42,11 @@ from operator_core.webhooks import (
     dispatch_webhook_notification,
     test_webhook_endpoint,
 )
-from operator_core.occ import execute_tenant_occ
+from operator_core.occ import (
+    execute_tenant_occ,
+    execute_tenant_occ_async,
+    check_tenant_occ_job,
+)
 from operator_core.observability import (
     get_tenant_container_logs,
     get_step_functions_observability,
@@ -131,6 +135,8 @@ __all__ = [
     "dispatch_webhook_notification",
     "test_webhook_endpoint",
     "execute_tenant_occ",
+    "execute_tenant_occ_async",
+    "check_tenant_occ_job",
     "get_tenant_container_logs",
     "get_step_functions_observability",
     "get_live_execution_stream",

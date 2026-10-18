@@ -631,15 +631,21 @@ Resources:
 
           const pageLoadBlueprint = async function () {
               const url = process.env.TARGET_URL || 'http://localhost';
+              const startTime = Date.now();
               let page = await synthetics.getPage();
               const response = await page.goto(url, {waitUntil: ['load', 'networkidle0'], timeout: 30000});
               if (!response) {
                   throw "Failed to load page!";
               }
               const status = response.status();
-              log.info(`Target URL ${url} returned status code: ${status}`);
+              const latencyMs = Date.now() - startTime;
+              log.info(`Target URL ${url} returned status: ${status} in ${latencyMs}ms`);
               if (status >= 400) {
                   throw `Endpoint returned HTTP status ${status}`;
+              }
+              const content = await page.content();
+              if (!content.includes('installed') && !content.includes('Storix') && !content.includes('Nextcloud')) {
+                  log.warn('Status response did not contain expected health indicators');
               }
           };
 
