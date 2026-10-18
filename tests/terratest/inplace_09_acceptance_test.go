@@ -497,6 +497,8 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		Payload:      upgradePayload,
 	})
 	require.NoError(t, err, "Failed to invoke UPGRADE_TENANT_IMAGE action")
+	require.Nil(t, upgradeInv.FunctionError, fmt.Sprintf("Lambda invocation failed with FunctionError: %v (Payload: %s)", upgradeInv.FunctionError, string(upgradeInv.Payload)))
+	t.Logf("   -> Raw Lambda Response: %s", string(upgradeInv.Payload))
 
 	var upgradeResp struct {
 		StatusCode int    `json:"statusCode"`
@@ -521,6 +523,19 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		}
 		if inner.Error != "" {
 			upgradeResp.Error = inner.Error
+		}
+	}
+	// Fallback to top-level fields if invoked directly without ALB wrapper
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(upgradeInv.Payload, &rawMap); err == nil {
+		if upgradeResp.Status == "" && rawMap["status"] != nil {
+			upgradeResp.Status = fmt.Sprintf("%v", rawMap["status"])
+		}
+		if upgradeResp.TaskDef == "" && rawMap["task_definition"] != nil {
+			upgradeResp.TaskDef = fmt.Sprintf("%v", rawMap["task_definition"])
+		}
+		if upgradeResp.Error == "" && rawMap["error"] != nil {
+			upgradeResp.Error = fmt.Sprintf("%v", rawMap["error"])
 		}
 	}
 	require.Empty(t, upgradeResp.Error, fmt.Sprintf("Image upgrade failed: %s", upgradeResp.Error))
