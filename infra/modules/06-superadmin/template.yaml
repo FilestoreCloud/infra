@@ -82,7 +82,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   DynamoDBAuditLogs:
     Type: AWS::DynamoDB::Table
@@ -108,7 +108,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   AuditLogGroup:
     Type: AWS::Logs::LogGroup
@@ -119,7 +119,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   StepFunctionsLogGroup:
     Type: AWS::Logs::LogGroup
@@ -130,7 +130,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   # ============================================================================
   # CUSTOM EVENTBUS, SQS QUEUE & DEAD-LETTER QUEUE (DLQ)
@@ -217,7 +217,7 @@ Resources:
       MfaConfiguration: "OFF"
       UserPoolTags:
         Environment: !Ref EnvironmentName
-        Application: Nextcloud-SaaS-Control-Plane
+        Application: storix
 
   AdminUserPoolClient:
     Type: AWS::Cognito::UserPoolClient
@@ -253,7 +253,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SuperAdmin-Web
+          Value: storix
 
   AdminWebCloudFrontOAC:
     Type: AWS::CloudFront::OriginAccessControl
@@ -367,7 +367,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SuperAdmin-Web
+          Value: storix
 
   TenantOperatorLambdaRole:
     Type: AWS::IAM::Role
@@ -720,12 +720,12 @@ Resources:
                         {"id":"ACTIVE","name":"Operational Active","percent":100,"status":"completed" if p>=100 else "pending"}
                     ]
                     return resp(200,{"tenantId":tid,"status":st,"progress":p,"currentStep":cs,"elapsedSeconds":24,"estimatedRemainingSeconds":max(0,int((100-p)*0.8)),"milestones":ms,"liveStream":True})
-                return resp(200,{"status":"OK","action":act or "HEALTH","service":"Nextcloud-SaaS-Control-Plane"})
+                return resp(200,{"status":"OK","action":act or "HEALTH","service":"storix-control-plane"})
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   TenantOperatorFunctionUrl:
     Type: AWS::Lambda::Url
@@ -874,7 +874,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   TenantWorkerInvokePermission:
     Type: AWS::Lambda::Permission
@@ -1315,7 +1315,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
   TenantSuspensionStateMachine:
     Type: AWS::StepFunctions::StateMachine
     Properties:
@@ -1415,7 +1415,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   TenantResumptionStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -1640,7 +1640,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   TenantDeprovisioningStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -1914,7 +1914,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   TenantDemoProvisioningStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -1963,7 +1963,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
   TenantFleetUpgradeStateMachine:
     Type: AWS::StepFunctions::StateMachine
@@ -2448,7 +2448,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Control-Plane
+          Value: storix
 
 Outputs:
   TenantFleetUpgradeStateMachineArn:

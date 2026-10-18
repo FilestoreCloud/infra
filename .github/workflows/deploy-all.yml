@@ -120,6 +120,7 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-01-networking
           template: infra/modules/01-networking/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -144,6 +145,7 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-02-security
           template: infra/modules/02-security/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -168,6 +170,7 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-03-storage
           template: infra/modules/03-storage/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -192,6 +195,7 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-04-database
           template: infra/modules/04-database/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }},DBPassword=${{ secrets.DB_PASSWORD }}"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -222,6 +226,7 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ needs.build-runtime.outputs.image_uri }},CreateECRRepository=false"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -255,6 +260,7 @@ jobs:
           s3-bucket: ${{ inputs.environment }}-nextcloud-vault-${{ steps.aws-creds.outputs.aws-account-id }}-${{ vars.AWS_REGION }}
           s3-prefix: cfn-templates
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
@@ -280,6 +286,7 @@ jobs:
           name: ${{ inputs.environment }}-nextcloud-07-observability
           template: infra/modules/07-observability/template.yaml
           parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 

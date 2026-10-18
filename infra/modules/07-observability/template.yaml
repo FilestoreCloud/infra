@@ -65,7 +65,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Observability
+          Value: storix
 
   # ============================================================================
   # PLATFORM CENTRAL LOG GROUP
@@ -79,7 +79,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS-Observability
+          Value: storix
 
   # ============================================================================
   # REAL-TIME CLOUDWATCH METRIC DASHBOARD

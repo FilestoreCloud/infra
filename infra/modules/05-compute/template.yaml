@@ -885,7 +885,7 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
         - Key: Application
-          Value: Nextcloud-SaaS
+          Value: storix
 
   SSMCloudFrontDomain:
     Type: AWS::SSM::Parameter
