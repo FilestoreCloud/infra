@@ -127,12 +127,12 @@ Diagram:
     FargateTask1:
       Type: AWS::Diagram::Resource
       Preset: "AWS Fargate"
-      Title: "Tenant Acme (service-acme: 1-4 Tasks)\nDual Container: Nextcloud 30 + LiteLLM Sidecar\nAuto-Scaled: CPU > 70%"
+      Title: "Tenant Acme (service-acme: 1-4 Tasks)\nAWS Graviton ARM64 · High-Concurrency\nNextcloud 30 + LiteLLM Sidecar"
 
     FargateTask2:
       Type: AWS::Diagram::Resource
       Preset: "AWS Fargate"
-      Title: "Tenant Marvel (service-marvel: 1-4 Tasks)\nDual Container: Nextcloud 30 + LiteLLM Sidecar\nAuto-Scaled: CPU > 70%"
+      Title: "Tenant Marvel (service-marvel: 1-4 Tasks)\nAWS Graviton ARM64 · High-Concurrency\nNextcloud 30 + LiteLLM Sidecar"
 
     SharedStorageRow:
       Type: AWS::Diagram::HorizontalStack
@@ -143,24 +143,30 @@ Diagram:
     NextcloudEFS:
       Type: AWS::Diagram::Resource
       Preset: "Amazon Elastic File System (Amazon EFS)"
-      Title: "Amazon EFS (/tenants/{id}/config Access Points)\nPOSIX UID 33:33 (www-data) Encrypted"
+      Title: "Amazon EFS (/tenants/{id}/config)\nLifecycle: 30d IA · 90d Archive Tier\nPOSIX UID 33:33 (www-data) Encrypted"
 
     S3GatewayEndpoint:
       Type: AWS::EC2::VPCEndpoint
       Title: "S3 Gateway Endpoint\n(Complimentary / Zero-NAT Routing)"
 
-    # Private Subnets (AZ1 & AZ2): Isolated RDS Relational Database Tier
+    # Private Subnets (AZ1 & AZ2): Isolated RDS Relational Database Tier & Connection Proxy
     PrivateSubnetGroup:
       Type: AWS::EC2::Subnet
       Preset: PrivateSubnet
-      Title: "Private Subnets AZ1 & AZ2 (Isolated Relational Data Tier)"
+      Title: "Private Subnets AZ1 & AZ2 (Isolated Relational Data Tier & RDS Proxy Pooler)"
       Direction: horizontal
       Children:
+        - RDSProxy
         - RDSInstance
+
+    RDSProxy:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon RDS proxy instance"
+      Title: "Amazon RDS Proxy\n(Connection Pooler & Secrets Integration)\nZero-Downtime Failover & Concurrency"
 
     RDSInstance:
       Type: AWS::RDS::DBInstance
-      Title: "Amazon RDS PostgreSQL 16 (AWS Graviton2)\nDedicated Catalogs: nc_acme, nc_marvel\nPrivate Subnet Group · Encrypted KMS"
+      Title: "Amazon RDS PostgreSQL 16 (AWS Graviton)\nDedicated Catalogs: nc_acme, nc_marvel\nPrivate Subnet Group · Encrypted KMS"
 
     # ─────────────────────────────────────────────────────────────
     # REGIONAL SERVICES & PLATFORM INTEGRATIONS
@@ -180,7 +186,7 @@ Diagram:
 
     S3VaultBucket:
       Type: AWS::S3::Bucket
-      Title: "Amazon S3 Vault\n(s3://vault/tenants/{id}/*)\nIntelligent Tiering & Encryption"
+      Title: "Amazon S3 Vault (Multi-Tier)\n(s3://vault/tenants/{id}/*)\nIntelligent-Tiering · 180d Glacier Archive\nEventBridge S3 Notifications"
 
     SecretsManager:
       Type: AWS::SecretsManager::Secret
@@ -188,22 +194,34 @@ Diagram:
 
     ECRRepo:
       Type: AWS::ECR
-      Title: "Amazon ECR\n(Golden Image: Nextcloud 30\n+ Bedrock Assistant Tools)"
+      Title: "Amazon ECR (Multi-Arch: ARM64/x86)\n(Golden Image: Nextcloud 30)\nAWS SOCI Fast Cold Start Indexing"
 
     AIAndObservabilityRow:
       Type: AWS::Diagram::HorizontalStack
       Children:
         - BedrockAI
+        - DedicatedCronRunner
         - CloudWatchLog
+        - SyntheticsCanary
 
     BedrockAI:
       Type: AWS::Diagram::Resource
       Preset: "Amazon Bedrock"
       Title: "Amazon Bedrock (Claude 3.5 Sonnet)\nSigV4 IAM Task Role Invocation\nContext Chat & Document AI"
 
+    DedicatedCronRunner:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon EventBridge"
+      Title: "EventBridge Dedicated Cron\n(rate(5 mins) -> ECS Run-Task)\nDecoupled Background Queue"
+
     CloudWatchLog:
       Type: AWS::CloudWatch
-      Title: "Amazon CloudWatch Logs\n(/ecs/nextcloud & Container Insights)\nStructured Log Streaming"
+      Title: "Amazon CloudWatch Logs\n(/ecs/nextcloud & Container Insights)\nStructured Log Streaming & EMF"
+
+    SyntheticsCanary:
+      Type: AWS::Diagram::Resource
+      Preset: "Synthetics"
+      Title: "CloudWatch Synthetics Canary\n(24/7 Endpoint Health Probes)\nLatency Tracking & Content Verification"
 
   # ─────────────────────────────────────────────────────────────
   # RELATIONSHIPS & TRAFFIC FLOW
@@ -310,19 +328,45 @@ Diagram:
         Type: Open
       Type: orthogonal
 
-    # Database Isolation: Dedicated Tasks -> Dedicated Databases in RDS PostgreSQL
+    # Database Isolation & Pooling: Dedicated Tasks -> RDS Proxy -> PostgreSQL
     - Source: FargateTask1
       SourcePosition: W
-      Target: RDSInstance
-      TargetPosition: W
+      Target: RDSProxy
+      TargetPosition: NW
       TargetArrowHead:
         Type: Open
       Type: orthogonal
 
     - Source: FargateTask2
       SourcePosition: S
-      Target: RDSInstance
+      Target: RDSProxy
       TargetPosition: NE
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: RDSProxy
+      SourcePosition: E
+      Target: RDSInstance
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Cron Runner Trigger: Dedicated EventBridge Cron -> Fargate Tasks
+    - Source: DedicatedCronRunner
+      SourcePosition: W
+      Target: FargateTask2
+      TargetPosition: E
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Synthetics Monitoring: Canary -> ALB Ingress
+    - Source: SyntheticsCanary
+      SourcePosition: N
+      Target: ALB
+      TargetPosition: ESE
       TargetArrowHead:
         Type: Open
       Type: orthogonal
