@@ -32,6 +32,9 @@ def publish_tenant_event(
       - TenantResumed: payload with previous_status
       - StorageLimitReached: payload with current_usage_gb, quota_gb, percent_used
       - TenantCustomDomainRegistered: payload with custom_domain, status, cname_target
+      - StorageQuotaWarning: payload with storage_used_gb, quota_gb, quota_utilization_pct, warning_level
+      - TenantDataExportRequested: payload with database_name, download_url, expires_in_hours
+      - TenantCryptoShredded: payload with status, shredded_at, compliance_standard
     """
     payload = {
         "metadata": {

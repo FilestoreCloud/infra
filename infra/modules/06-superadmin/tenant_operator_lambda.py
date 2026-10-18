@@ -49,6 +49,9 @@ from operator_core import (  # noqa: E402
     get_tenant_container_logs,
     get_tenant_detail,
     get_tenant_finops,
+    get_tenant_health,
+    export_tenant_data,
+    crypto_shred_tenant_data,
     get_tenant_metrics,
     get_webhook_config,
     register_tenant_custom_domain,
@@ -2261,6 +2264,50 @@ def _handle_request(event, context):
                 "statusCode": 200,
                 "headers": CORS_HEADERS,
                 "body": json.dumps(domain_res),
+            }
+
+        elif action in ["GET_TENANT_HEALTH", "TENANT_HEALTH", "HEALTH"]:
+            health_res = get_tenant_health(tenant_id)
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(health_res),
+            }
+
+        elif action in ["EXPORT_TENANT_DATA", "TENANT_EXPORT", "EXPORT"]:
+            export_res = export_tenant_data(tenant_id)
+            record_audit_event(
+                user_info.get("user") if user_info else "SYSTEM",
+                user_role,
+                "EXPORT_TENANT_DATA",
+                tenant_id,
+                "SUCCESS",
+                export_res,
+                client_ip,
+                user_agent,
+            )
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(export_res),
+            }
+
+        elif action in ["CRYPTO_SHRED_TENANT", "CRYPTO_SHRED", "SHRED_DATA"]:
+            shred_res = crypto_shred_tenant_data(tenant_id)
+            record_audit_event(
+                user_info.get("user") if user_info else "SYSTEM",
+                user_role,
+                "CRYPTO_SHRED_TENANT",
+                tenant_id,
+                "SUCCESS",
+                shred_res,
+                client_ip,
+                user_agent,
+            )
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(shred_res),
             }
 
         elif action in ["RESTART_AGENT", "RESTART_TENANT_AGENT"]:
