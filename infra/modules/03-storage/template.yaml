@@ -82,12 +82,31 @@ Resources:
       VersioningConfiguration:
         Status: Enabled
       ObjectLockEnabled: !If [ShouldEnableObjectLock, true, !Ref "AWS::NoValue"]
+      CorsConfiguration:
+        CorsRules:
+          - Id: StorixDirectUploadCors
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            AllowedHeaders:
+              - "*"
+            ExposedHeaders:
+              - ETag
+              - x-amz-server-side-encryption
+              - x-amz-request-id
+              - x-amz-id-2
+            MaxAge: 3600
       LifecycleConfiguration:
         Rules:
           - Id: TenantStorageLifecycleOptimization
             Status: Enabled
             AbortIncompleteMultipartUpload:
-              DaysAfterInitiation: 7
+              DaysAfterInitiation: 3
             Transitions:
               - StorageClass: INTELLIGENT_TIERING
                 TransitionInDays: 0

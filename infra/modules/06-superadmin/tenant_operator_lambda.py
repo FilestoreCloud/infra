@@ -48,8 +48,10 @@ from operator_core import (  # noqa: E402
     get_tenant_accounts_data,
     get_tenant_container_logs,
     get_tenant_detail,
+    get_tenant_finops,
     get_tenant_metrics,
     get_webhook_config,
+    register_tenant_custom_domain,
     register_tenant_task_definition,
     save_tenant_accounts,
     save_webhook_config,
@@ -2232,6 +2234,33 @@ def _handle_request(event, context):
                 "statusCode": 200,
                 "headers": CORS_HEADERS,
                 "body": json.dumps(metrics),
+            }
+
+        elif action in ["GET_TENANT_FINOPS", "TENANT_FINOPS", "FINOPS"]:
+            finops = get_tenant_finops(tenant_id)
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(finops),
+            }
+
+        elif action in ["REGISTER_CUSTOM_DOMAIN", "SET_CUSTOM_DOMAIN"]:
+            c_domain = payload.get("custom_domain") or payload.get("domain") or ""
+            domain_res = register_tenant_custom_domain(tenant_id, c_domain)
+            record_audit_event(
+                user_info.get("user"),
+                user_role,
+                "REGISTER_CUSTOM_DOMAIN",
+                tenant_id,
+                "SUCCESS",
+                {"custom_domain": c_domain},
+                client_ip,
+                user_agent,
+            )
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(domain_res),
             }
 
         elif action in ["RESTART_AGENT", "RESTART_TENANT_AGENT"]:
