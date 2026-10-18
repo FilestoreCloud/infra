@@ -59,6 +59,9 @@ from operator_core.tenants import (
     get_tenant_detail,
     get_tenant_finops,
     register_tenant_custom_domain,
+    get_tenant_health,
+    export_tenant_data,
+    crypto_shred_tenant_data,
 )
 from operator_core.lifecycle import (
     ensure_tenant_efs_access_point,
@@ -141,6 +144,9 @@ __all__ = [
     "get_tenant_detail",
     "get_tenant_finops",
     "register_tenant_custom_domain",
+    "get_tenant_health",
+    "export_tenant_data",
+    "crypto_shred_tenant_data",
     "ensure_tenant_efs_access_point",
     "register_tenant_task_definition",
     "clone_tenant_to_sandbox",

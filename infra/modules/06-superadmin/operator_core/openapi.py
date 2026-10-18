@@ -187,6 +187,45 @@ def get_openapi_spec() -> Dict[str, Any]:
                     },
                 }
             },
+            "/tenants/{tenantId}/health": {
+                "get": {
+                    "summary": "Retrieve real-time tenant health, p95 latency, 5xx error rate, and quota limit alerts",
+                    "operationId": "getTenantHealth",
+                    "security": [{"BearerAuth": []}],
+                    "parameters": [
+                        {"name": "tenantId", "in": "path", "required": True, "schema": {"type": "string"}}
+                    ],
+                    "responses": {
+                        "200": {"description": "Real-time tenant health metrics returned"},
+                    },
+                }
+            },
+            "/tenants/{tenantId}/export": {
+                "post": {
+                    "summary": "Request self-service tenant database takeout and data export for GDPR portability",
+                    "operationId": "exportTenantData",
+                    "security": [{"BearerAuth": []}],
+                    "parameters": [
+                        {"name": "tenantId", "in": "path", "required": True, "schema": {"type": "string"}}
+                    ],
+                    "responses": {
+                        "200": {"description": "Tenant data export initiated with presigned manifest URL"},
+                    },
+                }
+            },
+            "/tenants/{tenantId}/crypto-shred": {
+                "post": {
+                    "summary": "Permanently cryptographically erase tenant data for GDPR Article 17 Right-to-be-Forgotten compliance",
+                    "operationId": "cryptoShredTenantData",
+                    "security": [{"BearerAuth": []}],
+                    "parameters": [
+                        {"name": "tenantId", "in": "path", "required": True, "schema": {"type": "string"}}
+                    ],
+                    "responses": {
+                        "200": {"description": "Tenant cryptographically shredded and decommissioned"},
+                    },
+                }
+            },
             "/tenants/{tenantId}/custom-domain": {
                 "post": {
                     "summary": "Register and provision white-label custom domain and SSL for tenant",
