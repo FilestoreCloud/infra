@@ -24,12 +24,12 @@ Parameters:
   TransitionToIADays:
     Type: Number
     Default: 30
-    Description: Number of days before transitioning noncurrent file versions to S3 Standard-IA (Infrequent Access)
+    Description: Number of days before transitioning noncurrent file versions to S3 Glacier Instant Retrieval (GLACIER_IR)
 
   TransitionToGlacierDays:
     Type: Number
     Default: 90
-    Description: Number of days before transitioning noncurrent file versions to S3 Glacier Flexible Archive
+    Description: Number of days before transitioning noncurrent file versions to S3 Glacier Deep Archive (DEEP_ARCHIVE)
 
   NoncurrentVersionExpirationDays:
     Type: Number
@@ -101,6 +101,9 @@ Resources:
               - x-amz-request-id
               - x-amz-id-2
             MaxAge: 3600
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
       LifecycleConfiguration:
         Rules:
           - Id: TenantStorageLifecycleOptimization
@@ -111,9 +114,9 @@ Resources:
               - StorageClass: INTELLIGENT_TIERING
                 TransitionInDays: 0
             NoncurrentVersionTransitions:
-              - StorageClass: STANDARD_IA
+              - StorageClass: GLACIER_IR
                 TransitionInDays: !Ref TransitionToIADays
-              - StorageClass: GLACIER
+              - StorageClass: DEEP_ARCHIVE
                 TransitionInDays: !Ref TransitionToGlacierDays
             NoncurrentVersionExpiration:
               NoncurrentDays: !Ref NoncurrentVersionExpirationDays
