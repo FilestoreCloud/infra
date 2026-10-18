@@ -154,6 +154,7 @@ Resources:
       ThroughputMode: elastic
       LifecyclePolicies:
         - TransitionToIA: AFTER_30_DAYS
+        - TransitionToArchive: AFTER_90_DAYS
         - TransitionToPrimaryStorageClass: AFTER_1_ACCESS
       FileSystemTags:
         - Key: Name

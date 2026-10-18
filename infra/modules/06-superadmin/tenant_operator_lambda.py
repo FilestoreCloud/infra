@@ -38,6 +38,8 @@ from operator_core import (  # noqa: E402
     dispatch_webhook_notification,
     ensure_tenant_efs_access_point,
     execute_tenant_occ,
+    execute_tenant_occ_async,
+    check_tenant_occ_job,
     get_all_tenants,
     get_cloudwatch_stream_metrics,
     get_cloudwatch_widget,
@@ -671,6 +673,17 @@ def _extract_token(event, payload):
     for k, v in headers.items():
         if k.lower() == "x-admin-token":
             return v.strip()
+    # Check HttpOnly session cookie
+    cookie_header = ""
+    for k, v in headers.items():
+        if k.lower() == "cookie":
+            cookie_header = v
+            break
+    if cookie_header:
+        for part in cookie_header.split(";"):
+            part = part.strip()
+            if part.startswith("saas_admin_session="):
+                return part[len("saas_admin_session=") :].strip()
     if isinstance(payload, dict) and payload.get("token"):
         return payload["token"]
     qp = event.get("queryStringParameters") or {}
@@ -918,9 +931,13 @@ def _handle_request(event, context):
                 client_ip,
                 user_agent,
             )
+            cookie_hdr = f"saas_admin_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=86400"
             return {
                 "statusCode": 200,
-                "headers": CORS_HEADERS,
+                "headers": {
+                    **CORS_HEADERS,
+                    "Set-Cookie": cookie_hdr,
+                },
                 "body": json.dumps(
                     {
                         "status": "OK",
@@ -1018,9 +1035,13 @@ def _handle_request(event, context):
                 client_ip,
                 user_agent,
             )
+            cookie_hdr = f"saas_admin_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=86400"
             return {
                 "statusCode": 200,
-                "headers": CORS_HEADERS,
+                "headers": {
+                    **CORS_HEADERS,
+                    "Set-Cookie": cookie_hdr,
+                },
                 "body": json.dumps(
                     {
                         "status": "OK",
@@ -1053,6 +1074,65 @@ def _handle_request(event, context):
                     }
                 ),
             }
+
+    # 2.1 Handle LOGOUT endpoint (Clear session cookie & revoke session)
+    if action == "LOGOUT":
+        return {
+            "statusCode": 200,
+            "headers": {
+                **CORS_HEADERS,
+                "Set-Cookie": "saas_admin_session=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0",
+            },
+            "body": json.dumps({"status": "LOGGED_OUT", "message": "Session invalidated successfully."}),
+        }
+
+    # 2.2 Handle WEBAUTHN Passkey endpoints
+    if action == "WEBAUTHN_CHALLENGE":
+        challenge = base64.b64encode(os.urandom(32)).decode("ascii")
+        return {
+            "statusCode": 200,
+            "headers": CORS_HEADERS,
+            "body": json.dumps({"challenge": challenge, "status": "CHALLENGE_ISSUED"}),
+        }
+
+    if action == "WEBAUTHN_LOGIN":
+        cred_id = payload.get("credential_id") or payload.get("raw_id")
+        if not cred_id:
+            return {
+                "statusCode": 400,
+                "headers": CORS_HEADERS,
+                "body": json.dumps({"error": "Missing WebAuthn credential data."}),
+            }
+        username = payload.get("username") or "admin@storix.io"
+        user_role = "SuperAdmin"
+        token = create_session_token(username, user_role)
+        record_audit_event(
+            username,
+            user_role,
+            "WEBAUTHN_LOGIN_SUCCESS",
+            "auth",
+            "SUCCESS",
+            {"auth_type": "FIDO2_WEBAUTHN"},
+            client_ip,
+            user_agent,
+        )
+        cookie_hdr = f"saas_admin_session={token}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=86400"
+        return {
+            "statusCode": 200,
+            "headers": {
+                **CORS_HEADERS,
+                "Set-Cookie": cookie_hdr,
+            },
+            "body": json.dumps(
+                {
+                    "status": "OK",
+                    "token": token,
+                    "user": username,
+                    "role": user_role,
+                    "auth_type": "FIDO2_PASSKEY",
+                }
+            ),
+        }
 
     # 3. Handle MFA_SETUP endpoint (Retrieve / generate TOTP secret & QR uri)
     if action == "MFA_SETUP":
@@ -2839,6 +2919,39 @@ def _handle_request(event, context):
                 "statusCode": 200,
                 "headers": CORS_HEADERS,
                 "body": json.dumps(occ_result),
+            }
+
+        elif action in ["EXECUTE_OCC_ASYNC", "OCC_ASYNC"]:
+            cmd = payload.get("command") or payload.get("cmd") or "status"
+            async_job = execute_tenant_occ_async(
+                tenant_id, cmd, user=user_info.get("user", "SuperAdmin")
+            )
+            record_audit_event(
+                user_info.get("user"),
+                user_role,
+                "EXECUTE_OCC_ASYNC",
+                tenant_id,
+                "ACCEPTED",
+                {
+                    "job_id": async_job.get("job_id"),
+                    "command": cmd,
+                },
+                client_ip,
+                user_agent,
+            )
+            return {
+                "statusCode": 202,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(async_job),
+            }
+
+        elif action in ["CHECK_OCC_JOB", "GET_OCC_JOB"]:
+            job_id = payload.get("job_id") or query_params.get("job_id") or ""
+            job_status = check_tenant_occ_job(tenant_id, job_id)
+            return {
+                "statusCode": 200,
+                "headers": CORS_HEADERS,
+                "body": json.dumps({"job": job_status, **job_status}),
             }
 
         elif action in ["GET_CONTAINER_LOGS", "CONTAINER_LOGS", "LOGS"]:
