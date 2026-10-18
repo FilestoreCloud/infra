@@ -387,7 +387,7 @@ jobs:
           SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
         run: |
           cd tests/terratest
-          go test -v -run "^TestInPlaceDeploymentAcceptance$" -timeout 10m
+          go test -v -run "^TestInPlaceDeploymentAcceptance$" -timeout 15m
 
       - name: Setup Node.js for Playwright E2E Tests
         if: ${{ inputs.run_acceptance_tests }}

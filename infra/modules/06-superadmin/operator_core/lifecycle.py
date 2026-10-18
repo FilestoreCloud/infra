@@ -118,10 +118,8 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         "name": "nextcloud",
         "image": infra.get("ecr_image", "nextcloud:30.0.17-apache"),
         "essential": True,
-        "entryPoint": ["sh", "-c"],
-        "command": [
-            "cp -rn /usr/src/nextcloud/. /var/www/html/ && mkdir -p /var/www/html/data && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && exec /entrypoint.sh apache2-foreground"
-        ],
+        "entryPoint": ["/storix-entrypoint.sh"],
+        "command": ["apache2-foreground"],
         "portMappings": [{"containerPort": 80, "hostPort": 80, "protocol": "tcp"}],
         "mountPoints": mounts,
         "environment": env_vars,

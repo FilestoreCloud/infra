@@ -271,6 +271,98 @@ class TestTenantOperatorLambdaUnit(unittest.TestCase):
             self.assertEqual(metric_args["MetricData"][0]["Value"], 1.0)
             self.assertEqual(metric_args["MetricData"][0]["MetricName"], "TenantActiveStatus")
 
+    # ──────────────────────────────────────────────────────────────────────────
+    # 7. Live Tenant Container Image Upgrade (Zero Downtime Rolling Update)
+    # ──────────────────────────────────────────────────────────────────────────
+    def test_single_tenant_image_upgrade_rolling_update(self):
+        """Verify UPGRADE_TENANT_IMAGE performs zero-downtime rolling update on running tenant."""
+        token = tol.create_session_token("admin", "SuperAdmin", self.mock_signing_key)
+        target_image = "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/dev-nextcloud-enterprise:v2.0.0"
+        event = {
+            "httpMethod": "POST",
+            "headers": {"authorization": f"Bearer {token}", "content-type": "application/json"},
+            "body": json.dumps({
+                "action": "UPGRADE_TENANT_IMAGE",
+                "tenant_id": "tenant-live-upgrade",
+                "image": target_image,
+            }),
+        }
+
+        mock_old_td = {
+            "taskDefinition": {
+                "taskDefinitionArn": "arn:aws:ecs:ap-southeast-1:123456789012:task-definition/test-nextcloud:1",
+                "family": "test-nextcloud",
+                "revision": 1,
+                "status": "ACTIVE",
+                "containerDefinitions": [
+                    {
+                        "name": "nextcloud",
+                        "image": "123456789012.dkr.ecr.ap-southeast-1.amazonaws.com/dev-nextcloud-enterprise:v1.0.0",
+                        "cpu": 512,
+                        "memory": 1024,
+                    }
+                ],
+            }
+        }
+        mock_new_td = {
+            "taskDefinition": {
+                "taskDefinitionArn": "arn:aws:ecs:ap-southeast-1:123456789012:task-definition/test-nextcloud:2",
+                "family": "test-nextcloud",
+                "revision": 2,
+            }
+        }
+
+        with patch.object(tol, "get_signing_key", return_value=self.mock_signing_key), \
+             patch.object(tol.dynamodb, "get_item", return_value={"Item": {"tenant_id": {"S": "tenant-live-upgrade"}, "service_name": {"S": "service-tenant-live-upgrade"}}}), \
+             patch.object(tol.dynamodb, "update_item") as mock_dynamo_up, \
+             patch.object(tol.ecs, "describe_services", return_value={"services": [{"serviceName": "service-tenant-live-upgrade", "status": "ACTIVE", "taskDefinition": "arn:aws:ecs:ap-southeast-1:123456789012:task-definition/test-nextcloud:1"}]}), \
+             patch.object(tol.ecs, "describe_task_definition", return_value=mock_old_td), \
+             patch.object(tol.ecs, "register_task_definition", return_value=mock_new_td) as mock_reg_td, \
+             patch.object(tol.ecs, "update_service") as mock_update_svc:
+
+            resp = tol.lambda_handler(event, None)
+            self.assertEqual(resp["statusCode"], 200)
+            body = json.loads(resp["body"])
+            self.assertEqual(body.get("status"), "UPDATING")
+            self.assertEqual(body.get("tenant_id"), "tenant-live-upgrade")
+            self.assertEqual(body.get("image"), target_image)
+            self.assertEqual(body.get("task_definition"), "arn:aws:ecs:ap-southeast-1:123456789012:task-definition/test-nextcloud:2")
+
+            # Verify register_task_definition called with new image
+            mock_reg_td.assert_called_once()
+            reg_kwargs = mock_reg_td.call_args[1]
+            self.assertEqual(reg_kwargs["containerDefinitions"][0]["image"], target_image)
+
+            # Verify update_service invoked with rolling update configuration (200% max, 100% min healthy)
+            mock_update_svc.assert_called_once()
+            _, update_kwargs = mock_update_svc.call_args
+            self.assertEqual(update_kwargs.get("taskDefinition"), "arn:aws:ecs:ap-southeast-1:123456789012:task-definition/test-nextcloud:2")
+            self.assertTrue(update_kwargs.get("forceNewDeployment"))
+            dep_cfg = update_kwargs.get("deploymentConfiguration", {})
+            self.assertEqual(dep_cfg.get("maximumPercent"), 200)
+            self.assertEqual(dep_cfg.get("minimumHealthyPercent"), 100)
+            self.assertTrue(dep_cfg.get("deploymentCircuitBreaker", {}).get("enable"))
+
+            # Verify DynamoDB item updated with new task definition and image
+            mock_dynamo_up.assert_called_once()
+
+    def test_single_tenant_image_upgrade_missing_image(self):
+        """Verify UPGRADE_TENANT_IMAGE returns 400 Bad Request when image is omitted."""
+        token = tol.create_session_token("admin", "SuperAdmin", self.mock_signing_key)
+        event = {
+            "httpMethod": "POST",
+            "headers": {"authorization": f"Bearer {token}", "content-type": "application/json"},
+            "body": json.dumps({
+                "action": "UPGRADE_TENANT_IMAGE",
+                "tenant_id": "tenant-live-upgrade",
+            }),
+        }
+        with patch.object(tol, "get_signing_key", return_value=self.mock_signing_key):
+            resp = tol.lambda_handler(event, None)
+            self.assertEqual(resp["statusCode"], 400)
+            body = json.loads(resp["body"])
+            self.assertIn("error", body)
+
 
 if __name__ == "__main__":
     unittest.main()
