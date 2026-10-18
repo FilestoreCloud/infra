@@ -28,8 +28,8 @@ Parameters:
 
   TransitionToGlacierDays:
     Type: Number
-    Default: 90
-    Description: Number of days before transitioning noncurrent file versions to S3 Glacier Deep Archive (DEEP_ARCHIVE)
+    Default: 180
+    Description: Number of days before transitioning noncurrent file versions to S3 Glacier Deep Archive (DEEP_ARCHIVE, must be >= 90 days after GLACIER_IR)
 
   NoncurrentVersionExpirationDays:
     Type: Number
