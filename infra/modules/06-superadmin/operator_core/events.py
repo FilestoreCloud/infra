@@ -31,6 +31,7 @@ def publish_tenant_event(
       - TenantSuspended: payload with reason, previous_status
       - TenantResumed: payload with previous_status
       - StorageLimitReached: payload with current_usage_gb, quota_gb, percent_used
+      - TenantCustomDomainRegistered: payload with custom_domain, status, cname_target
     """
     payload = {
         "metadata": {

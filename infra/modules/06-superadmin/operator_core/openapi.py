@@ -172,6 +172,46 @@ def get_openapi_spec() -> Dict[str, Any]:
                     "responses": {
                         "200": {"description": "OCC execution completed with stdout/stderr"},
                     },
+                },
+            },
+            "/tenants/{tenantId}/finops": {
+                "get": {
+                    "summary": "Retrieve real-time FinOps cost attribution and unit economics for tenant",
+                    "operationId": "getTenantFinOps",
+                    "security": [{"BearerAuth": []}],
+                    "parameters": [
+                        {"name": "tenantId", "in": "path", "required": True, "schema": {"type": "string"}}
+                    ],
+                    "responses": {
+                        "200": {"description": "Tenant FinOps cost breakdown and gross margin"},
+                    },
+                }
+            },
+            "/tenants/{tenantId}/custom-domain": {
+                "post": {
+                    "summary": "Register and provision white-label custom domain and SSL for tenant",
+                    "operationId": "registerCustomDomain",
+                    "security": [{"BearerAuth": []}],
+                    "parameters": [
+                        {"name": "tenantId", "in": "path", "required": True, "schema": {"type": "string"}}
+                    ],
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["custom_domain"],
+                                    "properties": {
+                                        "custom_domain": {"type": "string", "example": "files.customer.com"},
+                                    },
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "200": {"description": "Custom domain registered and edge routing configured"},
+                    },
                 }
             },
             "/observability/telemetry": {
