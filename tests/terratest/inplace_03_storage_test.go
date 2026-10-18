@@ -53,5 +53,36 @@ func TestInPlaceStorage(t *testing.T) {
 	assert.True(t, aws.ToBool(pab.BlockPublicPolicy), "BlockPublicPolicy must be true")
 	assert.True(t, aws.ToBool(pab.RestrictPublicBuckets), "RestrictPublicBuckets must be true")
 
-	t.Logf("✅ [In-Place] Module 03 Storage validation passed for %s (S3 & EFS ready)", stackName)
+	// 4. Assert S3 Lifecycle Configuration (Intelligent-Tiering & Multipart Abort)
+	lifecycleRes, lErr := s3Client.GetBucketLifecycleConfiguration(context.TODO(), &s3.GetBucketLifecycleConfigurationInput{
+		Bucket: aws.String(bucketName),
+	})
+	require.NoError(t, lErr, fmt.Sprintf("Failed to get S3 Lifecycle configuration for %s", bucketName))
+	require.NotEmpty(t, lifecycleRes.Rules, "S3 Bucket must have lifecycle optimization rules")
+
+	var hasIntelligentTiering bool
+	var hasMultipartAbort bool
+	for _, rule := range lifecycleRes.Rules {
+		if rule.Status == s3Types.ExpirationStatusEnabled {
+			for _, tr := range rule.Transitions {
+				if tr.StorageClass == s3Types.TransitionStorageClassIntelligentTiering {
+					hasIntelligentTiering = true
+				}
+			}
+			if rule.AbortIncompleteMultipartUpload != nil && rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
+				hasMultipartAbort = true
+			}
+		}
+	}
+	assert.True(t, hasIntelligentTiering, "S3 Lifecycle must include Intelligent-Tiering transition")
+	assert.True(t, hasMultipartAbort, "S3 Lifecycle must include AbortIncompleteMultipartUpload")
+
+	// 5. Assert S3 EventBridge Notifications are enabled
+	notifRes, nErr := s3Client.GetBucketNotificationConfiguration(context.TODO(), &s3.GetBucketNotificationConfigurationInput{
+		Bucket: aws.String(bucketName),
+	})
+	require.NoError(t, nErr, fmt.Sprintf("Failed to get S3 Notification configuration for %s", bucketName))
+	assert.NotNil(t, notifRes.EventBridgeConfiguration, "S3 EventBridge notification configuration must be enabled")
+
+	t.Logf("✅ [In-Place] Module 03 Storage validation passed for %s (S3 Intelligent-Tiering, EventBridge & EFS ready)", stackName)
 }

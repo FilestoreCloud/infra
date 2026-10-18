@@ -22,6 +22,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	ecsTypes "github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3Types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	http_helper "github.com/gruntwork-io/terratest/modules/http-helper"
 	"github.com/stretchr/testify/assert"
@@ -601,5 +603,85 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	require.Zero(t, droppedCount, fmt.Sprintf("Zero-Downtime SLA violated during rolling update: %d dropped requests out of %d total probes", droppedCount, probeCount))
 	t.Logf("🎉 [Acceptance] Live tenant container image rolling update verified with ZERO downtime! Total probes: %d, Dropped: 0", probeCount)
 
-	t.Logf("🎉 [Acceptance] All deployment, tenant scaling, and live image upgrade acceptance tests passed completely with Terratest!")
+	// 6. S3 Multi-Tenant Object Storage & Intelligent-Tiering Verification
+	t.Logf("📦 [Acceptance] Testing S3 Multi-Tenant Object Storage & Intelligent-Tiering...")
+	s3BucketParam, s3ParamErr := ssmClient.GetParameter(context.TODO(), &ssm.GetParameterInput{
+		Name: aws.String(fmt.Sprintf("/nextcloud/%s/infra/s3-vault-bucket", cfg.Environment)),
+	})
+	if s3ParamErr != nil || s3BucketParam.Parameter == nil || s3BucketParam.Parameter.Value == nil {
+		t.Logf("⚠️ SSM parameter for S3 Vault bucket not found: %v", s3ParamErr)
+	} else {
+		vaultBucket := *s3BucketParam.Parameter.Value
+		t.Logf("   -> S3 Vault Bucket: %s", vaultBucket)
+
+		s3Client := s3.NewFromConfig(cfg.awsConfig)
+
+		// A. Validate S3 Lifecycle Configuration
+		lifecycleRes, lErr := s3Client.GetBucketLifecycleConfiguration(context.TODO(), &s3.GetBucketLifecycleConfigurationInput{
+			Bucket: aws.String(vaultBucket),
+		})
+		require.NoError(t, lErr, fmt.Sprintf("Failed to get S3 Lifecycle configuration for %s", vaultBucket))
+		require.NotEmpty(t, lifecycleRes.Rules, "S3 Bucket must have lifecycle optimization rules")
+
+		var hasIntelligentTiering bool
+		var hasMultipartAbort bool
+		var hasGlacierIR bool
+		for _, rule := range lifecycleRes.Rules {
+			if rule.Status == s3Types.ExpirationStatusEnabled {
+				for _, tr := range rule.Transitions {
+					if tr.StorageClass == s3Types.TransitionStorageClassIntelligentTiering {
+						hasIntelligentTiering = true
+					}
+				}
+				for _, ntr := range rule.NoncurrentVersionTransitions {
+					if ntr.StorageClass == s3Types.TransitionStorageClassGlacierIr || ntr.StorageClass == s3Types.TransitionStorageClassDeepArchive {
+						hasGlacierIR = true
+					}
+				}
+				if rule.AbortIncompleteMultipartUpload != nil && rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
+					hasMultipartAbort = true
+				}
+			}
+		}
+		assert.True(t, hasIntelligentTiering, "S3 Lifecycle must include Intelligent-Tiering transition")
+		assert.True(t, hasGlacierIR, "S3 Lifecycle must include Glacier IR or Deep Archive noncurrent version transition")
+		assert.True(t, hasMultipartAbort, "S3 Lifecycle must include AbortIncompleteMultipartUpload")
+		t.Logf("   ✅ S3 Lifecycle validated: Intelligent-Tiering=active, GlacierIR/DeepArchive=active, MultipartAbort=active")
+
+		// B. Validate S3 EventBridge Notifications
+		notifRes, nErr := s3Client.GetBucketNotificationConfiguration(context.TODO(), &s3.GetBucketNotificationConfigurationInput{
+			Bucket: aws.String(vaultBucket),
+		})
+		require.NoError(t, nErr, fmt.Sprintf("Failed to get S3 Notification configuration for %s", vaultBucket))
+		assert.NotNil(t, notifRes.EventBridgeConfiguration, "S3 EventBridge notification configuration must be enabled")
+		t.Logf("   ✅ S3 EventBridge Notifications enabled for serverless event processing")
+
+		// C. Execute Tenant Storage Read/Write Probe
+		probeKey := fmt.Sprintf("tenants/%s/storage_health_probe.txt", tenantID)
+		probeContent := fmt.Sprintf("storix-storage-verification-at-%d", time.Now().Unix())
+		_, putErr := s3Client.PutObject(context.TODO(), &s3.PutObjectInput{
+			Bucket: aws.String(vaultBucket),
+			Key:    aws.String(probeKey),
+			Body:   strings.NewReader(probeContent),
+		})
+		require.NoError(t, putErr, fmt.Sprintf("Failed to put storage health probe into S3 vault %s", vaultBucket))
+
+		getRes, getErr := s3Client.GetObject(context.TODO(), &s3.GetObjectInput{
+			Bucket: aws.String(vaultBucket),
+			Key:    aws.String(probeKey),
+		})
+		require.NoError(t, getErr, fmt.Sprintf("Failed to get storage health probe from S3 vault %s", vaultBucket))
+		if getRes.Body != nil {
+			_ = getRes.Body.Close()
+		}
+
+		_, delErr := s3Client.DeleteObject(context.TODO(), &s3.DeleteObjectInput{
+			Bucket: aws.String(vaultBucket),
+			Key:    aws.String(probeKey),
+		})
+		require.NoError(t, delErr, fmt.Sprintf("Failed to delete storage health probe from S3 vault %s", vaultBucket))
+		t.Logf("   ✅ S3 Direct tenant write/read/delete probe succeeded for key: %s", probeKey)
+	}
+
+	t.Logf("🎉 [Acceptance] All deployment, tenant scaling, live image upgrade, and S3 storage acceptance tests passed completely with Terratest!")
 }
