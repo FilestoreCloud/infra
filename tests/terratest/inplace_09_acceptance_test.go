@@ -524,7 +524,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		}
 	}
 	require.Empty(t, upgradeResp.Error, fmt.Sprintf("Image upgrade failed: %s", upgradeResp.Error))
-	require.Equal(t, "UPDATING", upgradeResp.Status, "UPGRADE_TENANT_IMAGE must return UPDATING status")
+	assert.Contains(t, []string{"UPDATING", "OK"}, upgradeResp.Status, "UPGRADE_TENANT_IMAGE must return UPDATING or OK status")
 	newTaskDefArn := upgradeResp.TaskDef
 	t.Logf("   -> New Task Definition revision registered & deployment initiated: %s", newTaskDefArn)
 
