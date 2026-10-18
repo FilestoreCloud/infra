@@ -334,16 +334,13 @@ jobs:
           audience: sts.amazonaws.com
 
       - name: Deploy Static Assets to S3 & Invalidate CloudFront Cache
-        uses: raulanatol/aws-s3-js-action@v1.0.0
-        with:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          AWS_BUCKET_NAME: ${{ needs.deploy-superadmin.outputs.admin_web_bucket }}
-          SOURCE: console-src/dist
-          TARGET: '.'
-          WITH_DELETE: 'TRUE'
-          WITH_CLOUD_FRONT_INVALIDATION: 'TRUE'
-          AWS_CLOUDFRONT_DISTRIBUTION_ID: ${{ needs.deploy-superadmin.outputs.admin_web_distribution_id }}
-          AWS_CLOUDFRONT_INVALIDATION_PATH: '/*'
+        run: |
+          echo "Deploying console SPA static assets with correct MIME types to S3..."
+          aws s3 sync console-src/dist "s3://${{ needs.deploy-superadmin.outputs.admin_web_bucket }}" --delete
+          echo "Triggering CloudFront cache invalidation..."
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ needs.deploy-superadmin.outputs.admin_web_distribution_id }}" \
+            --paths "/*"
 
   # ============================================================================
   # STAGE 4: FULL-STACK ACCEPTANCE & REPORTING (Terratest + Playwright)
