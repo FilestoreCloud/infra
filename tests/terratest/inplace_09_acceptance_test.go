@@ -427,5 +427,164 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	assert.Contains(t, []string{"OK", "ACTIVE", "RESUMING"}, resumeResp.Status, "RESUME status must indicate scale-out transition")
 	t.Logf("   -> Tenant scaled out successfully (status: %s)", resumeResp.Status)
 
-	t.Logf("🎉 [Acceptance] First-time deployment and tenant scaling acceptance tests passed completely with Terratest!")
+	// 5. Live Tenant Container Image Rolling Upgrade Verification (Zero Downtime)
+	t.Logf("🚀 [Acceptance] Testing Live Container Image Upgrade while Tenant is Running (Zero Downtime)...")
+
+	// A. Ensure tenant is back in healthy serving state after scale-out
+	t.Logf("   -> Awaiting tenant steady-state availability before initiating image upgrade...")
+	resumeSteady := false
+	for attempt := 1; attempt <= 30; attempt++ {
+		statusCode, body, err := http_helper.HttpGetE(t, statusURL, tlsConfig)
+		if err == nil && statusCode == http.StatusOK {
+			var statusData map[string]interface{}
+			if err := json.Unmarshal([]byte(body), &statusData); err == nil && statusData["installed"] == true {
+				resumeSteady = true
+				break
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	require.True(t, resumeSteady, "Tenant must be actively serving traffic before triggering image upgrade")
+	t.Logf("   -> Tenant confirmed healthy and actively serving traffic (HTTP 200).")
+
+	// B. Discover active ECS service and current container image
+	ecsClient := ecs.NewFromConfig(cfg.awsConfig)
+	clusterName := fmt.Sprintf("%s-nextcloud-cluster", cfg.Environment)
+	serviceName := fmt.Sprintf("%s-nextcloud-service", cfg.Environment)
+
+	// Check if tenant has a dedicated ECS service registered in DynamoDB
+	if svcAttr, ok := getItemRes.Item["service_name"].(*dynamoTypes.AttributeValueMemberS); ok && svcAttr.Value != "" {
+		svcCheck, svcErr := ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+			Cluster:  aws.String(clusterName),
+			Services: []string{svcAttr.Value},
+		})
+		if svcErr == nil && len(svcCheck.Services) > 0 && svcCheck.Services[0].Status != nil && *svcCheck.Services[0].Status == "ACTIVE" {
+			serviceName = svcAttr.Value
+		}
+	}
+
+	svcDesc, err := ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+		Cluster:  aws.String(clusterName),
+		Services: []string{serviceName},
+	})
+	require.NoError(t, err, "Failed to describe ECS service")
+	require.NotEmpty(t, svcDesc.Services, "ECS service must exist")
+	currentTaskDefArn := *svcDesc.Services[0].TaskDefinition
+
+	tdDesc, err := ecsClient.DescribeTaskDefinition(context.TODO(), &ecs.DescribeTaskDefinitionInput{
+		TaskDefinition: aws.String(currentTaskDefArn),
+	})
+	require.NoError(t, err, "Failed to describe current Task Definition")
+	require.NotEmpty(t, tdDesc.TaskDefinition.ContainerDefinitions, "Task Definition must have container definitions")
+
+	currentImage := *tdDesc.TaskDefinition.ContainerDefinitions[0].Image
+	targetImage := os.Getenv("TARGET_IMAGE")
+	if targetImage == "" {
+		targetImage = currentImage
+	}
+	t.Logf("   -> Target Upgrade Image: %s", targetImage)
+	t.Logf("   -> Current Active TaskDef: %s", currentTaskDefArn)
+
+	// C. Trigger Live Container Image Upgrade via SuperAdmin Lambda
+	upgradePayload, _ := json.Marshal(map[string]interface{}{
+		"action":    "UPGRADE_TENANT_IMAGE",
+		"tenant_id": tenantID,
+		"image":     targetImage,
+		"dry_run":   false,
+	})
+	upgradeInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
+		FunctionName: aws.String(lambdaArn),
+		Payload:      upgradePayload,
+	})
+	require.NoError(t, err, "Failed to invoke UPGRADE_TENANT_IMAGE action")
+
+	var upgradeResp struct {
+		StatusCode int    `json:"statusCode"`
+		Body       string `json:"body"`
+		Status     string `json:"status"`
+		TaskDef    string `json:"task_definition"`
+		Error      string `json:"error"`
+	}
+	_ = json.Unmarshal(upgradeInv.Payload, &upgradeResp)
+	if upgradeResp.Body != "" {
+		var inner struct {
+			Status  string `json:"status"`
+			TaskDef string `json:"task_definition"`
+			Error   string `json:"error"`
+		}
+		_ = json.Unmarshal([]byte(upgradeResp.Body), &inner)
+		if inner.Status != "" {
+			upgradeResp.Status = inner.Status
+		}
+		if inner.TaskDef != "" {
+			upgradeResp.TaskDef = inner.TaskDef
+		}
+		if inner.Error != "" {
+			upgradeResp.Error = inner.Error
+		}
+	}
+	require.Empty(t, upgradeResp.Error, fmt.Sprintf("Image upgrade failed: %s", upgradeResp.Error))
+	require.Equal(t, "UPDATING", upgradeResp.Status, "UPGRADE_TENANT_IMAGE must return UPDATING status")
+	newTaskDefArn := upgradeResp.TaskDef
+	t.Logf("   -> New Task Definition revision registered & deployment initiated: %s", newTaskDefArn)
+
+	// D. Continuous Zero-Downtime Availability & Rollout Steady-State Monitoring Loop
+	t.Logf("   -> Monitoring continuous availability (zero downtime) during ECS rolling update...")
+	maxRolloutDuration := 5 * time.Minute
+	startTime := time.Now()
+	probeCount := 0
+	droppedCount := 0
+	rolloutCompleted := false
+
+	for time.Since(startTime) < maxRolloutDuration {
+		probeCount++
+		code, body, pErr := http_helper.HttpGetE(t, statusURL, tlsConfig)
+		if pErr != nil || code != http.StatusOK {
+			droppedCount++
+			t.Logf("      ⚠️ Probe #%d DROPPED during rolling update (Status: %d, Err: %v)", probeCount, code, pErr)
+		} else {
+			var pData map[string]interface{}
+			if pJsonErr := json.Unmarshal([]byte(body), &pData); pJsonErr != nil || pData["installed"] != true {
+				droppedCount++
+				t.Logf("      ⚠️ Probe #%d uninstalled/degraded during rolling update (Body: %s)", probeCount, body)
+			}
+		}
+
+		// Inspect ECS service deployment rollout state every 6 seconds (every 3rd probe)
+		if probeCount%3 == 0 {
+			checkSvc, sErr := ecsClient.DescribeServices(context.TODO(), &ecs.DescribeServicesInput{
+				Cluster:  aws.String(clusterName),
+				Services: []string{serviceName},
+			})
+			if sErr == nil && len(checkSvc.Services) > 0 {
+				svc := checkSvc.Services[0]
+				for _, d := range svc.Deployments {
+					dTaskDef := ""
+					if d.TaskDefinition != nil {
+						dTaskDef = *d.TaskDefinition
+					}
+					rolloutStateStr := string(d.RolloutState)
+					if (dTaskDef == newTaskDefArn || newTaskDefArn == "") && *d.Status == "PRIMARY" {
+						if rolloutStateStr == "COMPLETED" || (len(svc.Deployments) == 1 && svc.RunningCount == svc.DesiredCount) {
+							rolloutCompleted = true
+							t.Logf("   ✅ Primary ECS deployment reached steady state for TaskDef %s (RolloutState: %s, Running: %d/%d)",
+								dTaskDef, rolloutStateStr, svc.RunningCount, svc.DesiredCount)
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if rolloutCompleted && probeCount >= 10 {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	require.True(t, rolloutCompleted, "ECS Service rolling deployment must reach completed steady state within 5 minutes")
+	require.Zero(t, droppedCount, fmt.Sprintf("Zero-Downtime SLA violated during rolling update: %d dropped requests out of %d total probes", droppedCount, probeCount))
+	t.Logf("🎉 [Acceptance] Live tenant container image rolling update verified with ZERO downtime! Total probes: %d, Dropped: 0", probeCount)
+
+	t.Logf("🎉 [Acceptance] All deployment, tenant scaling, and live image upgrade acceptance tests passed completely with Terratest!")
 }

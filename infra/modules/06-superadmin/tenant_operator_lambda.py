@@ -1322,7 +1322,13 @@ def _handle_request(event, context):
             "body": json.dumps(test_res),
         }
 
-    if action in ["ROLLOUT_IMAGE", "UPGRADE_FLEET_IMAGE", "FLEET_UPGRADE"]:
+    if action in [
+        "ROLLOUT_IMAGE",
+        "UPGRADE_FLEET_IMAGE",
+        "FLEET_UPGRADE",
+        "UPGRADE_TENANT_IMAGE",
+        "UPDATE_IMAGE",
+    ]:
         new_image = payload.get("image") or payload.get("target_image")
         if not new_image:
             return {
@@ -1330,10 +1336,11 @@ def _handle_request(event, context):
                 "headers": CORS_HEADERS,
                 "body": json.dumps({"error": "Missing required parameter: image"}),
             }
+        target_tenant_id = payload.get("tenant_id") or payload.get("TenantId")
         release_type = payload.get("release_type", "PATCH").upper()
         dry_run = bool(payload.get("dry_run", False))
 
-        if not dry_run and STATE_MACHINE_FLEET_UPGRADE_ARN:
+        if not target_tenant_id and not dry_run and STATE_MACHINE_FLEET_UPGRADE_ARN:
             try:
                 sfn_resp = sfn.start_execution(
                     stateMachineArn=STATE_MACHINE_FLEET_UPGRADE_ARN,
@@ -1375,35 +1382,67 @@ def _handle_request(event, context):
                     f"Warning starting fleet upgrade state machine: {e}. Falling back to inline rollout."
                 )
 
-        paginator = dynamodb.get_paginator("scan")
         target_tenants = []
-        for page in paginator.paginate(
-            TableName=TABLE_NAME,
-            ProjectionExpression="tenant_id, #st, target_group_arn, domain, ring, release_channel, service_name",
-            ExpressionAttributeNames={"#st": "status"},
-        ):
-            for item in page.get("Items", []):
-                if item.get("status", {}).get("S") == "ACTIVE":
-                    t_id = item["tenant_id"]["S"]
-                    ring_val = int(item.get("ring", {}).get("N", "2"))
-                    channel = item.get("release_channel", {}).get("S", "STABLE")
-                    target_tenants.append(
-                        {
-                            "tenant_id": t_id,
-                            "ring": ring_val,
-                            "release_channel": channel,
-                            "service_name": item.get("service_name", {}).get(
-                                "S", f"service-{t_id}"
-                            ),
-                        }
-                    )
+        if target_tenant_id:
+            # Query specific tenant record from DynamoDB
+            try:
+                item_res = dynamodb.get_item(
+                    TableName=TABLE_NAME,
+                    Key={"tenant_id": {"S": target_tenant_id}},
+                    ConsistentRead=True,
+                )
+                item = item_res.get("Item", {})
+                target_tenants.append(
+                    {
+                        "tenant_id": target_tenant_id,
+                        "ring": int(item.get("ring", {}).get("N", "2")),
+                        "release_channel": item.get("release_channel", {}).get(
+                            "S", "STABLE"
+                        ),
+                        "service_name": item.get("service_name", {}).get(
+                            "S", f"service-{target_tenant_id}"
+                        ),
+                    }
+                )
+            except Exception as ddb_err:
+                print(f"Notice fetching tenant {target_tenant_id} from DDB: {ddb_err}")
+                target_tenants.append(
+                    {
+                        "tenant_id": target_tenant_id,
+                        "ring": 2,
+                        "release_channel": "STABLE",
+                        "service_name": f"service-{target_tenant_id}",
+                    }
+                )
+        else:
+            paginator = dynamodb.get_paginator("scan")
+            for page in paginator.paginate(
+                TableName=TABLE_NAME,
+                ProjectionExpression="tenant_id, #st, target_group_arn, domain, ring, release_channel, service_name",
+                ExpressionAttributeNames={"#st": "status"},
+            ):
+                for item in page.get("Items", []):
+                    if item.get("status", {}).get("S") == "ACTIVE":
+                        t_id = item["tenant_id"]["S"]
+                        ring_val = int(item.get("ring", {}).get("N", "2"))
+                        channel = item.get("release_channel", {}).get("S", "STABLE")
+                        target_tenants.append(
+                            {
+                                "tenant_id": t_id,
+                                "ring": ring_val,
+                                "release_channel": channel,
+                                "service_name": item.get("service_name", {}).get(
+                                    "S", f"service-{t_id}"
+                                ),
+                            }
+                        )
 
-        if release_type == "BETA":
-            target_tenants = [
-                t
-                for t in target_tenants
-                if t["ring"] in [0, 1] or t["release_channel"] == "BETA"
-            ]
+            if release_type == "BETA":
+                target_tenants = [
+                    t
+                    for t in target_tenants
+                    if t["ring"] in [0, 1] or t["release_channel"] == "BETA"
+                ]
 
         updated_tenants = []
         infra = get_infra_config()
@@ -1411,12 +1450,62 @@ def _handle_request(event, context):
 
         for t in target_tenants:
             t_id = t["tenant_id"]
-            svc_name = t["service_name"]
+            svc_name = t.get("service_name") or f"service-{t_id}"
             if not dry_run:
                 try:
-                    family = f"{ENVIRONMENT_NAME}-nextcloud-{t_id}"
-                    resp = ecs.describe_task_definition(taskDefinition=family)
-                    td = resp["taskDefinition"]
+                    # Dynamically discover active service and task definition
+                    current_td_arn = None
+                    try:
+                        svc_desc = ecs.describe_services(
+                            cluster=cluster_name, services=[svc_name]
+                        )
+                        svcs = [
+                            s
+                            for s in svc_desc.get("services", [])
+                            if s.get("status") == "ACTIVE"
+                        ]
+                        if svcs:
+                            current_td_arn = svcs[0].get("taskDefinition")
+                        else:
+                            # Fallback to default cluster service if dedicated service is not found
+                            default_svc = f"{ENVIRONMENT_NAME}-nextcloud-service"
+                            def_desc = ecs.describe_services(
+                                cluster=cluster_name, services=[default_svc]
+                            )
+                            def_svcs = [
+                                s
+                                for s in def_desc.get("services", [])
+                                if s.get("status") == "ACTIVE"
+                            ]
+                            if def_svcs:
+                                svc_name = default_svc
+                                current_td_arn = def_svcs[0].get("taskDefinition")
+                    except Exception as svc_err:
+                        print(f"Notice describing ECS service {svc_name}: {svc_err}")
+
+                    # Describe active task definition
+                    td = None
+                    candidates = [
+                        current_td_arn,
+                        f"{ENVIRONMENT_NAME}-nextcloud-{t_id}",
+                        f"{ENVIRONMENT_NAME}-nextcloud",
+                    ]
+                    for c_family in candidates:
+                        if not c_family:
+                            continue
+                        try:
+                            resp = ecs.describe_task_definition(taskDefinition=c_family)
+                            td = resp.get("taskDefinition")
+                            if td:
+                                break
+                        except Exception:
+                            continue
+
+                    if not td:
+                        raise RuntimeError(
+                            f"Could not locate task definition for tenant {t_id} (tried {candidates})"
+                        )
+
                     for k in [
                         "taskDefinitionArn",
                         "revision",
@@ -1428,7 +1517,10 @@ def _handle_request(event, context):
                     ]:
                         td.pop(k, None)
                     for c in td.get("containerDefinitions", []):
-                        if c.get("name") in ["nextcloud", "nextcloud-app"]:
+                        if (
+                            c.get("name") in ["nextcloud", "nextcloud-app"]
+                            or len(td.get("containerDefinitions", [])) == 1
+                        ):
                             c["image"] = new_image
                     new_td = ecs.register_task_definition(**td)
                     new_arn = new_td["taskDefinition"]["taskDefinitionArn"]
@@ -1447,10 +1539,38 @@ def _handle_request(event, context):
                         },
                         forceNewDeployment=True,
                     )
+
+                    # Update DynamoDB with updated task definition metadata
+                    try:
+                        dynamodb.update_item(
+                            TableName=TABLE_NAME,
+                            Key={"tenant_id": {"S": t_id}},
+                            UpdateExpression="SET #img = :img, #td = :td, #lu = :lu",
+                            ExpressionAttributeNames={
+                                "#img": "image",
+                                "#td": "task_definition",
+                                "#lu": "last_updated",
+                            },
+                            ExpressionAttributeValues={
+                                ":img": {"S": new_image},
+                                ":td": {"S": new_arn},
+                                ":lu": {
+                                    "S": time.strftime(
+                                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
+                                    )
+                                },
+                            },
+                        )
+                    except Exception as ddb_up_err:
+                        print(
+                            f"Notice updating DynamoDB metadata for {t_id}: {ddb_up_err}"
+                        )
+
                     updated_tenants.append(
                         {
                             "tenant_id": t_id,
                             "status": "UPDATING",
+                            "service_name": svc_name,
                             "task_definition": new_arn,
                         }
                     )
@@ -1460,24 +1580,53 @@ def _handle_request(event, context):
                     )
             else:
                 updated_tenants.append(
-                    {"tenant_id": t_id, "status": "SIMULATED", "image": new_image}
+                    {
+                        "tenant_id": t_id,
+                        "status": "SIMULATED",
+                        "service_name": svc_name,
+                        "image": new_image,
+                    }
                 )
 
+        target_resource = (
+            f"tenant/{target_tenant_id}"
+            if target_tenant_id
+            else f"cluster/{cluster_name}"
+        )
         record_audit_event(
             user_info.get("user", "admin"),
             user_role,
             action,
-            f"cluster/{cluster_name}",
+            target_resource,
             "SUCCESS",
             {
                 "image": new_image,
                 "release_type": release_type,
                 "tenant_count": len(updated_tenants),
+                "target_tenant_id": target_tenant_id,
                 "dry_run": dry_run,
             },
             client_ip,
             user_agent,
         )
+
+        if target_tenant_id and updated_tenants:
+            first = updated_tenants[0]
+            return {
+                "statusCode": 200 if first.get("status") != "FAILED" else 500,
+                "headers": CORS_HEADERS,
+                "body": json.dumps(
+                    {
+                        "message": f"Rolling container image upgrade initiated for tenant {target_tenant_id} to {new_image}",
+                        "tenant_id": target_tenant_id,
+                        "image": new_image,
+                        "status": first.get("status", "UPDATING"),
+                        "service_name": first.get("service_name"),
+                        "task_definition": first.get("task_definition"),
+                        "error": first.get("error"),
+                    }
+                ),
+            }
 
         return {
             "statusCode": 200,
