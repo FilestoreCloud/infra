@@ -22,7 +22,7 @@ Diagram:
     SuperAdminActor:
       Type: AWS::Diagram::Resource
       Preset: "User"
-      Title: "SaaS Super Admin\n(Role: SuperAdmin)\nFull Lifecycle & Operations"
+      Title: "SaaS Super Admin\n(Role: SuperAdmin · Passkeys / MFA)\nFull Lifecycle, OCC & FinOps"
 
     # ─────────────────────────────────────────────────────────────
     # AWS CLOUD ENVIRONMENT
@@ -88,15 +88,15 @@ Diagram:
 
     AdminWebS3Bucket:
       Type: AWS::S3::Bucket
-      Title: "Amazon S3 Admin Web\n(Vite+React 18 SPA Hosting)\nCloudFront OAC Protected"
+      Title: "Amazon S3 Admin Web\n(React 18 SPA + Smart Polling)\nPage Visibility API Auto-Pause"
 
     CognitoUserPool:
       Type: AWS::Cognito::UserPool
-      Title: "Amazon Cognito User Pool\n(MFA TOTP Authenticator)\nSession Tokens"
+      Title: "Cognito & WebAuthn Passkeys\n(Biometric FIDO2 & TOTP MFA)\nSecure Session Auth"
 
     AdminUsersTable:
       Type: AWS::DynamoDB::Table
-      Title: "DynamoDB Admin Users\n(PBKDF2 Hashes & RBAC Claims)"
+      Title: "DynamoDB Admin Users\n(PBKDF2 Hashes & Passkey Credentials)"
 
     OrchestrationRow:
       Type: AWS::Diagram::HorizontalStack
@@ -104,19 +104,25 @@ Diagram:
         - StepFunctionsMicroWorkflows
         - StepFunctionsExecutionRole
         - BackendApiHandler
+        - AsyncOccJobEngine
 
     StepFunctionsMicroWorkflows:
       Type: AWS::StepFunctions::StateMachine
-      Title: "Step Functions Workflows\\n(Provision, Suspend, Resume,\\nDeprovision with Saga Rollback)"
+      Title: "Step Functions Workflows\n(Provision, Suspend, Resume,\nDeprovision with Saga Rollback)"
 
     StepFunctionsExecutionRole:
       Type: AWS::IAM::Role
-      Title: "Step Functions IAM Role\\n(Least Privilege Micro-Workflows)"
+      Title: "Step Functions IAM Role\n(Least Privilege Micro-Workflows)"
 
     BackendApiHandler:
       Type: AWS::Diagram::Resource
       Preset: "Application Load Balancer"
-      Title: "Control Plane API Origin\n(/api* Pass-Through & Auth)"
+      Title: "Control Plane API Origin\n(HttpOnly saas_admin_session\n& Modular Lambda Routers)"
+
+    AsyncOccJobEngine:
+      Type: AWS::Diagram::Resource
+      Preset: "Amazon EventBridge"
+      Title: "Async OCC Job Engine\n(Non-Blocking Commands\n& Real-Time Execution Polling)"
 
     StateAndComplianceRow:
       Type: AWS::Diagram::HorizontalStack
@@ -142,11 +148,17 @@ Diagram:
       Type: AWS::Diagram::HorizontalStack
       Children:
         - CloudWatchDashboard
+        - SyntheticsCanaryMonitor
         - SSMParams
 
     CloudWatchDashboard:
       Type: AWS::CloudWatch
-      Title: "CloudWatch Dashboard\n(Real-Time Tenant Telemetry)"
+      Title: "CloudWatch Dashboard & EMF\n(Real-Time Tenant Telemetry)"
+
+    SyntheticsCanaryMonitor:
+      Type: AWS::Diagram::Resource
+      Preset: "Synthetics"
+      Title: "Synthetics Canary Monitor\n(24/7 Endpoint Probes & SLA)"
 
     SSMParams:
       Type: AWS::SSM::Parameter
@@ -168,11 +180,11 @@ Diagram:
     ECSFleet:
       Type: AWS::Diagram::Resource
       Preset: "AWS Fargate"
-      Title: "Amazon ECS Fargate Fleet\n(service-acme, service-marvel)\ndesiredCount: 0 (Suspend) / 1 (Active)"
+      Title: "Amazon ECS Fargate Fleet\n(AWS Graviton ARM64 · SOCI Start)\ndesiredCount: 0 (Suspend) / 1 (Active)"
 
     RDSFleet:
       Type: AWS::RDS::DBInstance
-      Title: "Amazon RDS PostgreSQL 16\n(Physical DBs: nc_acme, nc_marvel)\nSchema Provisioning & Cleanup"
+      Title: "Amazon RDS PostgreSQL 16\n(RDS Proxy Pooled Connections)\nDedicated Catalogs: nc_acme, nc_marvel"
 
     FleetStorageRow:
       Type: AWS::Diagram::HorizontalStack
@@ -182,12 +194,12 @@ Diagram:
 
     S3VaultFleet:
       Type: AWS::S3::Bucket
-      Title: "Amazon S3 Vault Bucket\n(s3://vault/tenants/{tenant_id}/*)\nQuota Enforcement & Lifecycle"
+      Title: "Amazon S3 Vault Bucket\n(Intelligent-Tiering · 180d Glacier)\nQuota Enforcement & Lifecycle"
 
     EFSConfigFleet:
       Type: AWS::Diagram::Resource
       Preset: "Amazon Elastic File System (Amazon EFS)"
-      Title: "Amazon EFS Config Store\n(/tenants/{tenant_id}/config)\nDedicated Access Points"
+      Title: "Amazon EFS Config Store\n(30d IA · 90d Archive Lifecycle)\nDedicated Access Points"
 
   # ─────────────────────────────────────────────────────────────
   # RELATIONSHIPS & OPERATIONAL INTERACTIONS
@@ -262,6 +274,14 @@ Diagram:
       Type: orthogonal
 
     - Source: BackendApiHandler
+      SourcePosition: E
+      Target: AsyncOccJobEngine
+      TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    - Source: BackendApiHandler
       SourcePosition: S
       Target: AuditLogsTable
       TargetPosition: NE
@@ -331,6 +351,15 @@ Diagram:
       SourcePosition: E
       Target: EFSConfigFleet
       TargetPosition: W
+      TargetArrowHead:
+        Type: Open
+      Type: orthogonal
+
+    # Async OCC Engine -> ECS Fleet
+    - Source: AsyncOccJobEngine
+      SourcePosition: E
+      Target: ECSFleet
+      TargetPosition: NW
       TargetArrowHead:
         Type: Open
       Type: orthogonal

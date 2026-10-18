@@ -1,24 +1,28 @@
-# Nextcloud Multi-Tenant SaaS — Infrastructure as Code
+# Storix Multi-Tenant SaaS — Infrastructure as Code
 
-Modular CloudFormation architecture for enterprise Nextcloud Multi-Tenant SaaS on AWS. Built with AWS Well-Architected Framework principles, automated CI/CD pipelines, and zero-NAT cost optimization.
+Modular CloudFormation architecture for enterprise Storix Multi-Tenant SaaS on AWS. Built with AWS Well-Architected Framework principles, automated CI/CD pipelines, and zero-NAT cost optimization.
 
 ---
 
 ## 1. Architecture Overview
 
-![Nextcloud Multi-Tenant AWS Architecture](../docs/images/nextcloud_architecture.png)
+![Storix Multi-Tenant AWS Architecture](../docs/images/nextcloud_architecture.png)
 
 The infrastructure delivers:
 
 - **Independent Tenant Compute Tier (Container-per-Tenant Isolation):** Every tenant operates in a dedicated, isolated Amazon ECS Fargate container (`service-<tenant_id>`) with its own runtime lifecycle. Suspending a tenant scales `desiredCount: 0` for instant FinOps zero compute cost while retaining all configuration and data.
+- **AWS Graviton ARM64 Compute:** Supported natively in CloudFormation (`CpuArchitecture: ARM64` / `X86_64`), reducing ECS compute costs by 20%.
+- **Amazon RDS Proxy Connection Pooling:** Dedicated connection pool layer between Fargate tasks and RDS PostgreSQL cluster to prevent connection saturation during scale-out events.
+- **Dedicated Background Cron Runner:** EventBridge Scheduler (`AWS::Events::Rule`) periodically triggers background Nextcloud cron jobs (`rate(5 minutes)`), decoupling heavy async tasks from Web request workers.
 - **Host-Header Dynamic Routing:** Traffic is routed at the Application Load Balancer via Host-Header routing rules (`<tenant_id>.domain.com` ➔ `tg-<tenant_id>` ➔ `service-<tenant_id>`).
 - **Dual-Container Task:** Nextcloud 30 Apache paired with a local LiteLLM Bedrock Bridge sidecar proxying Claude 3.5 Sonnet foundation models on Amazon Bedrock.
 - **3-Tier Storage & Data Tier:**
-  - **Amazon EFS:** Encrypted shared persistent config volume mounting dedicated per-tenant Access Points (`/tenants/<tenant_id>/config` to `/var/www/html/config`, NFS 2049, POSIX UID/GID 33 `www-data`), completely siloing runtime configuration and encryption keys.
-  - **Amazon S3:** Multi-Tenant Vault Bucket for tenant files with isolated prefixes (`tenants/<tenant_id>/`) and lifecycle transition rules to Standard-IA and Glacier.
-  - **Amazon RDS PostgreSQL 16:** AWS Graviton2 cluster with dedicated per-tenant physical databases (`nc_<tenant_id>`).
-- **Zero-NAT Lean Networking:** 2-AZ VPC with public subnets for ingress/compute and private subnets for database. Direct S3 access is routed through a complimentary S3 Gateway VPC Endpoint, eliminating NAT Gateway hourly fees (~$44/mo active, ~$19.50/mo idle).
-- **Native Control Plane:** Amazon DynamoDB Tenant Registry, AWS Systems Manager (SSM) Automation Runbook (`Tenant-Lifecycle-Operator`), and Amazon CloudWatch Dashboard with real-time operational widgets.
+  - **Amazon EFS:** Encrypted shared persistent config volume mounting dedicated per-tenant Access Points (`/tenants/<tenant_id>/config` to `/var/www/html/config`, NFS 2049, POSIX UID/GID 33 `www-data`), with automated transitions to IA (30 days) and Archive (90 days).
+  - **Amazon S3:** Multi-Tenant Vault Bucket for tenant files with isolated prefixes (`tenants/<tenant_id>/`) and lifecycle transition rules to S3 Intelligent-Tiering and 180-day Glacier Instant Retrieval.
+  - **Amazon RDS PostgreSQL 16:** AWS Graviton cluster with dedicated per-tenant physical databases (`nc_<tenant_id>`) accessed via RDS Proxy.
+- **Zero-NAT Lean Networking:** 2-AZ VPC with public subnets for ingress/compute and private subnets for database. Direct S3 access is routed through a complimentary S3 Gateway VPC Endpoint.
+- **Native Control Plane:** Step Functions SAGAs, Amazon DynamoDB Tenant Registry, SuperAdmin API, and Async OCC Engine.
+- **24/7 Synthetics Canaries:** Automated probes validating endpoint latency and response content round-the-clock.
 
 ---
 
@@ -29,11 +33,11 @@ infra/
 ├── modules/
 │   ├── 01-networking/          # VPC, 2 Public & 2 Private Subnets, Route Tables, S3 Gateway Endpoint
 │   ├── 02-security/            # ALB, ECS Fargate, RDS PostgreSQL, and EFS Security Groups
-│   ├── 03-storage/             # S3 Multi-Tenant Vault Bucket & Amazon EFS Persistent Config Store
-│   ├── 04-database/            # RDS PostgreSQL 16 (Graviton2), DB Subnet/Parameter Groups, Secrets Manager
-│   ├── 05-compute/             # ALB Host Ingress, ECS Fargate Cluster, Default Fallback Service, ECR, IAM
-│   ├── 06-superadmin/          # DynamoDB Tenant Registry, SuperAdmin API, SSM Lifecycle Runbook, Web Console
-│   └── 07-observability/       # CloudWatch Dashboard, Metric Alarms, Alert SNS Topic, Platform Logs
+│   ├── 03-storage/             # S3 Multi-Tenant Vault Bucket & Amazon EFS (30d IA · 90d Archive)
+│   ├── 04-database/            # RDS PostgreSQL 16 & RDS Proxy Connection Pooler
+│   ├── 05-compute/             # ALB Host Ingress, ECS Fargate (Graviton ARM64), Dedicated Cron Rule
+│   ├── 06-superadmin/          # Step Functions SAGAs, DynamoDB Registry, Async OCC, SuperAdmin API
+│   └── 07-observability/       # CloudWatch Synthetics Canary (24/7 SLA), Telemetry Dashboard & Alarms
 ├── environments/               # Per-environment parameter overrides
 │   ├── dev.json
 │   ├── staging.json
@@ -48,89 +52,21 @@ infra/
 
 The infrastructure is decoupled into **7 autonomous modules** organized by lifecycle and change frequency:
 
-| Layer  | Module                                                   | Key Resources                                                                         | Lifecycle / Change Frequency     |
-| ------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------- | -------------------------------- |
-| **01** | [`01-networking`](modules/01-networking/README.md)       | VPC, 2 Public Subnets, 2 Private Subnets, IGW, S3 Gateway Endpoint                    | Low (Infrequent updates)         |
-| **02** | [`02-security`](modules/02-security/README.md)           | ALB SG, ECS SG, RDS SG, EFS SG (defense-in-depth chaining)                            | Low (Security policy changes)    |
-| **03** | [`03-storage`](modules/03-storage/README.md)             | S3 Vault Bucket & Amazon EFS FileSystem with Mount Targets & Access Point             | Very Low (Retain on delete)      |
-| **04** | [`04-database`](modules/04-database/README.md)           | RDS PostgreSQL 16.10 (`db.t4g.micro`), Secrets Manager credentials                    | Low (Snapshot on delete)         |
-| **05** | [`05-compute`](modules/05-compute/README.md)             | ALB, ECS Fargate, Nextcloud + LiteLLM sidecar, EFS mount `/config`, AutoScaling, ECR  | High (App deployments & scaling) |
-| **06** | [`06-superadmin`](modules/06-superadmin/README.md)       | DynamoDB Tenant Registry, SuperAdmin API, SSM Automation Runbook, Web Hosting (S3/CF) | Medium (Operations & admin)      |
-| **07** | [`07-observability`](modules/07-observability/README.md) | CloudWatch Telemetry Dashboard, Metric Alarms (ALB, ECS, RDS), SNS Alerts Topic       | Low (Monitoring & alerts)        |
+| Layer  | Module | Key Resources | Lifecycle / Change Frequency |
+|---|---|---|---|
+| **01** | [`01-networking`](modules/01-networking/README.md) | VPC, 2 Public Subnets, 2 Private Subnets, IGW, S3 Gateway Endpoint | Low (Infrequent updates) |
+| **02** | [`02-security`](modules/02-security/README.md) | ALB SG, ECS SG, RDS SG, EFS SG, RDS Proxy SG (defense-in-depth chaining) | Low (Security policy changes) |
+| **03** | [`03-storage`](modules/03-storage/README.md) | S3 Vault Bucket (Intelligent-Tiering, Glacier) & Amazon EFS (30d IA, 90d Archive) | Very Low (Retain on delete) |
+| **04** | [`04-database`](modules/04-database/README.md) | RDS PostgreSQL 16 (`db.t4g.micro`), RDS Proxy Connection Pooler, Secrets Manager | Low (Snapshot on delete) |
+| **05** | [`05-compute`](modules/05-compute/README.md) | ALB, ECS Fargate (Graviton ARM64), Nextcloud + LiteLLM sidecar, EventBridge Cron | High (App deployments & scaling) |
+| **06** | [`06-superadmin`](modules/06-superadmin/README.md) | Step Functions SAGAs, DynamoDB Registry, Async OCC Engine, Web Hosting (S3/CF) | Medium (Operations & admin) |
+| **07** | [`07-observability`](modules/07-observability/README.md) | CloudWatch Synthetics Canary (24/7 SLA), Telemetry Dashboard, Metric Alarms | Low (Monitoring & alerts) |
 
 ---
 
-## 4. Inter-Module Contract & Discovery
-
-Modules publish their configuration to **AWS Systems Manager (SSM) Parameter Store** under `/nextcloud/${EnvironmentName}/...`, enabling loose coupling without rigid CloudFormation stack export locks:
-
-| Module             | Published SSM Parameters                                                                                                                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `01-networking`    | `/infra/vpc-id`, `/infra/public-subnets`, `/infra/private-subnets`                                                                                                                                                         |
-| `02-security`      | `/security/alb-sg-id`, `/security/ecs-sg-id`, `/security/db-sg-id`, `/security/efs-sg-id`                                                                                                                                  |
-| `03-storage`       | `/infra/s3-vault-bucket`, `/infra/s3-vault-bucket-arn`, `/infra/efs-id`, `/infra/default-access-point-id`                                                                                                                  |
-| `04-database`      | `/infra/db-endpoint`, `/infra/db-secret-arn`                                                                                                                                                                               |
-| `05-compute`       | `/infra/alb-dns`, `/infra/ecs-cluster-name`, `/infra/ecs-service-name`, `/infra/ecs-task-role-arn`, `/infra/ecs-task-execution-role-arn`, `/app/admin-user`, `/app/trusted-domains`, `/ai/enabled`, `/ai/bedrock-model-id` |
-| `06-superadmin`    | `/infra/tenant-registry-table`, `/infra/ssm-operator-role-arn`                                                                                                                                                             |
-| `07-observability` | `/observability/dashboard-name`, `/observability/alerts-topic-arn`                                                                                                                                                         |
-
----
-
-## 5. Deployment Options
-
-### Option A: CI/CD via GitHub Actions (Recommended)
-
-All deployments are managed using GitHub Actions with AWS OIDC federation:
-
-- **Manual On-Demand Dispatch (`workflow_dispatch`):**
-  1. Open GitHub **Actions** ➔ **`Deploy Infra`** ([`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml)).
-  2. Select target environment (`dev`, `staging`, `prod`).
-  3. Select action:
-     - `deploy-module` (updates a single layer, e.g. `compute`, without touching DB or network)
-     - `deploy-all` (sequentially deploys modules 01 through 06)
-     - `deploy-nested` (packages and deploys `root.yaml` via AWS CloudFormation nested stacks)
-     - `destroy-module` / `destroy-all` (tears down resources in reverse dependency order)
-
-### Option B: Local Validation & Linting
-
-CloudFormation templates can be validated locally using `cfn-lint`:
+## 4. Linting & Validation
 
 ```bash
-# Lint all modules and root nested stack
-cfn-lint infra/modules/*/template.yaml infra/root.yaml -i W3002 W2001 W1011 W3005
+# CloudFormation template linter
+cfn-lint --config-file .devsecops/.cfnlintrc.yaml modules/*/template.yaml root.yaml
 ```
-
-### Option C: AWS CLI Direct Commands
-
-```bash
-# Deploy a single module (e.g. 01-networking)
-aws cloudformation deploy \
-  --template-file infra/modules/01-networking/template.yaml \
-  --stack-name prod-nextcloud-01-networking \
-  --capabilities CAPABILITY_NAMED_IAM \
-  --parameter-overrides EnvironmentName=prod
-
-# Package and deploy Root Nested Stack
-aws cloudformation package \
-  --template-file infra/root.yaml \
-  --s3-bucket <your-cfn-templates-bucket> \
-  --output-template-file packaged.yaml
-
-aws cloudformation deploy \
-  --template-file packaged.yaml \
-  --stack-name prod-nextcloud-root \
-  --capabilities CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND \
-  --parameter-overrides \
-      EnvironmentName=prod \
-      AdminPassword="<ADMIN_PASSWORD>" \
-      DBPassword="<DB_PASSWORD>"
-```
-
----
-
-## 6. GitHub Actions OIDC Authentication
-
-The project uses AWS IAM OpenID Connect (OIDC) federation, eliminating static AWS access keys:
-
-- **IAM Role:** `arn:aws:iam::123456789012:role/nextcloud-github-actions-deploy-role`
-- **Trust Condition:** Restricted to `repo:FilestoreCloud/aws_nextcloud:*`
