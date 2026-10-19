@@ -342,12 +342,17 @@ jobs:
             --distribution-id "${{ needs.deploy-superadmin.outputs.admin_web_distribution_id }}" \
             --paths "/*"
 
+      - name: Checkout Infra Repository
+        uses: actions/checkout@v4
+        with:
+          path: infra-src
+
       - name: Synchronize DNS & Auto Subdomains
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          python3 scripts/manage_dns.py sync --env "${{ inputs.environment }}" --zone png261.dev
+          python3 infra-src/scripts/manage_dns.py sync --env "${{ inputs.environment }}" --zone png261.dev
 
   # ============================================================================
   # STAGE 4: FULL-STACK ACCEPTANCE & REPORTING (Terratest + Playwright)
