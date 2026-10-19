@@ -2746,6 +2746,12 @@ def _handle_request(event, context):
                     ),
                 }
 
+            pwd = (
+                payload.get("password")
+                or payload.get("new_password")
+                or f"Storix_{secrets.token_urlsafe(8)}!9"
+            )
+
             new_account = {
                 "username": username,
                 "display_name": display_name,
@@ -2760,6 +2766,23 @@ def _handle_request(event, context):
             }
             accounts.append(new_account)
             save_tenant_accounts(tenant_id, accounts)
+
+            try:
+                secret_id = (
+                    f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+                )
+                secretsmanager.put_secret_value(
+                    SecretId=secret_id,
+                    SecretString=json.dumps(
+                        {
+                            "username": username,
+                            "password": pwd,
+                            "updated_at": now_iso,
+                        }
+                    ),
+                )
+            except Exception as e:
+                print(f"Notice: Secrets Manager write on account create: {e}")
 
             record_audit_event(
                 user_info.get("user"),
@@ -2779,6 +2802,9 @@ def _handle_request(event, context):
                     {
                         "message": f"Account '{username}' created for tenant {tenant_id}",
                         "account": new_account,
+                        "temporary_password": pwd,
+                        "password": pwd,
+                        "username": username,
                     }
                 ),
             }
@@ -2890,6 +2916,7 @@ def _handle_request(event, context):
                         "message": f"Password reset successfully for account '{username}' of tenant {tenant_id}",
                         "username": username,
                         "temporary_password": temp_password,
+                        "password": temp_password,
                         "expires_in": "24h",
                         "timestamp": now_iso,
                     }
