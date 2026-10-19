@@ -630,12 +630,26 @@ Resources:
                     return resp(200,{"status":"OK","token":tok,"user":u,"role":r})
                 dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
                 tbl=dynamo.Table(TBL)
-                if act=="PROVISION":
+                if act in ("PROVISION","PROVISION_DEMO"):
                     tid=b.get("tenant_id")
                     if not tid:return resp(400,{"error":"tenant_id is required"})
-                    item={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":b.get("domain",f"{tid}.png261.dev"),"admin_email":b.get("admin_email",f"admin@{tid}.com"),"quota_gb":b.get("quota_gb",100),"storage_quota_gb":b.get("quota_gb",100),"tier":"ENTERPRISE"}
+                    tid=str(tid).lower().strip()
+                    q_gb=b.get("quota_gb",100)
+                    dom=b.get("domain",f"{tid}.png261.dev")
+                    em=b.get("admin_email",f"admin@{tid}.com")
+                    is_demo=act=="PROVISION_DEMO" or bool(b.get("is_demo"))
+                    item={"tenant_id":tid,"status":"PROVISIONING","progress":15,"current_step":"Initializing Registry & Allocating Ingress","created_at":int(time.time()),"last_updated":int(time.time()),"domain":dom,"admin_email":em,"quota_gb":q_gb,"storage_quota_gb":q_gb,"tier":"ENTERPRISE","is_demo":is_demo}
                     tbl.put_item(Item=item)
-                    return resp(200,{"status":"PROVISIONED","message":f"Tenant {tid} provisioned successfully","tenant":item,"item":item})
+                    sfn_arn=os.environ.get("STATE_MACHINE_DEMO_ARN" if is_demo else "STATE_MACHINE_PROVISION_ARN")
+                    exec_arn=None
+                    if sfn_arn:
+                        try:
+                            sfn_cli=boto3.client("stepfunctions",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                            res_sfn=sfn_cli.start_execution(stateMachineArn=sfn_arn,name=f"prov-{tid}-{int(time.time())}",input=json.dumps({"TenantId":tid,"StorageQuotaGB":str(q_gb),"CompanyDomain":dom}))
+                            exec_arn=res_sfn.get("executionArn")
+                        except Exception as e:
+                            print(f"Error starting Step Functions: {e}")
+                    return resp(200,{"status":"PROVISIONING","message":f"Tenant {tid} provisioning workflow initiated","tenant":item,"item":item,"executionArn":exec_arn,"progress":15,"current_step":"Initializing Registry & Allocating Ingress"})
                 if act in ("LIST","FLEET"):
                     items=tbl.scan().get("Items",[])
                     if not items:
@@ -662,9 +676,30 @@ Resources:
                 if act in ("SUSPEND","RESUME"):
                     tid=b.get("tenant_id") or q.get("tenant_id")
                     if not tid:return resp(400,{"error":"tenant_id is required"})
-                    st="SUSPENDED" if act=="SUSPEND" else "ACTIVE"
-                    tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #s=:s,#p=:p,#cs=:cs",ExpressionAttributeNames={"#s":"status","#p":"progress","#cs":"current_step"},ExpressionAttributeValues={":s":st,":p":100,":cs":"Suspended ($0 FinOps)" if st=="SUSPENDED" else "Ready & Operational"})
-                    return resp(200,{"status":"OK","message":f"Tenant {tid} {st.lower()}","new_status":st})
+                    is_suspend=act=="SUSPEND"
+                    st="SUSPENDING" if is_suspend else "RESUMING"
+                    step="Scaling down Fargate tasks & draining traffic" if is_suspend else "Resuming Fargate tasks & validating health"
+                    tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #s=:s,#p=:p,#cs=:cs,#lu=:lu",ExpressionAttributeNames={"#s":"status","#p":"progress","#cs":"current_step","#lu":"last_updated"},ExpressionAttributeValues={":s":st,":p":30,":cs":step,":lu":int(time.time())})
+                    sfn_arn=os.environ.get("STATE_MACHINE_SUSPEND_ARN" if is_suspend else "STATE_MACHINE_RESUME_ARN")
+                    if sfn_arn:
+                        try:
+                            sfn_cli=boto3.client("stepfunctions",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                            sfn_cli.start_execution(stateMachineArn=sfn_arn,name=f"{act.lower()}-{tid}-{int(time.time())}",input=json.dumps({"TenantId":tid}))
+                        except Exception as e:
+                            print(f"Error starting SFN: {e}")
+                    return resp(200,{"status":"OK","message":f"Tenant {tid} {st.lower()} initiated","new_status":st})
+                if act=="SEED":
+                    tid=b.get("tenant_id") or q.get("tenant_id")
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #s=:s,#p=:p,#cs=:cs,#lu=:lu",ExpressionAttributeNames={"#s":"status","#p":"progress","#cs":"current_step","#lu":"last_updated"},ExpressionAttributeValues={":s":"SEEDING",":p":20,":cs":"Seeding admin users and default groups",":lu":int(time.time())})
+                    sfn_arn=os.environ.get("STATE_MACHINE_SEED_ARN")
+                    if sfn_arn:
+                        try:
+                            sfn_cli=boto3.client("stepfunctions",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                            sfn_cli.start_execution(stateMachineArn=sfn_arn,name=f"seed-{tid}-{int(time.time())}",input=json.dumps({"TenantId":tid}))
+                        except Exception as e:
+                            print(f"Error starting Seed SFN: {e}")
+                    return resp(200,{"status":"OK","message":f"Tenant {tid} seeding workflow initiated","new_status":"SEEDING"})
                 if act in ("UPGRADE_TENANT_IMAGE","ROLLOUT_IMAGE","UPGRADE_IMAGE"):
                     try:
                         tid=b.get("tenant_id") or q.get("tenant_id") or "dev-tenant"
@@ -700,8 +735,16 @@ Resources:
                         return resp(500,{"status":"FAILED","error":str(err)})
                 if act in ("DELETE","DEPROVISION"):
                     tid=b.get("tenant_id") or q.get("tenant_id")
-                    if tid:tbl.delete_item(Key={"tenant_id":tid})
-                    return resp(200,{"status":"DEPROVISIONED","tenant_id":tid})
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET #s=:s,#p=:p,#cs=:cs,#lu=:lu",ExpressionAttributeNames={"#s":"status","#p":"progress","#cs":"current_step","#lu":"last_updated"},ExpressionAttributeValues={":s":"DEPROVISIONING",":p":20,":cs":"Tearing down dedicated AWS resources",":lu":int(time.time())})
+                    sfn_arn=os.environ.get("STATE_MACHINE_DEPROVISION_ARN")
+                    if sfn_arn:
+                        try:
+                            sfn_cli=boto3.client("stepfunctions",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                            sfn_cli.start_execution(stateMachineArn=sfn_arn,name=f"deprov-{tid}-{int(time.time())}",input=json.dumps({"TenantId":tid}))
+                        except Exception as e:
+                            print(f"Error starting Deprovision SFN: {e}")
+                    return resp(200,{"status":"DEPROVISIONING","tenant_id":tid,"message":f"Tenant {tid} deprovisioning initiated"})
                 if act=="AUDIT_LOGS":
                     return resp(200,{"status":"OK","audit_logs":[{"event_id":"evt-1","action":"TENANT_LIST","actor":"nhphuong.code@gmail.com","timestamp":int(time.time()),"status":"SUCCESS"}]})
                 if act in ("STREAM_SFN_PROGRESS","GET_LIVE_EXECUTION_PROGRESS","GET_EXECUTION_PROGRESS"):
