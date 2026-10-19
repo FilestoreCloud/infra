@@ -920,17 +920,58 @@ def get_live_execution_stream(tenant_id=None, execution_arn=None):
         },
     ]
 
+    deprovision_milestones = [
+        {
+            "id": "INITIATE_TEARDOWN",
+            "name": "Teardown Initiation",
+            "description": "Drain incoming connections & update status in registry",
+            "percent": 15,
+            "states": ["MarkDeprovisioningDynamoDB", "Initiating teardown", "InitiateTeardown"],
+        },
+        {
+            "id": "COMPUTE_TEARDOWN",
+            "name": "Terminate ECS Compute",
+            "description": "Terminate Fargate container service & deregister task definition revisions",
+            "percent": 50,
+            "states": ["DeprovisionECSCompute", "MarkECSDeletedDynamoDB", "ECS Service terminated"],
+        },
+        {
+            "id": "STORAGE_TEARDOWN",
+            "name": "Purge Vault, Database & Ingress",
+            "description": "Permanently delete S3 vault data, drop PostgreSQL database, delete ALB rules & EFS access point",
+            "percent": 90,
+            "states": ["DeprovisionIngressAndStorage", "MarkStorageDeletedDynamoDB", "S3 Vault data"],
+        },
+        {
+            "id": "PURGE_REGISTRY",
+            "name": "Purge Registry Record",
+            "description": "Purge DynamoDB record and emit tenant deactivation metrics",
+            "percent": 100,
+            "states": ["PurgeDynamoDBRecord", "PublishDeprovisionMetric", "ExecutionSucceeded"],
+        },
+    ]
+
+    is_deprovisioning = (
+        discovered_workflow == "DEPROVISION"
+        or tenant_status in ["DELETING", "DEPROVISIONING"]
+    )
+    active_milestones = deprovision_milestones if is_deprovisioning else provision_milestones
+
     if exec_status == "SUCCEEDED":
         current_progress = 100
-        current_step = "Provision Complete & Ready"
-        current_desc = "Tenant is fully provisioned and healthy"
+        if is_deprovisioning:
+            current_step = "Deprovisioning Complete & Purged"
+            current_desc = "All tenant infrastructure, storage, database, and registry records have been completely purged"
+        else:
+            current_step = "Provision Complete & Ready"
+            current_desc = "Tenant is fully provisioned and healthy"
         estimated_remaining = 0
     elif exec_status in ["FAILED", "TIMED_OUT", "ABORTED"]:
         current_step = f"Workflow {exec_status}"
-        current_desc = "Execution encountered an error or timed out during provisioning"
+        current_desc = f"Execution encountered an error or timed out during {'deprovisioning' if is_deprovisioning else 'provisioning'}"
         estimated_remaining = 0
     else:
-        for m in reversed(provision_milestones):
+        for m in reversed(active_milestones):
             if any(s.lower() in current_step.lower() for s in m["states"]) or current_step == m["name"]:
                 current_progress = max(current_progress, m["percent"])
                 current_desc = m["description"]
@@ -938,7 +979,7 @@ def get_live_execution_stream(tenant_id=None, execution_arn=None):
         estimated_remaining = max(5, int((100 - current_progress) * 0.8))
 
     milestones_response = []
-    for m in provision_milestones:
+    for m in active_milestones:
         m_status = "pending"
         if exec_status in ["FAILED", "TIMED_OUT", "ABORTED"] and current_progress <= m["percent"]:
             if current_progress == m["percent"] or (m["percent"] - current_progress <= 15 and m_status != "completed"):

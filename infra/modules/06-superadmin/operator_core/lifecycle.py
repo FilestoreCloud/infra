@@ -15,6 +15,8 @@ from operator_core.common import (
     ecs,
     efs,
     elbv2,
+    s3,
+    secretsmanager,
     get_infra_config,
     unmarshal_ddb_item,
 )
@@ -529,6 +531,205 @@ def _saga_cleanup_tenant(tenant_id, infra):
     return {"cleaned": True, "tenant_id": tenant_id}
 
 
+def _deprovision_ecs_compute(tenant_id, infra):
+    """Tears down the ECS Service and deregisters all associated task definitions."""
+    cluster_name = infra.get("cluster_name", CLUSTER_NAME)
+    service_name = f"service-{tenant_id}"
+    task_family = f"{ENVIRONMENT_NAME}-nextcloud-{tenant_id}"
+
+    # 1. Stop and delete ECS service
+    try:
+        ecs.update_service(
+            cluster=cluster_name, service=service_name, desiredCount=0
+        )
+        ecs.delete_service(
+            cluster=cluster_name, service=service_name, force=True
+        )
+    except Exception as e:
+        print(f"Warning deleting ECS service {service_name}: {e}")
+
+    # 2. Deregister all revisions of the tenant's task definition
+    try:
+        paginator = ecs.get_paginator("list_task_definitions")
+        for page in paginator.paginate(familyPrefix=task_family, status="ACTIVE"):
+            for td_arn in page.get("taskDefinitionArns", []):
+                try:
+                    ecs.deregister_task_definition(taskDefinition=td_arn)
+                except Exception as dereg_err:
+                    print(f"Warning deregistering task definition {td_arn}: {dereg_err}")
+    except Exception as e:
+        print(f"Warning listing task definitions for family {task_family}: {e}")
+
+    # 3. Update DynamoDB progress to 50%
+    try:
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        dynamodb.update_item(
+            TableName=TABLE_NAME,
+            Key={"tenant_id": {"S": tenant_id}},
+            UpdateExpression="SET #p = :p, #cs = :cs, #lu = :lu",
+            ExpressionAttributeNames={
+                "#p": "progress",
+                "#cs": "current_step",
+                "#lu": "last_updated",
+            },
+            ExpressionAttributeValues={
+                ":p": {"N": "50"},
+                ":cs": {"S": "ECS Service terminated & Task Definitions deregistered"},
+                ":lu": {"S": now_iso},
+            },
+        )
+    except Exception as ddb_e:
+        print(f"Warning updating DynamoDB after ECS deprovision: {ddb_e}")
+
+    return {"status": "ECS_DEPROVISIONED", "tenant_id": tenant_id}
+
+
+def _deprovision_ingress_and_storage(tenant_id, infra):
+    """Completely purges S3 vault data, PostgreSQL database, ALB ingress rules, target groups, and EFS access points."""
+    clean_id = tenant_id.lower().replace("-", "_")
+    db_name = f"nc_{clean_id}"
+
+    # 1. Purge S3 Primary Vault Data under tenants/{tenant_id}/
+    vault_bucket = infra.get("s3_vault_bucket")
+    if vault_bucket:
+        try:
+            prefix = f"tenants/{tenant_id}/"
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=vault_bucket, Prefix=prefix):
+                contents = page.get("Contents", [])
+                if contents:
+                    delete_keys = [{"Key": obj["Key"]} for obj in contents]
+                    s3.delete_objects(
+                        Bucket=vault_bucket,
+                        Delete={"Objects": delete_keys, "Quiet": True},
+                    )
+
+            # Also clean up object versions / delete markers if versioning is active
+            try:
+                v_paginator = s3.get_paginator("list_object_versions")
+                for page in v_paginator.paginate(Bucket=vault_bucket, Prefix=prefix):
+                    del_entries = []
+                    for v in page.get("Versions", []):
+                        del_entries.append({"Key": v["Key"], "VersionId": v["VersionId"]})
+                    for m in page.get("DeleteMarkers", []):
+                        del_entries.append({"Key": m["Key"], "VersionId": m["VersionId"]})
+                    if del_entries:
+                        s3.delete_objects(
+                            Bucket=vault_bucket,
+                            Delete={"Objects": del_entries, "Quiet": True},
+                        )
+            except Exception as v_err:
+                print(f"Notice on S3 version purge: {v_err}")
+        except Exception as s3_err:
+            print(f"Warning purging S3 vault data for {tenant_id}: {s3_err}")
+
+    # 2. Drop PostgreSQL Database nc_{clean_id} via one-off ECS task in VPC
+    cluster_name = infra.get("cluster_name", CLUSTER_NAME)
+    try:
+        res = ecs.list_task_definitions(
+            familyPrefix=f"{ENVIRONMENT_NAME}-nextcloud-app", status="ACTIVE", sort="DESC"
+        )
+        td_arns = res.get("taskDefinitionArns", [])
+        if td_arns and infra.get("public_subnets") and infra.get("ecs_sg"):
+            drop_cmd = [
+                "php", "-r",
+                f"$h=getenv('POSTGRES_HOST');$u=getenv('POSTGRES_USER');$p=getenv('POSTGRES_PASSWORD');try{{$pdo=new PDO(\"pgsql:host=$h;dbname=postgres;sslmode=prefer\",$u,$p,[PDO::ATTR_TIMEOUT=>5]);$pdo->exec(\"DROP DATABASE IF EXISTS {db_name} WITH (FORCE);\");echo 'DROPPED_DB {db_name}';}}catch(Exception $e){{echo $e->getMessage();}}"
+            ]
+            ecs.run_task(
+                cluster=cluster_name,
+                taskDefinition=td_arns[0],
+                launchType="FARGATE",
+                networkConfiguration={
+                    "awsvpcConfiguration": {
+                        "subnets": infra["public_subnets"],
+                        "securityGroups": [infra["ecs_sg"]],
+                        "assignPublicIp": "ENABLED",
+                    }
+                },
+                overrides={
+                    "containerOverrides": [
+                        {
+                            "name": "nextcloud",
+                            "command": drop_cmd,
+                        }
+                    ]
+                },
+            )
+    except Exception as db_err:
+        print(f"Warning dropping database {db_name}: {db_err}")
+
+    # 3. Delete ALB Target Group and Routing Rule
+    tg_name = f"tg-{tenant_id}"[:32]
+    try:
+        tgs = elbv2.describe_target_groups(Names=[tg_name]).get("TargetGroups", [])
+        if tgs:
+            tg_arn = tgs[0]["TargetGroupArn"]
+            listener_arn = infra.get("https_listener_arn")
+            if listener_arn:
+                rules = elbv2.describe_rules(ListenerArn=listener_arn).get("Rules", [])
+                for r in rules:
+                    for a in r.get("Actions", []):
+                        if a.get("TargetGroupArn") == tg_arn:
+                            try:
+                                elbv2.delete_rule(RuleArn=r["RuleArn"])
+                            except Exception as rule_err:
+                                print(f"Warning deleting rule {r['RuleArn']}: {rule_err}")
+            elbv2.delete_target_group(TargetGroupArn=tg_arn)
+    except Exception as tg_err:
+        print(f"Warning cleaning up Target Group {tg_name}: {tg_err}")
+
+    # 4. Delete EFS Access Point
+    if infra.get("efs_id"):
+        try:
+            paginator = efs.get_paginator("describe_access_points")
+            for page in paginator.paginate(FileSystemId=infra["efs_id"]):
+                for ap in page.get("AccessPoints", []):
+                    is_match = False
+                    if ap.get("RootDirectory", {}).get("Path") == f"/tenants/{tenant_id}/config":
+                        is_match = True
+                    for t in ap.get("Tags", []):
+                        if t.get("Key") == "TenantId" and t.get("Value") == tenant_id:
+                            is_match = True
+                            break
+                    if is_match:
+                        try:
+                            efs.delete_access_point(AccessPointId=ap["AccessPointId"])
+                        except Exception as ap_err:
+                            print(f"Warning deleting access point {ap['AccessPointId']}: {ap_err}")
+        except Exception as efs_err:
+            print(f"Warning enumerating EFS access points: {efs_err}")
+
+    # 5. Delete Tenant Secrets (if any)
+    try:
+        secret_id = f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+        secretsmanager.delete_secret(SecretId=secret_id, ForceDeleteWithoutRecovery=True)
+    except Exception:
+        pass
+
+    # 6. Update DynamoDB progress to 90%
+    try:
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        dynamodb.update_item(
+            TableName=TABLE_NAME,
+            Key={"tenant_id": {"S": tenant_id}},
+            UpdateExpression="SET #p = :p, #cs = :cs, #lu = :lu",
+            ExpressionAttributeNames={
+                "#p": "progress",
+                "#cs": "current_step",
+                "#lu": "last_updated",
+            },
+            ExpressionAttributeValues={
+                ":p": {"N": "90"},
+                ":cs": {"S": "S3 Vault data, database, Target Group, and EFS access points purged"},
+                ":lu": {"S": now_iso},
+            },
+        )
+    except Exception as ddb_e:
+        print(f"Warning updating DynamoDB after storage deprovision: {ddb_e}")
+
+    return {"status": "STORAGE_DEPROVISIONED", "tenant_id": tenant_id}
+
+
 def _check_tenant_health(tenant_id, infra, attempt=0):
     """Checks container runtime health for Nextcloud instance."""
     service_name = f"service-{tenant_id}"
@@ -628,48 +829,10 @@ def _handle_step_function_task(event):
         return _saga_cleanup_tenant(tenant_id, infra)
 
     elif action in ["DEPROVISION_ECS", "DELETE_ECS"]:
-        service_name = f"service-{tenant_id}"
-        try:
-            ecs.update_service(
-                cluster=infra["cluster_name"], service=service_name, desiredCount=0
-            )
-            ecs.delete_service(
-                cluster=infra["cluster_name"], service=service_name, force=True
-            )
-        except Exception as e:
-            print(f"Warning deleting ECS service {service_name}: {e}")
-        return {"status": "ECS_DEPROVISIONED", "tenant_id": tenant_id}
+        return _deprovision_ecs_compute(tenant_id, infra)
 
     elif action in ["DEPROVISION_STORAGE", "DELETE_STORAGE"]:
-        tg_name = f"tg-{tenant_id}"[:32]
-        try:
-            tgs = elbv2.describe_target_groups(Names=[tg_name])["TargetGroups"]
-            if tgs:
-                tg_arn = tgs[0]["TargetGroupArn"]
-                listener_arn = infra.get("https_listener_arn")
-                if listener_arn:
-                    rules = elbv2.describe_rules(ListenerArn=listener_arn)["Rules"]
-                    for r in rules:
-                        for a in r.get("Actions", []):
-                            if a.get("TargetGroupArn") == tg_arn:
-                                elbv2.delete_rule(RuleArn=r["RuleArn"])
-                elbv2.delete_target_group(TargetGroupArn=tg_arn)
-        except Exception as e:
-            print(f"Warning cleaning up TG: {e}")
-
-        if infra.get("efs_id"):
-            try:
-                paginator = efs.get_paginator("describe_access_points")
-                for page in paginator.paginate(FileSystemId=infra["efs_id"]):
-                    for ap in page.get("AccessPoints", []):
-                        if (
-                            ap.get("RootDirectory", {}).get("Path")
-                            == f"/tenants/{tenant_id}/config"
-                        ):
-                            efs.delete_access_point(AccessPointId=ap["AccessPointId"])
-            except Exception as e:
-                print(f"Warning deleting EFS access point: {e}")
-        return {"status": "STORAGE_DEPROVISIONED", "tenant_id": tenant_id}
+        return _deprovision_ingress_and_storage(tenant_id, infra)
 
     elif action == "SUSPEND":
         service_name = f"service-{tenant_id}"

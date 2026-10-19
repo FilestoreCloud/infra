@@ -1096,6 +1096,7 @@ Resources:
                   - ecs:RegisterTaskDefinition
                   - ecs:DeregisterTaskDefinition
                   - ecs:DescribeTaskDefinition
+                  - ecs:ListTaskDefinitions
                   - ecs:RunTask
                   - ecs:DescribeTasks
                   - ecs:StopTask
@@ -1154,6 +1155,25 @@ Resources:
                 Condition:
                   StringEquals:
                     iam:PassedToService: ecs-tasks.amazonaws.com
+              - Sid: S3TenantDataPurge
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:ListBucketVersions
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                Resource:
+                  - !Sub "arn:aws:s3:::${EnvironmentName}-nextcloud-vault-*"
+                  - !Sub "arn:aws:s3:::${EnvironmentName}-nextcloud-vault-*/*"
+              - Sid: SecretsManagerTenantPurge
+                Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - secretsmanager:DescribeSecret
+                  - secretsmanager:DeleteSecret
+                Resource:
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/*"
 
   TenantWorkerLambda:
     Type: AWS::Lambda::Function

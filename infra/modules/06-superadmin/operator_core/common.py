@@ -83,6 +83,7 @@ cognito_idp = _LazyAwsClient("cognito-idp", region_name=REGION)
 ses = _LazyAwsClient("ses", region_name=REGION)
 sfn = _LazyAwsClient("stepfunctions", region_name=REGION)
 xray = _LazyAwsClient("xray", region_name=REGION)
+s3 = _LazyAwsClient("s3", region_name=REGION)
 
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
