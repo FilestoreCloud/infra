@@ -41,11 +41,17 @@ Parameters:
     Default: "tenant_operator_lambda.zip"
     Description: "Optional S3 key containing tenant_operator_lambda code zip."
 
+  RootDomain:
+    Type: String
+    Default: "png261.dev"
+    Description: "Root domain for tenant subdomains (e.g. png261.dev)"
+
 Conditions:
   HasCustomApiOrigin: !Not [!Equals [!Ref ApiOriginDomain, ""]]
   HasLambdaS3Code: !Not [!Equals [!Ref LambdaCodeBucket, ""]]
   HasS3VaultBucketArn: !Not [!Equals [!Ref S3VaultBucketArn, ""]]
   HasECSClusterName: !Not [!Equals [!Ref ECSClusterName, ""]]
+  HasALBDNS: !Not [!Equals [!Ref ApplicationLoadBalancerDNS, ""]]
 
 Resources:
   DynamoDBTenantRegistry:
@@ -408,6 +414,9 @@ Resources:
                 Action:
                   - secretsmanager:GetSecretValue
                   - secretsmanager:DescribeSecret
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:UpdateSecret
                 Resource:
                   - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/*"
               - Sid: S3VaultAccess
@@ -550,12 +559,18 @@ Resources:
           STATE_MACHINE_SEED_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Seeding"
           STATE_MACHINE_DEMO_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Demo-Provisioning"
           STATE_MACHINE_FLEET_UPGRADE_ARN: !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:${EnvironmentName}-Tenant-Fleet-Upgrade"
+          LOAD_BALANCER_DNS:
+            Fn::If:
+              - HasALBDNS
+              - !Ref ApplicationLoadBalancerDNS
+              - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-LoadBalancerDNS"
+          ROOT_DOMAIN: !Ref RootDomain
       Code: !If
         - HasLambdaS3Code
         - S3Bucket: !Ref LambdaCodeBucket
           S3Key: !Ref LambdaCodeKey
         - ZipFile: |
-            import json,os,time,hmac,hashlib,base64,struct,boto3,decimal,secrets,datetime,random
+            import json,os,time,hmac,hashlib,base64,struct,boto3,decimal,secrets,datetime,random,urllib.request,urllib.parse,ssl
             TBL=os.environ.get("TABLE_NAME","dev-nextcloud-tenant-registry")
             UTBL=os.environ.get("ADMIN_USERS_TABLE","")
             CORS={"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"}
@@ -584,6 +599,82 @@ Resources:
                 except:pass
                 return None
             def resp(st,d):return {"statusCode":st,"headers":CORS,"body":json.dumps(d,default=d2j)}
+            def get_admin_creds():
+                try:
+                    sm=boto3.client("secretsmanager",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                    r=sm.get_secret_value(SecretId=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/secrets/admin-credentials")
+                    creds=json.loads(r["SecretString"])
+                    return creds.get("username","admin"),creds.get("password","")
+                except:pass
+                return "admin",""
+            def sync_nextcloud_account(tid,dom,u,pwd,email=None,role="User",q_gb=None):
+                admin_user,admin_pwd=get_admin_creds()
+                if not admin_pwd:
+                    print("Warning: Admin password unavailable for Nextcloud sync")
+                    return False
+                auth_hdr="Basic "+base64.b64encode(f"{admin_user}:{admin_pwd}".encode()).decode()
+                alb_dns=os.environ.get("LOAD_BALANCER_DNS","")
+                endpoints=[]
+                if dom:endpoints.append(("https://"+dom,{}))
+                if alb_dns and dom:endpoints.append(("http://"+alb_dns,{"Host":dom}))
+                elif alb_dns:endpoints.append(("http://"+alb_dns,{}))
+                ctx=ssl.create_default_context()
+                ctx.check_hostname=False
+                ctx.verify_mode=ssl.CERT_NONE
+                success=False
+                for base_url,extra_hdrs in endpoints:
+                    try:
+                        check_url=f"{base_url}/ocs/v1.php/cloud/users/{urllib.parse.quote(u)}"
+                        hdrs={"Authorization":auth_hdr,"OCS-APIREQUEST":"true","User-Agent":"Storix-ControlPlane/1.0"}
+                        hdrs.update(extra_hdrs)
+                        req=urllib.request.Request(check_url,headers=hdrs,method="GET")
+                        user_exists=False
+                        try:
+                            with urllib.request.urlopen(req,context=ctx,timeout=8) as r:
+                                if "<statuscode>100</statuscode>" in r.read().decode("utf-8",errors="ignore"):user_exists=True
+                        except:pass
+                        if user_exists:
+                            put_url=f"{base_url}/ocs/v1.php/cloud/users/{urllib.parse.quote(u)}"
+                            b_pwd=urllib.parse.urlencode({"key":"password","value":pwd}).encode()
+                            put_hdrs=dict(hdrs)
+                            put_hdrs["Content-Type"]="application/x-www-form-urlencoded"
+                            preq=urllib.request.Request(put_url,data=b_pwd,headers=put_hdrs,method="PUT")
+                            with urllib.request.urlopen(preq,context=ctx,timeout=8) as r:pass
+                            if email:
+                                b_em=urllib.parse.urlencode({"key":"email","value":email}).encode()
+                                ereq=urllib.request.Request(put_url,data=b_em,headers=put_hdrs,method="PUT")
+                                with urllib.request.urlopen(ereq,context=ctx,timeout=8) as r:pass
+                            success=True
+                            break
+                        else:
+                            post_url=f"{base_url}/ocs/v1.php/cloud/users"
+                            f_data={"userid":u,"password":pwd,"email":email or f"{u}@{tid}.com"}
+                            if role in ("TenantAdmin","admin"):f_data["groups[]"]="admin"
+                            post_b=urllib.parse.urlencode(f_data).encode()
+                            post_hdrs=dict(hdrs)
+                            post_hdrs["Content-Type"]="application/x-www-form-urlencoded"
+                            creq=urllib.request.Request(post_url,data=post_b,headers=post_hdrs,method="POST")
+                            with urllib.request.urlopen(creq,context=ctx,timeout=8) as r:
+                                if "<statuscode>100</statuscode>" in r.read().decode("utf-8",errors="ignore"):
+                                    success=True
+                                    break
+                    except Exception as e:
+                        print(f"Sync user {u} error on {base_url}: {e}")
+                        continue
+                try:
+                    sm=boto3.client("secretsmanager",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                    env=os.environ.get("ENVIRONMENT_NAME","dev")
+                    sec_id=f"/nextcloud/{env}/tenants/{tid}/credentials"
+                    sec_val=json.dumps({"username":u,"password":pwd,"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())})
+                    try:sm.put_secret_value(SecretId=sec_id,SecretString=sec_val)
+                    except sm.exceptions.ResourceNotFoundException:
+                        sm.create_secret(Name=sec_id,SecretString=sec_val)
+                    if u==admin_user:
+                        try:sm.put_secret_value(SecretId=f"/nextcloud/{env}/secrets/admin-credentials",SecretString=json.dumps({"username":admin_user,"password":pwd}))
+                        except:pass
+                except Exception as se:
+                    print(f"Secrets Manager update error: {se}")
+                return success
             def get_metrics_data(tid):
                 reg=os.environ.get("AWS_REGION","ap-southeast-1")
                 env=os.environ.get("ENVIRONMENT_NAME","dev")
@@ -688,12 +779,13 @@ Resources:
                     return resp(200,{"status":"OK","token":tok,"user":u,"role":r})
                 dynamo=boto3.resource("dynamodb",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
                 tbl=dynamo.Table(TBL)
+                rdom=os.environ.get("ROOT_DOMAIN","png261.dev")
                 if act in ("PROVISION","PROVISION_DEMO"):
                     tid=b.get("tenant_id")
                     if not tid:return resp(400,{"error":"tenant_id is required"})
                     tid=str(tid).lower().strip()
                     q_gb=b.get("quota_gb",100)
-                    dom=b.get("domain",f"{tid}.png261.dev")
+                    dom=b.get("domain") or f"{tid}.{rdom}"
                     em=b.get("admin_email",f"admin@{tid}.com")
                     is_demo=act=="PROVISION_DEMO" or bool(b.get("is_demo"))
                     item={"tenant_id":tid,"status":"PROVISIONING","progress":15,"current_step":"Initializing Registry & Allocating Ingress","created_at":int(time.time()),"last_updated":int(time.time()),"domain":dom,"admin_email":em,"quota_gb":q_gb,"storage_quota_gb":q_gb,"tier":"ENTERPRISE","is_demo":is_demo}
@@ -712,7 +804,7 @@ Resources:
                     items=tbl.scan().get("Items",[])
                     if not items:
                         tid=os.environ.get("TENANT_ID") or "dev-tenant"
-                        item={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":f"{tid}.png261.dev","admin_email":f"admin@{tid}.com","quota_gb":100,"storage_quota_gb":100,"tier":"ENTERPRISE"}
+                        item={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":f"{tid}.{rdom}","admin_email":f"admin@{tid}.com","quota_gb":100,"storage_quota_gb":100,"tier":"ENTERPRISE"}
                         try:tbl.put_item(Item=item)
                         except:pass
                         items=[item]
@@ -722,7 +814,7 @@ Resources:
                     if not tid:return resp(400,{"error":"tenant_id is required"})
                     r=tbl.get_item(Key={"tenant_id":tid})
                     if "Item" not in r:
-                        it={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":f"{tid}.png261.dev","admin_email":f"admin@{tid}.com","quota_gb":100,"storage_quota_gb":100,"tier":"ENTERPRISE"}
+                        it={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":f"{tid}.{rdom}","admin_email":f"admin@{tid}.com","quota_gb":100,"storage_quota_gb":100,"tier":"ENTERPRISE"}
                         try:tbl.put_item(Item=it)
                         except:pass
                     else:
@@ -805,18 +897,8 @@ Resources:
                         tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET accounts=:a,#lu=:lu",ExpressionAttributeNames={"#lu":"last_updated"},ExpressionAttributeValues={":a":json.dumps(accs),":lu":int(time.time())})
                     except Exception as e:
                         print(f"Error saving accounts: {e}")
-                    try:
-                        sm=boto3.client("secretsmanager",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
-                        sec_id=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/tenants/{tid}/credentials"
-                        sec_val=json.dumps({"username":u,"password":pwd,"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())})
-                        try:sm.put_secret_value(SecretId=sec_id,SecretString=sec_val)
-                        except sm.exceptions.ResourceNotFoundException:
-                            sm.create_secret(Name=sec_id,SecretString=sec_val)
-                        if u=="admin" and tid=="dev-tenant":
-                            try:sm.put_secret_value(SecretId=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/secrets/admin-credentials",SecretString=json.dumps({"username":"admin","password":pwd}))
-                            except:pass
-                    except Exception as e:
-                        print(f"Secrets manager write error: {e}")
+                    dom=it.get("domain") or f"{tid}.{os.environ.get('ROOT_DOMAIN','png261.dev')}"
+                    sync_nextcloud_account(tid,dom,u,pwd,email,role,q_gb)
                     return resp(200,{"status":"OK","message":f"Account '{u}' created successfully","account":new_acc,"temporary_password":pwd,"password":pwd,"username":u})
                 if act in ("RESET_TENANT_PASSWORD","RESET_TENANT_ACCOUNT_PASSWORD"):
                     tid=b.get("tenant_id") or q.get("tenant_id")
@@ -824,18 +906,10 @@ Resources:
                     u=str(b.get("username","admin")).strip().lower()
                     new_pwd=str(b.get("new_password") or b.get("password") or "").strip()
                     if not new_pwd:new_pwd=f"Storix_{secrets.token_urlsafe(6)}!26"
-                    try:
-                        sm=boto3.client("secretsmanager",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
-                        sec_id=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/tenants/{tid}/credentials"
-                        sec_val=json.dumps({"username":u,"password":new_pwd,"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())})
-                        try:sm.put_secret_value(SecretId=sec_id,SecretString=sec_val)
-                        except sm.exceptions.ResourceNotFoundException:
-                            sm.create_secret(Name=sec_id,SecretString=sec_val)
-                        if u=="admin" and tid=="dev-tenant":
-                            try:sm.put_secret_value(SecretId=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/secrets/admin-credentials",SecretString=json.dumps({"username":"admin","password":new_pwd}))
-                            except:pass
-                    except Exception as e:
-                        print(f"Secrets manager reset error: {e}")
+                    r=tbl.get_item(Key={"tenant_id":tid})
+                    it=r.get("Item",{})
+                    dom=it.get("domain") or f"{tid}.{os.environ.get('ROOT_DOMAIN','png261.dev')}"
+                    sync_nextcloud_account(tid,dom,u,new_pwd)
                     return resp(200,{"status":"OK","message":f"Password reset successfully for account '{u}' of tenant {tid}","username":u,"temporary_password":new_pwd,"password":new_pwd})
                 if act=="UPDATE_TENANT_ACCOUNT":
                     tid=b.get("tenant_id") or q.get("tenant_id")

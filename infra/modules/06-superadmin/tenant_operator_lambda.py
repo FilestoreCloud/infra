@@ -20,6 +20,7 @@ if _CURR_DIR not in sys.path:
     sys.path.insert(0, _CURR_DIR)
 
 from operator_core.common import (  # noqa: E402
+    ROOT_DOMAIN,
     cognito_idp,
     dynamodb,
     ecs,
@@ -29,6 +30,7 @@ from operator_core.common import (  # noqa: E402
     ses,
     sfn,
     ssm,
+    unmarshal_ddb_item,
 )
 
 from operator_core import (  # noqa: E402
@@ -59,6 +61,7 @@ from operator_core import (  # noqa: E402
     register_tenant_custom_domain,
     register_tenant_task_definition,
     save_tenant_accounts,
+    sync_nextcloud_account,
     save_webhook_config,
     test_webhook_endpoint,
     publish_tenant_event,
@@ -1786,7 +1789,7 @@ def _handle_request(event, context):
 
     try:
         if action in ["PROVISION", "PROVISION_DEMO"]:
-            domain = payload.get("domain") or f"{tenant_id}.png261.dev"
+            domain = payload.get("domain") or f"{tenant_id}.{ROOT_DOMAIN}"
             quota_gb = str(payload.get("quota_gb", 100))
             admin_email = payload.get("admin_email", f"admin@{tenant_id}.com")
             clean_id = tenant_id.lower().replace("-", "_")
@@ -1934,8 +1937,7 @@ def _handle_request(event, context):
                                         dict.fromkeys(
                                             [
                                                 domain,
-                                                f"{tenant_id}.png261.dev",
-                                                f"{tenant_id}.appleai.codes",
+                                                f"{tenant_id}.{ROOT_DOMAIN}",
                                             ]
                                         )
                                     )
@@ -2767,22 +2769,23 @@ def _handle_request(event, context):
             accounts.append(new_account)
             save_tenant_accounts(tenant_id, accounts)
 
+            tenant_record = None
             try:
-                secret_id = (
-                    f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+                res = dynamodb.get_item(
+                    TableName=TABLE_NAME, Key={"tenant_id": {"S": tenant_id}}
                 )
-                secretsmanager.put_secret_value(
-                    SecretId=secret_id,
-                    SecretString=json.dumps(
-                        {
-                            "username": username,
-                            "password": pwd,
-                            "updated_at": now_iso,
-                        }
-                    ),
-                )
-            except Exception as e:
-                print(f"Notice: Secrets Manager write on account create: {e}")
+                if "Item" in res:
+                    tenant_record = unmarshal_ddb_item(res["Item"])
+            except Exception:
+                pass
+            domain = (
+                tenant_record.get("domain")
+                if tenant_record
+                else payload.get("domain") or f"{tenant_id}.{ROOT_DOMAIN}"
+            )
+            sync_nextcloud_account(
+                tenant_id, domain, username, pwd, email, role, quota_gb
+            )
 
             record_audit_event(
                 user_info.get("user"),
@@ -2880,22 +2883,21 @@ def _handle_request(event, context):
                 payload.get("new_password") or f"Tmp_{secrets.token_urlsafe(10)}!9"
             )
 
+            tenant_record = None
             try:
-                secret_id = (
-                    f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+                res = dynamodb.get_item(
+                    TableName=TABLE_NAME, Key={"tenant_id": {"S": tenant_id}}
                 )
-                secretsmanager.put_secret_value(
-                    SecretId=secret_id,
-                    SecretString=json.dumps(
-                        {
-                            "username": username,
-                            "password": temp_password,
-                            "updated_at": now_iso,
-                        }
-                    ),
-                )
-            except Exception as e:
-                print(f"Notice: Secrets Manager write fallback: {e}")
+                if "Item" in res:
+                    tenant_record = unmarshal_ddb_item(res["Item"])
+            except Exception:
+                pass
+            domain = (
+                tenant_record.get("domain")
+                if tenant_record
+                else payload.get("domain") or f"{tenant_id}.{ROOT_DOMAIN}"
+            )
+            sync_nextcloud_account(tenant_id, domain, username, temp_password)
 
             record_audit_event(
                 user_info.get("user"),

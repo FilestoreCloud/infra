@@ -9,6 +9,7 @@ from operator_core.common import (
     CLUSTER_NAME,
     ENVIRONMENT_NAME,
     REGION,
+    ROOT_DOMAIN,
     TABLE_NAME,
     dynamodb,
     ecs,
@@ -95,7 +96,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         {"name": "POSTGRES_DB", "value": f"nc_{clean_id}"},
         {
             "name": "NEXTCLOUD_TRUSTED_DOMAINS",
-            "value": f"{domain} {tenant_id}.png261.dev {tenant_id}.appleai.codes localhost",
+            "value": f"{domain} {tenant_id}.{ROOT_DOMAIN} localhost",
         },
         {
             "name": "OBJECTSTORE_S3_BUCKET",
@@ -225,7 +226,7 @@ def clone_tenant_to_sandbox(
     if not source_record:
         source_record = {
             "tenant_id": source_clean,
-            "domain": f"{source_clean}.png261.dev",
+            "domain": f"{source_clean}.{ROOT_DOMAIN}",
             "admin_email": f"admin@{source_clean}.com",
             "quota_gb": 50,
             "status": "ACTIVE",
@@ -234,7 +235,7 @@ def clone_tenant_to_sandbox(
         }
 
     domain = (
-        target_domain.strip().lower() if target_domain else f"{target_clean}.png261.dev"
+        target_domain.strip().lower() if target_domain else f"{target_clean}.{ROOT_DOMAIN}"
     )
     admin_email = (
         target_admin_email.strip().lower()
@@ -369,8 +370,7 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
                                 dict.fromkeys(
                                     [
                                         domain,
-                                        f"{tenant_id}.png261.dev",
-                                        f"{tenant_id}.appleai.codes",
+                                        f"{tenant_id}.{ROOT_DOMAIN}",
                                     ]
                                 )
                             )
@@ -503,7 +503,7 @@ def _handle_step_function_task(event):
     infra = get_infra_config()
 
     if action == "PROVISION_TENANT_RESOURCES":
-        domain = event.get("domain") or f"{tenant_id}.png261.dev"
+        domain = event.get("domain") or f"{tenant_id}.{ROOT_DOMAIN}"
         quota_gb = str(event.get("quota_gb", 100))
         admin_email = event.get("admin_email", f"admin@{tenant_id}.com")
         res = _provision_tenant_resources(
