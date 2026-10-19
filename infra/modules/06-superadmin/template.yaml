@@ -555,7 +555,7 @@ Resources:
         - S3Bucket: !Ref LambdaCodeBucket
           S3Key: !Ref LambdaCodeKey
         - ZipFile: |
-            import json,os,time,hmac,hashlib,base64,struct,boto3,decimal
+            import json,os,time,hmac,hashlib,base64,struct,boto3,decimal,secrets
             TBL=os.environ.get("TABLE_NAME","dev-nextcloud-tenant-registry")
             UTBL=os.environ.get("ADMIN_USERS_TABLE","")
             CORS={"Content-Type":"application/json","Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"*","Access-Control-Allow-Headers":"*"}
@@ -669,7 +669,141 @@ Resources:
                         except:pass
                     else:
                         it=r["Item"]
-                    return resp(200,{"status":"OK","tenant":it,"item":it,"aws_topology":{"ecs_service":f"{tid}-svc"},"metrics":{"cpu_percent":12.5,"memory_percent":34.2}})
+                    raw_accs=it.get("accounts")
+                    accs=[]
+                    if isinstance(raw_accs,str):
+                        try:accs=json.loads(raw_accs)
+                        except:accs=[]
+                    elif isinstance(raw_accs,list):
+                        accs=list(raw_accs)
+                    if not accs:
+                        admin_em=it.get("admin_email") or f"admin@{tid}.com"
+                        accs=[{
+                            "username":"admin",
+                            "display_name":f"{tid.title()} Administrator",
+                            "email":admin_em,
+                            "role":"TenantAdmin",
+                            "quota_gb":int(it.get("quota_gb",100)),
+                            "storage_used_gb":0.0,
+                            "status":"ACTIVE",
+                            "mfa_enabled":False,
+                            "last_login":"Never",
+                            "created_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime(int(it.get("created_at",time.time()))))
+                        }]
+                        try:tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET accounts=:a",ExpressionAttributeValues={":a":json.dumps(accs)})
+                        except:pass
+                    return resp(200,{"status":"OK","tenant":it,"item":it,"accounts":accs,"aws_topology":{"ecs_service":f"{tid}-svc"},"metrics":{"cpu_percent":12.5,"memory_percent":34.2}})
+                if act in ("GET_TENANT_ACCOUNTS","LIST_TENANT_ACCOUNTS","ACCOUNTS"):
+                    tid=b.get("tenant_id") or q.get("tenant_id")
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    r=tbl.get_item(Key={"tenant_id":tid})
+                    it=r.get("Item",{})
+                    raw_accs=it.get("accounts")
+                    accs=[]
+                    if isinstance(raw_accs,str):
+                        try:accs=json.loads(raw_accs)
+                        except:accs=[]
+                    elif isinstance(raw_accs,list):
+                        accs=list(raw_accs)
+                    if not accs:
+                        accs=[{"username":"admin","display_name":f"{tid.title()} Administrator","email":it.get("admin_email",f"admin@{tid}.com"),"role":"TenantAdmin","quota_gb":int(it.get("quota_gb",100)),"storage_used_gb":0.0,"status":"ACTIVE","mfa_enabled":False,"last_login":"Never","created_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}]
+                    return resp(200,{"status":"OK","tenant_id":tid,"accounts":accs,"count":len(accs)})
+                if act=="CREATE_TENANT_ACCOUNT":
+                    tid=b.get("tenant_id") or q.get("tenant_id")
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    u=str(b.get("username","")).strip().lower()
+                    if not u:return resp(400,{"error":"username is required"})
+                    pwd=str(b.get("password") or b.get("new_password") or "").strip()
+                    if not pwd:pwd=f"Storix_{secrets.token_urlsafe(6)}!26"
+                    email=b.get("email") or f"{u}@{tid}.com"
+                    disp=b.get("display_name") or u.capitalize()
+                    role=b.get("role","User")
+                    q_gb=int(b.get("quota_gb",25))
+                    r=tbl.get_item(Key={"tenant_id":tid})
+                    it=r.get("Item",{})
+                    raw_accs=it.get("accounts")
+                    accs=[]
+                    if isinstance(raw_accs,str):
+                        try:accs=json.loads(raw_accs)
+                        except:accs=[]
+                    elif isinstance(raw_accs,list):
+                        accs=list(raw_accs)
+                    if not accs:
+                        admin_em=it.get("admin_email") or f"admin@{tid}.com"
+                        accs=[{"username":"admin","display_name":f"{tid.title()} Administrator","email":admin_em,"role":"TenantAdmin","quota_gb":int(it.get("quota_gb",100)),"storage_used_gb":0.0,"status":"ACTIVE","mfa_enabled":False,"last_login":"Never","created_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}]
+                    existing=[a for a in accs if a.get("username")==u]
+                    if existing:
+                        target=existing[0]
+                        target["email"]=email
+                        target["display_name"]=disp
+                        target["role"]=role
+                        target["quota_gb"]=q_gb
+                        new_acc=target
+                    else:
+                        new_acc={"username":u,"display_name":disp,"email":email,"role":role,"quota_gb":q_gb,"storage_used_gb":0.0,"status":"ACTIVE","mfa_enabled":False,"last_login":"Never","created_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())}
+                        accs.append(new_acc)
+                    try:
+                        tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET accounts=:a,#lu=:lu",ExpressionAttributeNames={"#lu":"last_updated"},ExpressionAttributeValues={":a":json.dumps(accs),":lu":int(time.time())})
+                    except Exception as e:
+                        print(f"Error saving accounts: {e}")
+                    try:
+                        sm=boto3.client("secretsmanager",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                        sec_id=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/tenants/{tid}/credentials"
+                        sec_val=json.dumps({"username":u,"password":pwd,"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())})
+                        try:sm.put_secret_value(SecretId=sec_id,SecretString=sec_val)
+                        except sm.exceptions.ResourceNotFoundException:
+                            sm.create_secret(Name=sec_id,SecretString=sec_val)
+                        if u=="admin" and tid=="dev-tenant":
+                            try:sm.put_secret_value(SecretId=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/secrets/admin-credentials",SecretString=json.dumps({"username":"admin","password":pwd}))
+                            except:pass
+                    except Exception as e:
+                        print(f"Secrets manager write error: {e}")
+                    return resp(200,{"status":"OK","message":f"Account '{u}' created successfully","account":new_acc,"temporary_password":pwd,"password":pwd,"username":u})
+                if act in ("RESET_TENANT_PASSWORD","RESET_TENANT_ACCOUNT_PASSWORD"):
+                    tid=b.get("tenant_id") or q.get("tenant_id")
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    u=str(b.get("username","admin")).strip().lower()
+                    new_pwd=str(b.get("new_password") or b.get("password") or "").strip()
+                    if not new_pwd:new_pwd=f"Storix_{secrets.token_urlsafe(6)}!26"
+                    try:
+                        sm=boto3.client("secretsmanager",region_name=os.environ.get("AWS_REGION","ap-southeast-1"))
+                        sec_id=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/tenants/{tid}/credentials"
+                        sec_val=json.dumps({"username":u,"password":new_pwd,"updated_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime())})
+                        try:sm.put_secret_value(SecretId=sec_id,SecretString=sec_val)
+                        except sm.exceptions.ResourceNotFoundException:
+                            sm.create_secret(Name=sec_id,SecretString=sec_val)
+                        if u=="admin" and tid=="dev-tenant":
+                            try:sm.put_secret_value(SecretId=f"/nextcloud/{os.environ.get('ENVIRONMENT_NAME','dev')}/secrets/admin-credentials",SecretString=json.dumps({"username":"admin","password":new_pwd}))
+                            except:pass
+                    except Exception as e:
+                        print(f"Secrets manager reset error: {e}")
+                    return resp(200,{"status":"OK","message":f"Password reset successfully for account '{u}' of tenant {tid}","username":u,"temporary_password":new_pwd,"password":new_pwd})
+                if act=="UPDATE_TENANT_ACCOUNT":
+                    tid=b.get("tenant_id") or q.get("tenant_id")
+                    if not tid:return resp(400,{"error":"tenant_id is required"})
+                    u=str(b.get("username","")).strip().lower()
+                    r=tbl.get_item(Key={"tenant_id":tid})
+                    it=r.get("Item",{})
+                    raw_accs=it.get("accounts")
+                    accs=[]
+                    if isinstance(raw_accs,str):
+                        try:accs=json.loads(raw_accs)
+                        except:accs=[]
+                    elif isinstance(raw_accs,list):
+                        accs=list(raw_accs)
+                    updated=None
+                    for a in accs:
+                        if a.get("username")==u:
+                            if "status" in b:a["status"]=b["status"]
+                            if "role" in b:a["role"]=b["role"]
+                            if "email" in b:a["email"]=b["email"]
+                            if "display_name" in b:a["display_name"]=b["display_name"]
+                            if "quota_gb" in b:a["quota_gb"]=int(b["quota_gb"])
+                            updated=a
+                            break
+                    if updated:
+                        tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET accounts=:a,#lu=:lu",ExpressionAttributeNames={"#lu":"last_updated"},ExpressionAttributeValues={":a":json.dumps(accs),":lu":int(time.time())})
+                    return resp(200,{"status":"OK","message":f"Account '{u}' updated successfully","account":updated})
                 if act=="METRICS":
                     tid=b.get("tenant_id") or q.get("tenant_id") or "dev-tenant"
                     return resp(200,{"status":"OK","metrics":{"cpu_percent":12.5,"memory_percent":34.2,"storage_percent":45.0},"tenant_id":tid})
