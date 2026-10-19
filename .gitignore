@@ -130,3 +130,6 @@ test-results/
 /root.yaml
 
 
+
+# Cloudflare local state / cache
+.cloudflare/

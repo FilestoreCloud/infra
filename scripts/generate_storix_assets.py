@@ -171,13 +171,17 @@ def main():
             # Nextcloud theme file naming conventions
             logo_dark.save(os.path.join(d, "logo-wide.png"))
             logo_white.save(os.path.join(d, "logo-white.png"))
+            logo_white.save(os.path.join(d, "logo-header.png"))
             icon_512.save(os.path.join(d, "logo.png"))
+            icon_512.save(os.path.join(d, "favicon-touch.png"))
             icon_32.save(os.path.join(d, "favicon.png"))
             with open(os.path.join(d, "favicon.ico"), "wb") as f:
                 f.write(ico_bytes)
             with open(os.path.join(d, "logo.svg"), "w") as f:
                 f.write(logo_svg)
             with open(os.path.join(d, "logo-wide.svg"), "w") as f:
+                f.write(logo_wide_svg)
+            with open(os.path.join(d, "logo-header.svg"), "w") as f:
                 f.write(logo_wide_svg)
 
     print("✅ All Storix brand assets successfully regenerated and synchronized!")

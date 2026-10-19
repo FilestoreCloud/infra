@@ -27,7 +27,7 @@ def execute_tenant_occ(tenant_id, command, user="SuperAdmin"):
             "  - edition: Enterprise AI\n"
             "  - maintenance: false\n"
             "  - needsDbUpgrade: false\n"
-            "  - productname: Nextcloud\n"
+            "  - productname: Storix\n"
             "  - extendedSupport: true"
         )
         exit_code = 0
@@ -131,8 +131,47 @@ def execute_tenant_occ(tenant_id, command, user="SuperAdmin"):
             output = f"nc_{tenant_id.replace('-', '_')}"
         elif "dbhost" in setting:
             output = "postgres.internal:5432"
+        elif "theme" in setting:
+            output = "storix"
         else:
             output = "true"
+        exit_code = 0
+
+    elif cmd_clean.startswith("theming:config"):
+        parts = cmd_clean.split()
+        if len(parts) == 1:
+            output = (
+                "Theming configuration for Storix Enterprise:\n"
+                "  - name: Storix\n"
+                "  - url: https://storix.io\n"
+                "  - slogan: Enterprise Cloud Storage Platform\n"
+                "  - color: #1652f0\n"
+                "  - primary_color: #1652f0\n"
+                "  - background_color: #071736\n"
+                "  - logo: /var/www/html/themes/storix/core/img/logo-white.png\n"
+                "  - logoheader: /var/www/html/themes/storix/core/img/logo-white.png\n"
+                "  - favicon: /var/www/html/themes/storix/core/img/favicon.ico\n"
+                "  - background: /var/www/html/themes/storix/core/img/background.png"
+            )
+        elif len(parts) == 2:
+            key = parts[1]
+            values = {
+                "name": "Storix",
+                "url": "https://storix.io",
+                "slogan": "Enterprise Cloud Storage Platform",
+                "color": "#1652f0",
+                "primary_color": "#1652f0",
+                "background_color": "#071736",
+                "logo": "/var/www/html/themes/storix/core/img/logo-white.png",
+                "logoheader": "/var/www/html/themes/storix/core/img/logo-white.png",
+                "favicon": "/var/www/html/themes/storix/core/img/favicon.ico",
+                "background": "/var/www/html/themes/storix/core/img/background.png",
+            }
+            output = values.get(key, f"Custom value set for {key}")
+        else:
+            key = parts[1]
+            val = " ".join(parts[2:])
+            output = f"Updated theming option '{key}' to '{val}'."
         exit_code = 0
 
     else:

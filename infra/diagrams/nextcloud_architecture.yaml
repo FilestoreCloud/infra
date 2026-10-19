@@ -24,17 +24,17 @@ Diagram:
     ExternalGuest:
       Type: AWS::Diagram::Resource
       Preset: "Client"
-      Title: "External Guest\n(Public Shares & WebDAV)"
+      Title: "External Guest"
 
     Tenant1Users:
       Type: AWS::Diagram::Resource
       Preset: "Users"
-      Title: "Tenant 1: Acme Users\n(acme.png261.dev)\nWeb, Sync Client & Mobile"
+      Title: "Tenant 1 Users"
 
     Tenant2Users:
       Type: AWS::Diagram::Resource
       Preset: "Users"
-      Title: "Tenant 2: Marvel Users\n(marvel.png261.dev)\nWeb, Sync Client & Mobile"
+      Title: "Tenant 2 Users"
 
     # ─────────────────────────────────────────────────────────────
     # AWS CLOUD ENVIRONMENT
@@ -58,16 +58,16 @@ Diagram:
 
     Route53:
       Type: AWS::Route53
-      Title: "Amazon Route 53 (DNS)\nHosted Zone: png261.dev\nWildcard *.png261.dev ALIAS"
+      Title: "Amazon Route 53"
 
     ACM:
       Type: AWS::Diagram::Resource
       Preset: "AWS Certificate Manager (ACM)"
-      Title: "AWS ACM (TLS 1.3)\nWildcard *.png261.dev\nAuto DNS Validation"
+      Title: "AWS Certificate Manager"
 
     WAF:
       Type: AWS::WAFv2
-      Title: "AWS WAFv2 (WebACL)\nOWASP Top 10, BadInputs\nSQLi & IP Rate Limit"
+      Title: "AWS WAF"
 
     # ─────────────────────────────────────────────────────────────
     # AWS REGION (ap-southeast-1)
@@ -85,7 +85,7 @@ Diagram:
     # ─────────────────────────────────────────────────────────────
     VPC:
       Type: AWS::EC2::VPC
-      Title: "Nextcloud SaaS VPC (10.0.0.0/16)"
+      Title: "Amazon VPC"
       Direction: vertical
       Children:
         - PublicSubnetGroup
@@ -104,7 +104,7 @@ Diagram:
     PublicSubnetGroup:
       Type: AWS::EC2::Subnet
       Preset: PublicSubnet
-      Title: "Public Subnets AZ1 & AZ2 (Host Routing Ingress, Dedicated Compute & Config Store)"
+      Title: "Public Subnets"
       Direction: vertical
       Children:
         - ALB
@@ -114,11 +114,11 @@ Diagram:
     ALB:
       Type: AWS::ElasticLoadBalancingV2::LoadBalancer
       Preset: Application Load Balancer
-      Title: "Application Load Balancer (Dual-AZ Ingress)\nWildcard TLS 1.3 · Host-Header Priority Routing\nHealth Check: /status.php (200 OK)"
+      Title: "Application Load Balancer"
 
     ECSCluster:
       Type: AWS::ECS::Cluster
-      Title: "Amazon ECS (Container-per-Tenant Fargate Fleet)"
+      Title: "Amazon ECS"
       Direction: horizontal
       Children:
         - FargateTask1
@@ -127,12 +127,12 @@ Diagram:
     FargateTask1:
       Type: AWS::Diagram::Resource
       Preset: "AWS Fargate"
-      Title: "Tenant Acme (service-acme: 1-4 Tasks)\nAWS Graviton ARM64 · High-Concurrency\nNextcloud 30 + LiteLLM Sidecar"
+      Title: "AWS Fargate"
 
     FargateTask2:
       Type: AWS::Diagram::Resource
       Preset: "AWS Fargate"
-      Title: "Tenant Marvel (service-marvel: 1-4 Tasks)\nAWS Graviton ARM64 · High-Concurrency\nNextcloud 30 + LiteLLM Sidecar"
+      Title: "AWS Fargate"
 
     SharedStorageRow:
       Type: AWS::Diagram::HorizontalStack
@@ -143,17 +143,17 @@ Diagram:
     NextcloudEFS:
       Type: AWS::Diagram::Resource
       Preset: "Amazon Elastic File System (Amazon EFS)"
-      Title: "Amazon EFS (/tenants/{id}/config)\nLifecycle: 30d IA · 90d Archive Tier\nPOSIX UID 33:33 (www-data) Encrypted"
+      Title: "Amazon EFS"
 
     S3GatewayEndpoint:
       Type: AWS::EC2::VPCEndpoint
-      Title: "S3 Gateway Endpoint\n(Complimentary / Zero-NAT Routing)"
+      Title: "S3 Gateway Endpoint"
 
     # Private Subnets (AZ1 & AZ2): Isolated RDS Relational Database Tier & Connection Proxy
     PrivateSubnetGroup:
       Type: AWS::EC2::Subnet
       Preset: PrivateSubnet
-      Title: "Private Subnets AZ1 & AZ2 (Isolated Relational Data Tier & RDS Proxy Pooler)"
+      Title: "Private Subnets"
       Direction: horizontal
       Children:
         - RDSProxy
@@ -162,11 +162,11 @@ Diagram:
     RDSProxy:
       Type: AWS::Diagram::Resource
       Preset: "Amazon RDS proxy instance"
-      Title: "Amazon RDS Proxy\n(Connection Pooler & Secrets Integration)\nZero-Downtime Failover & Concurrency"
+      Title: "Amazon RDS Proxy"
 
     RDSInstance:
       Type: AWS::RDS::DBInstance
-      Title: "Amazon RDS PostgreSQL 16 (AWS Graviton)\nDedicated Catalogs: nc_acme, nc_marvel\nPrivate Subnet Group · Encrypted KMS"
+      Title: "Amazon RDS"
 
     # ─────────────────────────────────────────────────────────────
     # REGIONAL SERVICES & PLATFORM INTEGRATIONS
@@ -186,15 +186,15 @@ Diagram:
 
     S3VaultBucket:
       Type: AWS::S3::Bucket
-      Title: "Amazon S3 Vault (Multi-Tier)\n(s3://vault/tenants/{id}/*)\nIntelligent-Tiering · 180d Glacier Archive\nEventBridge S3 Notifications"
+      Title: "Amazon S3"
 
     SecretsManager:
       Type: AWS::SecretsManager::Secret
-      Title: "AWS Secrets Manager\n(DB, Admin & LiteLLM Secrets)\nKMS Envelope Encryption"
+      Title: "AWS Secrets Manager"
 
     ECRRepo:
       Type: AWS::ECR
-      Title: "Amazon ECR (Multi-Arch: ARM64/x86)\n(Golden Image: Nextcloud 30)\nAWS SOCI Fast Cold Start Indexing"
+      Title: "Amazon ECR"
 
     AIAndObservabilityRow:
       Type: AWS::Diagram::HorizontalStack
@@ -207,21 +207,21 @@ Diagram:
     BedrockAI:
       Type: AWS::Diagram::Resource
       Preset: "Amazon Bedrock"
-      Title: "Amazon Bedrock (Claude 3.5 Sonnet)\nSigV4 IAM Task Role Invocation\nContext Chat & Document AI"
+      Title: "Amazon Bedrock"
 
     DedicatedCronRunner:
       Type: AWS::Diagram::Resource
       Preset: "Amazon EventBridge"
-      Title: "EventBridge Dedicated Cron\n(rate(5 mins) -> ECS Run-Task)\nDecoupled Background Queue"
+      Title: "Amazon EventBridge"
 
     CloudWatchLog:
       Type: AWS::CloudWatch
-      Title: "Amazon CloudWatch Logs\n(/ecs/nextcloud & Container Insights)\nStructured Log Streaming & EMF"
+      Title: "Amazon CloudWatch Logs"
 
     SyntheticsCanary:
       Type: AWS::Diagram::Resource
       Preset: "Synthetics"
-      Title: "CloudWatch Synthetics Canary\n(24/7 Endpoint Health Probes)\nLatency Tracking & Content Verification"
+      Title: "Amazon CloudWatch Synthetics"
 
   # ─────────────────────────────────────────────────────────────
   # RELATIONSHIPS & TRAFFIC FLOW

@@ -193,12 +193,14 @@ def get_infra_config():
             if s.strip()
         ],
         "ecs_sg": os.environ.get("ECS_SECURITY_GROUP"),
+        "listener_arn": os.environ.get("LISTENER_ARN"),
         "https_listener_arn": os.environ.get("HTTPS_LISTENER_ARN"),
         "alb_arn": os.environ.get("ALB_ARN"),
         "alb_dns": os.environ.get("ALB_DNS"),
         "efs_id": os.environ.get("EFS_ID"),
         "db_endpoint": os.environ.get("DB_ENDPOINT"),
         "db_secret_arn": os.environ.get("DB_SECRET_ARN"),
+        "admin_secret_arn": os.environ.get("ADMIN_SECRET_ARN"),
         "s3_vault_bucket": os.environ.get("S3_VAULT_BUCKET"),
         "cluster_name": os.environ.get("CLUSTER_NAME", CLUSTER_NAME),
         "task_role_arn": os.environ.get("TASK_ROLE_ARN"),
@@ -226,9 +228,16 @@ def get_infra_config():
                     config["ecs_sg"] = val
                 elif name.endswith("/infra/alb-https-listener-arn"):
                     config["https_listener_arn"] = val
+                    config["listener_arn"] = val
+                elif name.endswith("/infra/alb-listener-arn"):
+                    config["listener_arn"] = val
+                    if not config.get("https_listener_arn"):
+                        config["https_listener_arn"] = val
+                elif name.endswith("/infra/admin-secret-arn"):
+                    config["admin_secret_arn"] = val
                 elif name.endswith("/infra/alb-arn"):
                     config["alb_arn"] = val
-                elif name.endswith("/infra/alb-dns-name"):
+                elif name.endswith("/infra/alb-dns-name") or name.endswith("/infra/alb-dns"):
                     config["alb_dns"] = val
                 elif name.endswith("/infra/efs-id"):
                     config["efs_id"] = val
@@ -248,6 +257,31 @@ def get_infra_config():
                     config["ecr_image"] = f"{val}:latest"
     except Exception as e:
         print(f"Warning fetching SSM parameters: {e}")
+
+    # Dynamic listener resolution fallback via ELBv2 describe-listeners
+    if not config.get("listener_arn") and config.get("alb_arn"):
+        try:
+            ls_resp = elbv2.describe_listeners(LoadBalancerArn=config["alb_arn"])
+            listeners = ls_resp.get("Listeners", [])
+            for l in listeners:
+                if l.get("Port") == 443:
+                    config["listener_arn"] = l["ListenerArn"]
+                    config["https_listener_arn"] = l["ListenerArn"]
+                    break
+            if not config.get("listener_arn") and listeners:
+                config["listener_arn"] = listeners[0]["ListenerArn"]
+                config["https_listener_arn"] = listeners[0]["ListenerArn"]
+        except Exception as e:
+            print(f"Warning dynamically resolving ALB listener: {e}")
+
+    # Dynamic admin secret resolution fallback
+    if not config.get("admin_secret_arn"):
+        try:
+            sec_name = f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials"
+            s_desc = secretsmanager.describe_secret(SecretId=sec_name)
+            config["admin_secret_arn"] = s_desc.get("ARN")
+        except Exception as e:
+            print(f"Warning resolving admin secret ARN: {e}")
 
     # Fail-closed safe defaults: no hardcoded AWS account or resource IDs
     if not config.get("public_subnets"):
