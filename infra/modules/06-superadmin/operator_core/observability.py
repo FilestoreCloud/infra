@@ -1058,6 +1058,54 @@ def get_tenant_metrics(tenant_id):
     except Exception as e:
         print(f"Notice: Live CloudWatch metrics query fallback for {tenant_id}: {e}")
 
+    if not cpu_vals:
+        try:
+            fallback_svc = f"{ENVIRONMENT_NAME}-nextcloud-service"
+            cw_resp = cloudwatch.get_metric_data(
+                MetricDataQueries=[
+                    {
+                        "Id": "cpu",
+                        "MetricStat": {
+                            "Metric": {
+                                "Namespace": "AWS/ECS",
+                                "MetricName": "CPUUtilization",
+                                "Dimensions": [
+                                    {"Name": "ClusterName", "Value": cluster_name},
+                                    {"Name": "ServiceName", "Value": fallback_svc},
+                                ],
+                            },
+                            "Period": 300,
+                            "Stat": "Average",
+                        },
+                    },
+                    {
+                        "Id": "mem",
+                        "MetricStat": {
+                            "Metric": {
+                                "Namespace": "AWS/ECS",
+                                "MetricName": "MemoryUtilization",
+                                "Dimensions": [
+                                    {"Name": "ClusterName", "Value": cluster_name},
+                                    {"Name": "ServiceName", "Value": fallback_svc},
+                                ],
+                            },
+                            "Period": 300,
+                            "Stat": "Average",
+                        },
+                    },
+                ],
+                StartTime=start,
+                EndTime=now,
+            )
+            for r in cw_resp.get("MetricDataResults", []):
+                if r["Id"] == "cpu" and r.get("Values"):
+                    cpu_vals = r.get("Values", [])
+                    timestamps = [t.strftime("%H:%M") for t in r.get("Timestamps", [])]
+                elif r["Id"] == "mem" and r.get("Values"):
+                    mem_vals = r.get("Values", [])
+        except Exception as e:
+            print(f"Notice: Live CloudWatch cluster fallback for {tenant_id}: {e}")
+
     cur_cpu = round(cpu_vals[0], 2) if cpu_vals else 1.2
     cur_mem = round(mem_vals[0], 2) if mem_vals else 10.1
     peak_cpu = round(max(cpu_vals), 2) if cpu_vals else round(cur_cpu * 1.5, 2)
