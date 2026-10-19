@@ -219,7 +219,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         {"name": "POSTGRES_DB", "value": f"nc_{clean_id}"},
         {
             "name": "NEXTCLOUD_TRUSTED_DOMAINS",
-            "value": f"{domain} {tenant_id}.png261.dev {tenant_id}.appleai.codes localhost",
+            "value": f"{domain} {tenant_id}.{os.environ.get('ROOT_DOMAIN', 'png261.dev')} localhost",
         },
         {
             "name": "OBJECTSTORE_S3_BUCKET",
@@ -362,8 +362,7 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
                                 dict.fromkeys(
                                     [
                                         domain,
-                                        f"{tenant_id}.png261.dev",
-                                        f"{tenant_id}.appleai.codes",
+                                        f"{tenant_id}.{os.environ.get('ROOT_DOMAIN', 'png261.dev')}",
                                     ]
                                 )
                             )
@@ -483,7 +482,9 @@ def _check_tenant_health(tenant_id, infra):
         print(f"Service running query warning: {e}")
 
     try:
-        url = f"https://{tenant_id}.png261.dev/status.php"
+        r_dom = os.environ.get("ROOT_DOMAIN", "png261.dev")
+        target_domain = event.get("domain") or f"{tenant_id}.{r_dom}"
+        url = f"https://{target_domain}/status.php"
         req = urllib.request.Request(
             url, headers={"User-Agent": "NextcloudSaaS-HealthProbe"}
         )
@@ -672,7 +673,7 @@ def lambda_handler(event, context):
     print(f"Executing Step Functions task: action={action}, tenant_id={tenant_id}")
 
     if action == "PROVISION_TENANT_RESOURCES":
-        domain = event.get("domain") or f"{tenant_id}.png261.dev"
+        domain = event.get("domain") or f"{tenant_id}.{os.environ.get('ROOT_DOMAIN', 'png261.dev')}"
         quota_gb = str(event.get("quota_gb", 100))
         admin_email = event.get("admin_email", f"admin@{tenant_id}.com")
         res = _provision_tenant_resources(

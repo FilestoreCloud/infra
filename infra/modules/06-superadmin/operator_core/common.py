@@ -34,6 +34,8 @@ STATE_MACHINE_DEPROVISION_ARN = os.environ.get("STATE_MACHINE_DEPROVISION_ARN", 
 STATE_MACHINE_SEED_ARN = os.environ.get("STATE_MACHINE_SEED_ARN", "")
 STATE_MACHINE_DEMO_ARN = os.environ.get("STATE_MACHINE_DEMO_ARN", "")
 STATE_MACHINE_FLEET_UPGRADE_ARN = os.environ.get("STATE_MACHINE_FLEET_UPGRADE_ARN", "")
+LOAD_BALANCER_DNS = os.environ.get("LOAD_BALANCER_DNS", "")
+ROOT_DOMAIN = os.environ.get("ROOT_DOMAIN", "png261.dev")
 
 class _LazyAwsClient:
     """Zero-overhead lazy proxy for AWS boto3 clients to optimize cold-start import latency."""

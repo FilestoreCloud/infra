@@ -1,20 +1,25 @@
-"""
-Tenant Registry and Accounts Submodule for Storix Control Plane.
-"""
+import base64
 import json
+import ssl
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 
 from operator_core.common import (
     CLUSTER_NAME,
     ENVIRONMENT_NAME,
+    LOAD_BALANCER_DNS,
     REGION,
+    ROOT_DOMAIN,
     TABLE_NAME,
     dynamodb,
     ecs,
     get_audit_logs,
     get_aws_account_id,
     get_infra_config,
+    secretsmanager,
     unmarshal_ddb_item,
 )
 from operator_core.events import publish_tenant_event
@@ -47,7 +52,7 @@ def get_all_tenants():
     return [
         {
             "tenant_id": "acme-corp",
-            "domain": "acme-corp.png261.dev",
+            "domain": f"acme-corp.{ROOT_DOMAIN}",
             "status": "ACTIVE",
             "admin_email": "admin@acme-corp.com",
             "quota_gb": 250,
@@ -59,7 +64,7 @@ def get_all_tenants():
         },
         {
             "tenant_id": "marvel-tech",
-            "domain": "marvel-tech.png261.dev",
+            "domain": f"marvel-tech.{ROOT_DOMAIN}",
             "status": "INCIDENT",
             "admin_email": "tony@marvel-tech.com",
             "quota_gb": 500,
@@ -93,7 +98,7 @@ def get_all_tenants():
         },
         {
             "tenant_id": "wayne-enterprises",
-            "domain": "wayne.png261.dev",
+            "domain": f"wayne.{ROOT_DOMAIN}",
             "status": "DEGRADED",
             "admin_email": "bruce@wayne.com",
             "quota_gb": 1000,
@@ -115,7 +120,7 @@ def get_all_tenants():
         },
         {
             "tenant_id": "cyberdyne-systems",
-            "domain": "cyberdyne.png261.dev",
+            "domain": f"cyberdyne.{ROOT_DOMAIN}",
             "status": "SUSPENDED",
             "admin_email": "miles@cyberdyne.com",
             "quota_gb": 100,
@@ -178,7 +183,7 @@ def get_tenant_accounts_data(tenant_id, tenant_item=None):
             {
                 "username": "sync-service",
                 "display_name": "Desktop Client Sync Service",
-                "email": f"sync@{tenant_id}.png261.dev",
+                "email": f"sync@{tenant_id}.{ROOT_DOMAIN}",
                 "role": "ServiceAccount",
                 "quota_gb": 25,
                 "storage_used_gb": 3.8,
@@ -217,6 +222,123 @@ def save_tenant_accounts(tenant_id, accounts):
         print(f"Warning persisting accounts for tenant {tenant_id}: {e}")
 
 
+def get_admin_creds():
+    """Dynamically retrieve cluster admin credentials from Secrets Manager."""
+    try:
+        sec = secretsmanager.get_secret_value(SecretId=f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials")
+        creds = json.loads(sec.get("SecretString", "{}"))
+        return creds.get("username", "admin"), creds.get("password", "")
+    except Exception as e:
+        print(f"Notice: Failed to fetch admin creds: {e}")
+        return "admin", ""
+
+
+def sync_nextcloud_account(tenant_id, domain, username, password, email=None, role="User", quota_gb=None):
+    """Synchronize user account with Nextcloud instance via OCS Provisioning API."""
+    admin_user, admin_pwd = get_admin_creds()
+    if not admin_pwd:
+        print("Warning: Admin password unavailable for Nextcloud sync")
+        return False
+
+    auth_hdr = "Basic " + base64.b64encode(f"{admin_user}:{admin_pwd}".encode()).decode()
+    alb_dns = LOAD_BALANCER_DNS
+    endpoints = []
+    if domain:
+        endpoints.append(("https://" + domain, {}))
+    if alb_dns and domain:
+        endpoints.append(("http://" + alb_dns, {"Host": domain}))
+    elif alb_dns:
+        endpoints.append(("http://" + alb_dns, {}))
+
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    success = False
+
+    for base_url, extra_hdrs in endpoints:
+        try:
+            check_url = f"{base_url}/ocs/v1.php/cloud/users/{urllib.parse.quote(username)}"
+            hdrs = {
+                "Authorization": auth_hdr,
+                "OCS-APIREQUEST": "true",
+                "User-Agent": "Storix-ControlPlane/1.0",
+            }
+            hdrs.update(extra_hdrs)
+            req = urllib.request.Request(check_url, headers=hdrs, method="GET")
+            user_exists = False
+            try:
+                with urllib.request.urlopen(req, context=ctx, timeout=8) as r:
+                    content = r.read().decode("utf-8", errors="ignore")
+                    if "<statuscode>100</statuscode>" in content:
+                        user_exists = True
+            except Exception:
+                pass
+
+            if user_exists:
+                put_url = f"{base_url}/ocs/v1.php/cloud/users/{urllib.parse.quote(username)}"
+                b_pwd = urllib.parse.urlencode({"key": "password", "value": password}).encode()
+                put_hdrs = dict(hdrs)
+                put_hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+                preq = urllib.request.Request(put_url, data=b_pwd, headers=put_hdrs, method="PUT")
+                with urllib.request.urlopen(preq, context=ctx, timeout=8) as r:
+                    pass
+                if email:
+                    b_em = urllib.parse.urlencode({"key": "email", "value": email}).encode()
+                    ereq = urllib.request.Request(put_url, data=b_em, headers=put_hdrs, method="PUT")
+                    with urllib.request.urlopen(ereq, context=ctx, timeout=8) as r:
+                        pass
+                success = True
+                break
+            else:
+                post_url = f"{base_url}/ocs/v1.php/cloud/users"
+                f_data = {
+                    "userid": username,
+                    "password": password,
+                    "email": email or f"{username}@{tenant_id}.com",
+                }
+                if role in ("TenantAdmin", "admin"):
+                    f_data["groups[]"] = "admin"
+                post_b = urllib.parse.urlencode(f_data).encode()
+                post_hdrs = dict(hdrs)
+                post_hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+                creq = urllib.request.Request(post_url, data=post_b, headers=post_hdrs, method="POST")
+                with urllib.request.urlopen(creq, context=ctx, timeout=8) as r:
+                    content = r.read().decode("utf-8", errors="ignore")
+                    if "<statuscode>100</statuscode>" in content:
+                        success = True
+                        break
+        except Exception as e:
+            print(f"Sync user {username} error on {base_url}: {e}")
+            continue
+
+    try:
+        sec_id = f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+        sec_val = json.dumps({
+            "username": username,
+            "password": password,
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        })
+        try:
+            secretsmanager.put_secret_value(SecretId=sec_id, SecretString=sec_val)
+        except Exception:
+            try:
+                secretsmanager.create_secret(Name=sec_id, SecretString=sec_val)
+            except Exception:
+                pass
+        if username == admin_user:
+            try:
+                secretsmanager.put_secret_value(
+                    SecretId=f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials",
+                    SecretString=json.dumps({"username": admin_user, "password": password}),
+                )
+            except Exception as se:
+                print(f"Notice: Failed to update admin-credentials secret: {se}")
+    except Exception as e:
+        print(f"Notice: Secrets Manager write on sync: {e}")
+
+    return success
+
+
 def get_tenant_detail(tenant_id):
     """Retrieve comprehensive tenant detail: DDB record, AWS topology, ECS agent runtime, accounts, and incidents."""
     infra = get_infra_config()
@@ -241,7 +363,7 @@ def get_tenant_detail(tenant_id):
     if not tenant_record:
         tenant_record = {
             "tenant_id": tenant_id,
-            "domain": f"{tenant_id}.png261.dev",
+            "domain": f"{tenant_id}.{ROOT_DOMAIN}",
             "status": "ACTIVE",
             "admin_email": f"admin@{tenant_id}.com",
             "quota_gb": 100,
@@ -260,7 +382,7 @@ def get_tenant_detail(tenant_id):
     ]:
         tenant_record.pop(secret_key, None)
 
-    domain = tenant_record.get("domain") or f"{tenant_id}.png261.dev"
+    domain = tenant_record.get("domain") or f"{tenant_id}.{ROOT_DOMAIN}"
     status = tenant_record.get("status", "ACTIVE")
     service_name = tenant_record.get("service_name") or f"service-{tenant_id}"
     database_name = tenant_record.get("database_name") or f"nc_{clean_id}"
