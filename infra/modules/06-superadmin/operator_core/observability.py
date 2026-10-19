@@ -750,10 +750,22 @@ def get_live_execution_stream(tenant_id=None, execution_arn=None):
 
     selected_arn = execution_arn
     discovered_workflow = "PROVISION"
-    tenant_status = "PROVISIONING"
+    if selected_arn:
+        lower_arn = selected_arn.lower()
+        if "deprovision" in lower_arn:
+            discovered_workflow = "DEPROVISION"
+        elif "seed" in lower_arn:
+            discovered_workflow = "SEED"
+        elif "suspend" in lower_arn:
+            discovered_workflow = "SUSPEND"
+        elif "resume" in lower_arn:
+            discovered_workflow = "RESUME"
+        elif "upgrade" in lower_arn:
+            discovered_workflow = "FLEET_UPGRADE"
+    tenant_status = "DEPROVISIONING" if discovered_workflow == "DEPROVISION" else "PROVISIONING"
     current_progress = 15
-    current_step = "Initializing Registry & Allocating Ingress"
-    current_desc = "Allocating dedicated resources and validating tenant parameters"
+    current_step = "Initiating teardown" if discovered_workflow == "DEPROVISION" else "Initializing Registry & Allocating Ingress"
+    current_desc = "Draining connections and updating registry" if discovered_workflow == "DEPROVISION" else "Allocating dedicated resources and validating tenant parameters"
 
     # 1. If execution_arn not provided, discover the latest running/recent execution for tenant_id
     if not selected_arn and tenant_id:
@@ -824,6 +836,7 @@ def get_live_execution_stream(tenant_id=None, execution_arn=None):
 
     # 2. Describe execution if ARN is known
     recent_events = []
+    execution_logs = []
     elapsed_seconds = 0
     estimated_remaining = 30
     exec_status = "RUNNING"
@@ -844,35 +857,137 @@ def get_live_execution_stream(tenant_id=None, execution_arn=None):
                 stop_iso = stop_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
             hist = sfn.get_execution_history(
-                executionArn=selected_arn, maxResults=15, reverseOrder=True
+                executionArn=selected_arn, maxResults=50, reverseOrder=False
             )
             for ev in hist.get("events", []):
                 ev_type = ev.get("type", "")
                 step_name = None
+                details_text = ""
                 for k in [
                     "stateEnteredEventDetails",
                     "stateExitedEventDetails",
                     "taskStateEnteredEventDetails",
                     "lambdaFunctionScheduledEventDetails",
+                    "executionStartedEventDetails",
+                    "executionSucceededEventDetails",
+                    "executionFailedEventDetails",
+                    "taskFailedEventDetails",
                 ]:
-                    if k in ev and isinstance(ev[k], dict) and "name" in ev[k]:
-                        step_name = ev[k]["name"]
+                    if k in ev and isinstance(ev[k], dict):
+                        step_name = ev[k].get("name")
+                        if "error" in ev[k]:
+                            details_text = f"Error: {ev[k].get('error')} - {str(ev[k].get('cause', ''))[:120]}"
+                        elif "output" in ev[k]:
+                            details_text = f"Output: {str(ev[k].get('output', ''))[:100]}"
                         break
+
+                ev_ts = ev.get("timestamp")
+                if hasattr(ev_ts, "astimezone"):
+                    ev_ts_iso = ev_ts.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                elif hasattr(ev_ts, "strftime"):
+                    ev_ts_iso = ev_ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+                else:
+                    ev_ts_iso = str(ev_ts or now_iso)
+
                 recent_events.append(
                     {
                         "id": ev.get("id"),
                         "type": ev_type,
                         "stepName": step_name or ev_type,
-                        "timestamp": str(ev.get("timestamp", now_iso)),
+                        "timestamp": ev_ts_iso,
+                    }
+                )
+
+                # Format human-readable StepFunctions log event
+                lvl = "ERROR" if "Failed" in ev_type else ("SUCCESS" if "Succeeded" in ev_type else "INFO")
+                if step_name and details_text:
+                    sfn_msg = f"[{ev_type}] {step_name} - {details_text}"
+                elif step_name:
+                    sfn_msg = f"[{ev_type}] {step_name}"
+                else:
+                    sfn_msg = f"[{ev_type}]"
+
+                execution_logs.append(
+                    {
+                        "timestamp": ev_ts_iso,
+                        "source": "StepFunctions",
+                        "level": lvl,
+                        "message": sfn_msg,
                     }
                 )
 
             if recent_events:
-                latest_step = recent_events[0].get("stepName")
-                if latest_step and latest_step not in ["ExecutionStarted", "ExecutionSucceeded"]:
-                    current_step = latest_step
+                for ev in reversed(recent_events):
+                    s_name = ev.get("stepName")
+                    if s_name and s_name not in ["ExecutionStarted", "ExecutionSucceeded"]:
+                        current_step = s_name
+                        break
         except Exception as e:
             print(f"Notice: SFN describe_execution in get_live_execution_stream: {e}")
+
+    # 2.1 Fetch real-time CloudWatch logs from the tenant worker Lambda
+    if tenant_id:
+        try:
+            worker_log_group = f"/aws/lambda/{ENVIRONMENT_NAME}-nextcloud-tenant-worker"
+            streams = logs.describe_log_streams(
+                logGroupName=worker_log_group,
+                orderBy="LastEventTime",
+                descending=True,
+                limit=3,
+            )
+            for s in streams.get("logStreams", []):
+                res = logs.get_log_events(
+                    logGroupName=worker_log_group,
+                    logStreamName=s["logStreamName"],
+                    limit=50,
+                    startFromHead=False,
+                )
+                for ev_item in res.get("events", []):
+                    raw_msg = ev_item.get("message", "").strip()
+                    if (
+                        tenant_id in raw_msg
+                        and not raw_msg.startswith("START RequestId")
+                        and not raw_msg.startswith("END RequestId")
+                        and not raw_msg.startswith("REPORT RequestId")
+                        and not raw_msg.startswith("INIT_START")
+                    ):
+                        ts_iso = time.strftime(
+                            "%Y-%m-%dT%H:%M:%SZ", time.gmtime(ev_item.get("timestamp", 0) / 1000)
+                        )
+                        lvl = (
+                            "ERROR"
+                            if "error" in raw_msg.lower() or "exception" in raw_msg.lower()
+                            else ("WARN" if "warning" in raw_msg.lower() else "INFO")
+                        )
+                        execution_logs.append(
+                            {
+                                "timestamp": ts_iso,
+                                "source": "TenantWorker",
+                                "level": lvl,
+                                "message": raw_msg,
+                            }
+                        )
+        except Exception as e:
+            print(f"Notice: CloudWatch worker logs fetch in get_live_execution_stream: {e}")
+
+    execution_logs.sort(key=lambda x: x["timestamp"])
+
+    if not execution_logs:
+        target_t = tenant_id or "tenant"
+        execution_logs = [
+            {
+                "timestamp": start_iso,
+                "source": "StepFunctions",
+                "level": "INFO",
+                "message": f"[ExecutionStarted] Initialized {discovered_workflow} orchestration for {target_t}",
+            },
+            {
+                "timestamp": now_iso,
+                "source": "TenantWorker",
+                "level": "INFO",
+                "message": f"Orchestrating dedicated tenant resources for {target_t}: {current_step}",
+            },
+        ]
 
     # Milestone mapping definitions per workflow
     provision_milestones = [
@@ -1033,6 +1148,7 @@ def get_live_execution_stream(tenant_id=None, execution_arn=None):
         "stopDate": stop_iso,
         "milestones": milestones_response,
         "recentEvents": recent_events,
+        "logs": execution_logs,
         "liveStream": True,
         "timestamp": now_iso,
     }
