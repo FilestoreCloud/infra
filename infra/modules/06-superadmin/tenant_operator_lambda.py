@@ -1,3 +1,8 @@
+"""
+Tenant Operator Lambda - Storix SuperAdmin Control Plane.
+Handles tenant lifecycle mutations, authentication (MFA/TOTP/WebAuthn), and platform observability.
+"""
+
 import base64
 import datetime
 import hashlib

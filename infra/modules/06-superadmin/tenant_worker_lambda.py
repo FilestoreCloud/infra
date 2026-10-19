@@ -1,3 +1,8 @@
+"""
+Tenant Worker Lambda - Storix SAGA Orchestration & Asynchronous Operations.
+Executes Step Functions SAGA steps: DB provisioning, EFS access points, and health checks.
+"""
+
 import os
 import time
 import urllib.error
@@ -110,11 +115,11 @@ def get_infra_config():
                     ]
                 elif name.endswith("/security/ecs-sg-id"):
                     config["ecs_sg"] = val
-                elif name.endswith("/infra/alb-https-listener-arn"):
+                elif name.endswith("/infra/alb-https-listener-arn") or name.endswith("/infra/alb-listener-arn"):
                     config["https_listener_arn"] = val
                 elif name.endswith("/infra/alb-arn"):
                     config["alb_arn"] = val
-                elif name.endswith("/infra/alb-dns-name"):
+                elif name.endswith("/infra/alb-dns-name") or name.endswith("/infra/alb-dns"):
                     config["alb_dns"] = val
                 elif name.endswith("/infra/efs-id"):
                     config["efs_id"] = val
@@ -134,6 +139,21 @@ def get_infra_config():
                     config["ecr_image"] = f"{val}:latest"
     except Exception as e:
         print(f"Warning fetching SSM parameters: {e}")
+
+    # Fallback dynamic listener discovery if https_listener_arn was not explicitly in SSM
+    if not config.get("https_listener_arn") and config.get("alb_arn"):
+        try:
+            listeners = elbv2.describe_listeners(
+                LoadBalancerArn=config["alb_arn"]
+            ).get("Listeners", [])
+            for listener_item in listeners:
+                if listener_item.get("Port") == 443:
+                    config["https_listener_arn"] = listener_item["ListenerArn"]
+                    break
+            if not config.get("https_listener_arn") and listeners:
+                config["https_listener_arn"] = listeners[0]["ListenerArn"]
+        except Exception as l_err:
+            print(f"Warning discovering ALB listener dynamically: {l_err}")
 
     # Fail-closed safe defaults: no hardcoded AWS account or resource IDs
     if not config.get("public_subnets"):
@@ -255,7 +275,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         "logConfiguration": {
             "logDriver": "awslogs",
             "options": {
-                "awslogs-group": f"/ecs/nextcloud-{ENVIRONMENT_NAME}",
+                "awslogs-group": f"/ecs/{ENVIRONMENT_NAME}-nextcloud",
                 "awslogs-region": REGION,
                 "awslogs-stream-prefix": "ecs",
             },
@@ -315,9 +335,12 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
             TargetType="ip",
             HealthCheckProtocol="HTTP",
             HealthCheckPort="80",
-            HealthCheckPath="/status.php",
-            HealthCheckIntervalSeconds=30,
-            Matcher={"HttpCode": "200-400"},
+            HealthCheckPath="/robots.txt",
+            HealthCheckIntervalSeconds=15,
+            HealthCheckTimeoutSeconds=5,
+            HealthyThresholdCount=2,
+            UnhealthyThresholdCount=3,
+            Matcher={"HttpCode": "200-499"},
         )
         tg_arn = tg_resp["TargetGroups"][0]["TargetGroupArn"]
     except ClientError as e:
@@ -345,32 +368,42 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
     if tg_arn and listener_arn:
         try:
             rules = elbv2.describe_rules(ListenerArn=listener_arn)["Rules"]
-            priorities = [
-                int(r["Priority"])
-                for r in rules
-                if r["Priority"].isdigit() and int(r["Priority"]) < 1000
-            ]
-            next_prio = max(priorities or [10]) + 1
-            elbv2.create_rule(
-                ListenerArn=listener_arn,
-                Priority=next_prio,
-                Conditions=[
-                    {
-                        "Field": "host-header",
-                        "HostHeaderConfig": {
-                            "Values": list(
-                                dict.fromkeys(
-                                    [
-                                        domain,
-                                        f"{tenant_id}.{os.environ.get('ROOT_DOMAIN', 'png261.dev')}",
-                                    ]
+            rule_exists = False
+            for r in rules:
+                for a in r.get("Actions", []):
+                    if a.get("TargetGroupArn") == tg_arn:
+                        rule_exists = True
+                        break
+                if rule_exists:
+                    break
+
+            if not rule_exists:
+                priorities = [
+                    int(r["Priority"])
+                    for r in rules
+                    if r["Priority"].isdigit() and int(r["Priority"]) < 1000
+                ]
+                next_prio = max(priorities or [10]) + 1
+                elbv2.create_rule(
+                    ListenerArn=listener_arn,
+                    Priority=next_prio,
+                    Conditions=[
+                        {
+                            "Field": "host-header",
+                            "HostHeaderConfig": {
+                                "Values": list(
+                                    dict.fromkeys(
+                                        [
+                                            domain,
+                                            f"{tenant_id}.{os.environ.get('ROOT_DOMAIN', 'png261.dev')}",
+                                        ]
+                                    )
                                 )
-                            )
-                        },
-                    }
-                ],
-                Actions=[{"Type": "forward", "TargetGroupArn": tg_arn}],
-            )
+                            },
+                        }
+                    ],
+                    Actions=[{"Type": "forward", "TargetGroupArn": tg_arn}],
+                )
         except Exception as e:
             print(f"Warning creating Listener Rule for {domain}: {e}")
 
@@ -381,6 +414,7 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
             "serviceName": service_name,
             "taskDefinition": task_def_arn,
             "desiredCount": 1,
+            "healthCheckGracePeriodSeconds": 180,
             "capacityProviderStrategy": [
                 {"capacityProvider": "FARGATE", "base": 1, "weight": 1},
                 {"capacityProvider": "FARGATE_SPOT", "base": 0, "weight": 3},
@@ -415,12 +449,50 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
         else:
             print(f"Warning creating ECS service {service_name}: {e}")
 
+    clean_id = tenant_id.lower().replace("-", "_")
+    db_name = f"nc_{clean_id}"
+    try:
+        now_ts = int(time.time())
+        dynamodb.update_item(
+            TableName=TABLE_NAME,
+            Key={"tenant_id": {"S": tenant_id}},
+            UpdateExpression=(
+                "SET #sn = :sn, #td = :td, #tg = :tg, #ap = :ap, #db = :db, "
+                "#lu = :lu, #p = :p, #cs = :cs"
+            ),
+            ExpressionAttributeNames={
+                "#sn": "service_name",
+                "#td": "task_definition",
+                "#tg": "target_group_arn",
+                "#ap": "efs_access_point_id",
+                "#db": "database_name",
+                "#lu": "last_updated",
+                "#p": "progress",
+                "#cs": "current_step",
+            },
+            ExpressionAttributeValues={
+                ":sn": {"S": service_name},
+                ":td": {"S": task_def_arn},
+                ":tg": {"S": tg_arn or ""},
+                ":ap": {"S": ap_id or ""},
+                ":db": {"S": db_name},
+                ":lu": {"N": str(now_ts)},
+                ":p": {"N": "50"},
+                ":cs": {
+                    "S": "Dedicated ECS Fargate Service, Target Group & EFS AP Provisioned"
+                },
+            },
+        )
+    except Exception as ddb_e:
+        print(f"Warning updating DynamoDB tenant topology for {tenant_id}: {ddb_e}")
+
     return {
         "tenant_id": tenant_id,
         "service_name": service_name,
         "task_def_arn": task_def_arn,
         "tg_arn": tg_arn,
         "ap_id": ap_id,
+        "database_name": db_name,
     }
 
 
@@ -472,15 +544,47 @@ def _saga_cleanup_tenant(tenant_id, infra):
 def _check_tenant_health(tenant_id, infra, domain=None, attempt=0):
     """Checks container runtime health for Nextcloud instance."""
     service_name = f"service-{tenant_id}"
+    cur_attempt = int(attempt) if attempt is not None else 0
+    next_attempt = cur_attempt + 1
+
+    # 1. Check ECS Fargate task running state
     try:
         cluster = infra.get("cluster_name", CLUSTER_NAME)
         resp = ecs.describe_services(cluster=cluster, services=[service_name])
         services = resp.get("services", [])
         if services and services[0].get("runningCount", 0) > 0:
-            return {"healthy": True, "tenant_id": tenant_id, "status": "RUNNING"}
+            return {
+                "healthy": True,
+                "tenant_id": tenant_id,
+                "status": "RUNNING",
+                "running_count": services[0].get("runningCount", 0),
+                "attempts": next_attempt,
+                "exceeded_max_retries": False,
+            }
     except Exception as e:
         print(f"Service running query warning: {e}")
 
+    # 2. Check ELB Target Group health if target group exists
+    tg_name = f"tg-{tenant_id}"[:32]
+    try:
+        tgs = elbv2.describe_target_groups(Names=[tg_name]).get("TargetGroups", [])
+        if tgs:
+            tg_arn = tgs[0]["TargetGroupArn"]
+            th = elbv2.describe_target_health(TargetGroupArn=tg_arn).get("TargetHealthDescriptions", [])
+            for desc in th:
+                state = desc.get("TargetHealth", {}).get("State")
+                if state == "healthy":
+                    return {
+                        "healthy": True,
+                        "tenant_id": tenant_id,
+                        "status": "HEALTHY",
+                        "attempts": next_attempt,
+                        "exceeded_max_retries": False,
+                    }
+    except Exception as e:
+        print(f"Target health query warning: {e}")
+
+    # 3. Check HTTPS status.php endpoint
     try:
         r_dom = os.environ.get("ROOT_DOMAIN", "png261.dev")
         target_domain = domain or f"{tenant_id}.{r_dom}"
@@ -490,10 +594,31 @@ def _check_tenant_health(tenant_id, infra, domain=None, attempt=0):
         )
         with urllib.request.urlopen(req, timeout=5) as response:
             if response.status == 200:
-                return {"healthy": True, "tenant_id": tenant_id, "status": "HEALTHY"}
+                return {
+                    "healthy": True,
+                    "tenant_id": tenant_id,
+                    "status": "HEALTHY",
+                    "attempts": next_attempt,
+                    "exceeded_max_retries": False,
+                }
     except Exception as e:
-        print(f"Health check query warning: {e}")
-    return {"healthy": True, "tenant_id": tenant_id, "status": "HEALTHY"}
+        print(f"Health check HTTP query warning: {e}")
+
+    # Max retries boundary: 15 attempts (~2.5 minutes)
+    if next_attempt >= 15:
+        return {
+            "healthy": False,
+            "exceeded_max_retries": True,
+            "tenant_id": tenant_id,
+            "attempts": next_attempt,
+        }
+
+    return {
+        "healthy": False,
+        "exceeded_max_retries": False,
+        "tenant_id": tenant_id,
+        "attempts": next_attempt,
+    }
 
 
 def _seed_tenant_data(tenant_id):

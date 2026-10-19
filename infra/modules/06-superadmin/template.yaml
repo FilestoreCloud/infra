@@ -1096,6 +1096,9 @@ Resources:
                   - ecs:RegisterTaskDefinition
                   - ecs:DeregisterTaskDefinition
                   - ecs:DescribeTaskDefinition
+                  - ecs:RunTask
+                  - ecs:DescribeTasks
+                  - ecs:StopTask
                   - ecs:TagResource
                 Resource: "*"
               - Sid: ELBTargetGroupAndRuleManagement
@@ -1108,6 +1111,9 @@ Resources:
                   - elasticloadbalancing:CreateRule
                   - elasticloadbalancing:DeleteRule
                   - elasticloadbalancing:DescribeRules
+                  - elasticloadbalancing:DescribeListeners
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetHealth
                 Resource: "*"
               - Sid: EFSConfigAccessPointManagement
                 Effect: Allow
