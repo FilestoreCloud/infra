@@ -469,7 +469,7 @@ def _saga_cleanup_tenant(tenant_id, infra):
     return {"cleaned": True, "tenant_id": tenant_id}
 
 
-def _check_tenant_health(tenant_id, infra):
+def _check_tenant_health(tenant_id, infra, domain=None, attempt=0):
     """Checks container runtime health for Nextcloud instance."""
     service_name = f"service-{tenant_id}"
     try:
@@ -483,7 +483,7 @@ def _check_tenant_health(tenant_id, infra):
 
     try:
         r_dom = os.environ.get("ROOT_DOMAIN", "png261.dev")
-        target_domain = event.get("domain") or f"{tenant_id}.{r_dom}"
+        target_domain = domain or f"{tenant_id}.{r_dom}"
         url = f"https://{target_domain}/status.php"
         req = urllib.request.Request(
             url, headers={"User-Agent": "NextcloudSaaS-HealthProbe"}
@@ -688,7 +688,8 @@ def lambda_handler(event, context):
 
     elif action == "CHECK_TENANT_HEALTH":
         attempt = event.get("attempt") or 0
-        return _check_tenant_health(tenant_id, infra, attempt=attempt)
+        domain = event.get("domain")
+        return _check_tenant_health(tenant_id, infra, domain=domain, attempt=attempt)
 
     elif action == "SEED_TENANT_USERS_AND_FILES":
         return _seed_tenant_data(tenant_id)

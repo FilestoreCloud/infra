@@ -263,10 +263,10 @@ def get_infra_config():
         try:
             ls_resp = elbv2.describe_listeners(LoadBalancerArn=config["alb_arn"])
             listeners = ls_resp.get("Listeners", [])
-            for l in listeners:
-                if l.get("Port") == 443:
-                    config["listener_arn"] = l["ListenerArn"]
-                    config["https_listener_arn"] = l["ListenerArn"]
+            for listener_item in listeners:
+                if listener_item.get("Port") == 443:
+                    config["listener_arn"] = listener_item["ListenerArn"]
+                    config["https_listener_arn"] = listener_item["ListenerArn"]
                     break
             if not config.get("listener_arn") and listeners:
                 config["listener_arn"] = listeners[0]["ListenerArn"]
