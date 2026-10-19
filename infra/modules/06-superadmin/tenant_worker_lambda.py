@@ -3,7 +3,9 @@ Tenant Worker Lambda - Storix SAGA Orchestration & Asynchronous Operations.
 Executes Step Functions SAGA steps: DB provisioning, EFS access points, and health checks.
 """
 
+import json
 import os
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -129,6 +131,8 @@ def get_infra_config():
                     config["db_endpoint"] = val
                 elif name.endswith("/infra/db-secret-arn"):
                     config["db_secret_arn"] = val
+                elif name.endswith("/infra/admin-secret-arn"):
+                    config["admin_secret_arn"] = val
                 elif name.endswith("/infra/s3-vault-bucket"):
                     config["s3_vault_bucket"] = val
                 elif name.endswith("/infra/ecs-cluster-name"):
@@ -156,6 +160,15 @@ def get_infra_config():
                 config["https_listener_arn"] = listeners[0]["ListenerArn"]
         except Exception as l_err:
             print(f"Warning discovering ALB listener dynamically: {l_err}")
+
+    # Dynamic admin secret resolution fallback
+    if not config.get("admin_secret_arn"):
+        try:
+            sec_name = f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials"
+            s_desc = secretsmanager.describe_secret(SecretId=sec_name)
+            config["admin_secret_arn"] = s_desc.get("ARN")
+        except Exception as e:
+            print(f"Warning resolving admin secret ARN: {e}")
 
     # Fail-closed safe defaults: no hardcoded AWS account or resource IDs
     if not config.get("public_subnets"):
@@ -203,7 +216,52 @@ def ensure_tenant_efs_access_point(tenant_id, efs_id):
         return None
 
 
-def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=None):
+def ensure_tenant_credentials_secret(tenant_id, admin_email, infra):
+    """Ensures a dedicated Secrets Manager secret exists for the tenant admin credentials."""
+    sec_id = f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+    try:
+        try:
+            res = secretsmanager.describe_secret(SecretId=sec_id)
+            return res.get("ARN")
+        except ClientError as ce:
+            if "ResourceNotFoundException" not in str(ce):
+                raise
+
+        master_user = "admin"
+        master_pwd = "StorixAdmin2026!Secure"
+        if infra.get("admin_secret_arn"):
+            try:
+                s_val = secretsmanager.get_secret_value(SecretId=infra["admin_secret_arn"])
+                creds = json.loads(s_val.get("SecretString", "{}"))
+                master_user = creds.get("username", "admin")
+                master_pwd = creds.get("password", master_pwd)
+            except Exception as e:
+                print(f"Notice fetching master admin credentials: {e}")
+
+        now_str = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        sec_val = json.dumps({
+            "username": master_user,
+            "password": master_pwd,
+            "email": admin_email or f"{master_user}@{tenant_id}.com",
+            "created_at": now_str,
+        })
+        create_resp = secretsmanager.create_secret(
+            Name=sec_id,
+            Description=f"Dedicated administrative credentials for tenant {tenant_id}",
+            SecretString=sec_val,
+            Tags=[
+                {"Key": "TenantId", "Value": tenant_id},
+                {"Key": "Environment", "Value": ENVIRONMENT_NAME},
+                {"Key": "Application", "Value": "storix"},
+            ],
+        )
+        return create_resp.get("ARN")
+    except Exception as exc:
+        print(f"Warning ensuring tenant credentials secret for {tenant_id}: {exc}")
+        return None
+
+
+def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=None, tenant_secret_arn=None):
     """Register an isolated ECS Task Definition for this specific tenant container."""
     task_family = f"{ENVIRONMENT_NAME}-nextcloud-{tenant_id}"
     volumes = []
@@ -231,17 +289,22 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         )
 
     clean_id = tenant_id.lower().replace("-", "_")
+    root_domain = os.environ.get("ROOT_DOMAIN", "png261.dev")
     env_vars = [
         {"name": "HOME", "value": "/var/www"},
         {"name": "PGSSLMODE", "value": "prefer"},
+        {"name": "TRUSTED_PROXIES", "value": "10.0.0.0/16"},
+        {"name": "NC_default_phone_region", "value": "VN"},
+        {"name": "NC_maintenance_window_start", "value": "2"},
+        {"name": "NEXTCLOUD_ADMIN_USER", "value": "admin"},
         {
             "name": "POSTGRES_HOST",
-            "value": infra.get("db_endpoint", "prod-nextcloud-postgres"),
+            "value": infra.get("db_endpoint", f"{ENVIRONMENT_NAME}-nextcloud-postgres").split(":")[0],
         },
         {"name": "POSTGRES_DB", "value": f"nc_{clean_id}"},
         {
             "name": "NEXTCLOUD_TRUSTED_DOMAINS",
-            "value": f"{domain} {tenant_id}.{os.environ.get('ROOT_DOMAIN', 'png261.dev')} localhost",
+            "value": f"{domain} {clean_id}.{root_domain} {tenant_id}.{root_domain} localhost 127.0.0.1 *.{root_domain} {root_domain}",
         },
         {
             "name": "OBJECTSTORE_S3_BUCKET",
@@ -260,10 +323,32 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         {"name": "TENANT_STORAGE_PREFIX", "value": f"tenants/{tenant_id}/"},
     ]
 
+    init_db_cmd = (
+        "php -r '"
+        "$h = getenv(\"POSTGRES_HOST\"); "
+        "$u = getenv(\"POSTGRES_USER\"); "
+        "$p = getenv(\"POSTGRES_PASSWORD\"); "
+        "$db = getenv(\"POSTGRES_DB\"); "
+        "try { "
+        "$pdo = new PDO(\"pgsql:host=$h;dbname=postgres;sslmode=prefer\", $u, $p, [PDO::ATTR_TIMEOUT => 10]); "
+        "$stmt = $pdo->prepare(\"SELECT 1 FROM pg_database WHERE datname = ?\"); "
+        "$stmt->execute([$db]); "
+        "if (!$stmt->fetch()) { "
+        "$safe_db = preg_replace(\"/[^a-zA-Z0-9_]/\", \"\", $db); "
+        "$pdo->exec(\"CREATE DATABASE \" . $safe_db); "
+        "echo \"CREATED_DB \" . $safe_db . \"\\n\"; "
+        "} "
+        "} catch (Exception $e) { "
+        "echo \"DB_INIT_NOTICE: \" . $e->getMessage() . \"\\n\"; "
+        "}' && exec /entrypoint.sh apache2-foreground"
+    )
+
     container_def = {
         "name": "nextcloud",
         "image": infra.get("ecr_image", "nextcloud:30.0.17-apache"),
         "essential": True,
+        "entryPoint": ["sh", "-c"],
+        "command": [init_db_cmd],
         "portMappings": [{"containerPort": 80, "hostPort": 80, "protocol": "tcp"}],
         "mountPoints": mounts,
         "environment": env_vars,
@@ -284,8 +369,9 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         },
     }
 
+    container_secrets = []
     if infra.get("db_secret_arn"):
-        container_def["secrets"] = [
+        container_secrets.extend([
             {
                 "name": "POSTGRES_USER",
                 "valueFrom": f"{infra['db_secret_arn']}:username::",
@@ -294,7 +380,17 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
                 "name": "POSTGRES_PASSWORD",
                 "valueFrom": f"{infra['db_secret_arn']}:password::",
             },
-        ]
+        ])
+
+    admin_sec_arn = tenant_secret_arn or infra.get("admin_secret_arn")
+    if admin_sec_arn:
+        container_secrets.append({
+            "name": "NEXTCLOUD_ADMIN_PASSWORD",
+            "valueFrom": f"{admin_sec_arn}:password::",
+        })
+
+    if container_secrets:
+        container_def["secrets"] = container_secrets
 
     task_def_kwargs = {
         "family": task_family,
@@ -325,7 +421,10 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
 def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra):
     """Provisions dedicated EFS, ECS Task Definition, ALB Target Group, Rule, and ECS Service."""
     ap_id = ensure_tenant_efs_access_point(tenant_id, infra.get("efs_id"))
-    task_def_arn = register_tenant_task_definition(tenant_id, domain, infra, ap_id)
+    tenant_sec_arn = ensure_tenant_credentials_secret(tenant_id, admin_email, infra)
+    task_def_arn = register_tenant_task_definition(
+        tenant_id, domain, infra, access_point_id=ap_id, tenant_secret_arn=tenant_sec_arn
+    )
     tg_name = f"tg-{tenant_id}"[:32]
     tg_arn = None
     try:
@@ -748,24 +847,7 @@ def _check_tenant_health(tenant_id, infra, domain=None, attempt=0):
     cur_attempt = int(attempt) if attempt is not None else 0
     next_attempt = cur_attempt + 1
 
-    # 1. Check ECS Fargate task running state
-    try:
-        cluster = infra.get("cluster_name", CLUSTER_NAME)
-        resp = ecs.describe_services(cluster=cluster, services=[service_name])
-        services = resp.get("services", [])
-        if services and services[0].get("runningCount", 0) > 0:
-            return {
-                "healthy": True,
-                "tenant_id": tenant_id,
-                "status": "RUNNING",
-                "running_count": services[0].get("runningCount", 0),
-                "attempts": next_attempt,
-                "exceeded_max_retries": False,
-            }
-    except Exception as e:
-        print(f"Service running query warning: {e}")
-
-    # 2. Check ELB Target Group health if target group exists
+    # 1. Check ELB Target Group health if target group exists
     tg_name = f"tg-{tenant_id}"[:32]
     try:
         tgs = elbv2.describe_target_groups(Names=[tg_name]).get("TargetGroups", [])
@@ -785,25 +867,48 @@ def _check_tenant_health(tenant_id, infra, domain=None, attempt=0):
     except Exception as e:
         print(f"Target health query warning: {e}")
 
-    # 3. Check HTTPS status.php endpoint
+    # 2. Check HTTPS status.php endpoint (confirms Nextcloud is installed and serving)
     try:
         r_dom = os.environ.get("ROOT_DOMAIN", "png261.dev")
         target_domain = domain or f"{tenant_id}.{r_dom}"
         url = f"https://{target_domain}/status.php"
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
         req = urllib.request.Request(
             url, headers={"User-Agent": "NextcloudSaaS-HealthProbe"}
         )
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, context=ctx, timeout=6) as response:
             if response.status == 200:
+                body = response.read().decode("utf-8", errors="ignore")
+                if '"installed":true' in body or '"version"' in body:
+                    return {
+                        "healthy": True,
+                        "tenant_id": tenant_id,
+                        "status": "HEALTHY",
+                        "attempts": next_attempt,
+                        "exceeded_max_retries": False,
+                    }
+    except Exception as e:
+        print(f"Health check HTTP query warning: {e}")
+
+    # 3. Check ECS Fargate task running state (fallback after at least 8 attempts to allow auto-install)
+    if next_attempt >= 8:
+        try:
+            cluster = infra.get("cluster_name", CLUSTER_NAME)
+            resp = ecs.describe_services(cluster=cluster, services=[service_name])
+            services = resp.get("services", [])
+            if services and services[0].get("runningCount", 0) > 0:
                 return {
                     "healthy": True,
                     "tenant_id": tenant_id,
-                    "status": "HEALTHY",
+                    "status": "RUNNING",
+                    "running_count": services[0].get("runningCount", 0),
                     "attempts": next_attempt,
                     "exceeded_max_retries": False,
                 }
-    except Exception as e:
-        print(f"Health check HTTP query warning: {e}")
+        except Exception as e:
+            print(f"Service running query warning: {e}")
 
     # Max retries boundary: 15 attempts (~2.5 minutes)
     if next_attempt >= 15:

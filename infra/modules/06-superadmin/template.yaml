@@ -1492,6 +1492,7 @@ Resources:
                 "Payload": {
                   "action": "CHECK_TENANT_HEALTH",
                   "tenant_id.$": "$.TenantId",
+                  "domain.$": "$.CompanyDomain",
                   "attempt.$": "$.health_check.Payload.attempts"
                 }
               },

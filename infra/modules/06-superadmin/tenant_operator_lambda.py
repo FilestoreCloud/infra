@@ -1839,6 +1839,7 @@ def _handle_request(event, context):
                                 "TenantId": tenant_id,
                                 "StorageQuotaGB": quota_gb,
                                 "CompanyDomain": domain,
+                                "AdminEmail": admin_email,
                             }
                         ),
                     )
