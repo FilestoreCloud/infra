@@ -109,7 +109,7 @@ def sync_records(env: str, zone_name: str, token: str | None = None):
             "name": f"admin.{zone_name}",
             "type": "CNAME",
             "content": cf_domain,
-            "proxied": False,
+            "proxied": True,
             "comment": f"storix-{env}-admin-console",
         },
     ]
