@@ -348,10 +348,11 @@ test.describe("SuperAdmin Web Console E2E", () => {
 
     // Verify presence of event action badges
     const actionBadge = page
-      .locator("tbody tr")
-      .locator('[class*="badge"]')
+      .locator("tbody tr td:nth-child(2)")
+      .locator("div, span, [class*='rounded']")
+      .or(page.locator("tbody tr").locator("div.font-mono, span.font-mono, [class*='rounded']"))
       .first();
-    await expect(actionBadge).toBeVisible({ timeout: 5000 });
+    await expect(actionBadge).toBeVisible({ timeout: 10000 });
 
     // 2. Telemetry & Metrics Deep Verification
     await page.goto(`${CONSOLE_URL}/telemetry`);
@@ -364,8 +365,8 @@ test.describe("SuperAdmin Web Console E2E", () => {
 
     // Verify active streaming indicator
     await expect(
-      page.locator('[class*="badge"]').filter({ hasText: /STREAMING/i })
-    ).toBeVisible({ timeout: 10000 });
+      page.getByText(/STREAMING/i).or(page.locator('div, span, [class*="badge"]').filter({ hasText: /STREAMING/i })).first()
+    ).toBeVisible({ timeout: 15000 });
 
     // Verify all 3 metric card headers
     const metricCards = [

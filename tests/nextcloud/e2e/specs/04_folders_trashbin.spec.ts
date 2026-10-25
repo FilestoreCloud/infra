@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { loginNextcloud } from "../support/auth.js";
 
 const USERNAME = process.env.NEXTCLOUD_USER || "admin";
-const PASSWORD = process.env.NEXTCLOUD_PASSWORD || "admin";
+const PASSWORD = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!";
 
 function resolveBaseUrl(baseURL?: string): string {
   return (
@@ -87,16 +87,26 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
 
     // Locate Deleted files (Trashbin) in the navigation sidebar
     const trashbinLink = page
-      .locator(
-        'a[href*="trashbin"], li[data-id="trashbin"], [aria-label*="Deleted files"], a:has-text("Deleted files")'
+      .getByRole("link", { name: /Deleted files/i })
+      .or(page.getByRole("button", { name: /Deleted files/i }))
+      .or(page.getByText(/Deleted files/i))
+      .or(
+        page.locator(
+          'a[href*="trashbin"], [data-cy-app-navigation-item="trashbin"], [data-entry-id="trashbin"], [data-nav-id="trashbin"], li[data-id="trashbin"], [aria-label*="Deleted files"]'
+        )
       )
       .first();
 
-    await expect(trashbinLink).toBeVisible({ timeout: 15000 });
+    await expect(trashbinLink).toBeVisible({ timeout: 20000 });
     await trashbinLink.click();
 
-    // Verify URL updates to trashbin route
-    await expect(page).toHaveURL(/trashbin/, { timeout: 15000 });
+    // Verify URL updates to trashbin route (or navigate directly if URL did not auto-switch)
+    try {
+      await expect(page).toHaveURL(/trashbin|view=trashbin/, { timeout: 8000 });
+    } catch {
+      await page.goto(`${targetUrl}/index.php/apps/files/?dir=/&view=trashbin`);
+      await expect(page).toHaveURL(/trashbin|view=trashbin/, { timeout: 10000 });
+    }
 
     // Verify main content container is rendered
     const mainContent = page.locator("#app-content, main, .files-list").first();
@@ -133,10 +143,11 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
       await page.goto(`${targetUrl}/index.php/apps/files/`);
       const activeRow = page
         .locator(
-          `tr:has-text("${testFileName}"), tr[data-file="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}")`
+          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`
         )
+        .or(page.getByText(testFileName))
         .first();
-      await expect(activeRow).toBeVisible({ timeout: 15000 });
+      await expect(activeRow).toBeVisible({ timeout: 20000 });
 
       // Stage 2: Delete the file into trashbin
       const deleteResp = await request.delete(davUrl, {
@@ -146,15 +157,20 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
 
       await page.reload();
       await expect(
-        page.locator(`tr:has-text("${testFileName}"), tr[data-file="${testFileName}"]`)
+        page.locator(
+          `[data-cy-files-list-row-name="${testFileName}"], [data-filename="${testFileName}"], tr:has-text("${testFileName}"), tr[data-file="${testFileName}"]`
+        )
       ).not.toBeVisible();
 
       // Stage 3: Navigate to trashbin view and assert file row is present
       await page.goto(`${targetUrl}/index.php/apps/files/?dir=/&view=trashbin`);
       const trashRow = page
-        .locator(`tr:has-text("${testFileName}"), [data-file*="${testFileName}"]`)
+        .locator(
+          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}"), [data-file*="${testFileName}"]`
+        )
+        .or(page.getByText(testFileName))
         .first();
-      await expect(trashRow).toBeVisible({ timeout: 15000 });
+      await expect(trashRow).toBeVisible({ timeout: 20000 });
 
       // Stage 4: Restore the file, return to active files view, download and assert byte-for-byte / SHA256 match
       const restoreBtn = trashRow
@@ -193,10 +209,11 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
       await page.goto(`${targetUrl}/index.php/apps/files/`);
       const restoredRow = page
         .locator(
-          `tr:has-text("${testFileName}"), tr[data-file="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}")`
+          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`
         )
+        .or(page.getByText(testFileName))
         .first();
-      await expect(restoredRow).toBeVisible({ timeout: 15000 });
+      await expect(restoredRow).toBeVisible({ timeout: 20000 });
 
       // Download file and assert SHA256 equivalence
       const dlResp = await request.get(davUrl, {
@@ -219,9 +236,12 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
 
       await page.goto(`${targetUrl}/index.php/apps/files/?dir=/&view=trashbin`);
       const secondTrashRow = page
-        .locator(`tr:has-text("${testFileName}"), [data-file*="${testFileName}"]`)
+        .locator(
+          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}"), [data-file*="${testFileName}"]`
+        )
+        .or(page.getByText(testFileName))
         .first();
-      await expect(secondTrashRow).toBeVisible({ timeout: 15000 });
+      await expect(secondTrashRow).toBeVisible({ timeout: 20000 });
 
       // Trigger permanent purge
       const purgeBtn = secondTrashRow

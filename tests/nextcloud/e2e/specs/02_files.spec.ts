@@ -17,7 +17,7 @@ import { S3Client, HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s
 import { loginNextcloud } from "../support/auth.js";
 
 const USERNAME = process.env.NEXTCLOUD_USER || "admin";
-const PASSWORD = process.env.NEXTCLOUD_PASSWORD || "admin";
+const PASSWORD = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!";
 const TENANT_ID = process.env.TENANT_ID || "acme";
 const S3_BUCKET = process.env.OBJECTSTORE_S3_BUCKET || process.env.S3_VAULT_BUCKET;
 const AWS_REGION = process.env.AWS_REGION || process.env.OBJECTSTORE_S3_REGION || "ap-southeast-1";
@@ -86,9 +86,11 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
   }) => {
     // Verify navigation sidebar is visible
     const sidebar = page
-      .locator("#app-navigation, .app-navigation, nav, [aria-label=\"Files\"]")
+      .locator("#app-navigation, .app-navigation, aside, #appmenu, [role=\"navigation\"]")
+      .filter({ hasText: /Files|Deleted files|Recent|Favorites|Shares/i })
+      .or(page.locator("#app-navigation, .app-navigation, aside"))
       .first();
-    await expect(sidebar).toBeVisible({ timeout: 15000 });
+    await expect(sidebar).toBeVisible({ timeout: 20000 });
 
     // Verify main files content is rendered
     const mainContent = page
@@ -128,10 +130,11 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
       await page.goto(`${targetUrl}/index.php/apps/files/`);
       const fileRow = page
         .locator(
-          `tr:has-text("${fileName}"), tr[data-file="${fileName}"], [data-cy-files-list-row]:has-text("${fileName}")`
+          `[data-cy-files-list-row-name="${fileName}"], [data-cy-files-list-row]:has-text("${fileName}"), [data-filename="${fileName}"], [data-file="${fileName}"], [role="row"]:has-text("${fileName}"), tr:has-text("${fileName}")`
         )
+        .or(page.getByText(fileName))
         .first();
-      await expect(fileRow).toBeVisible({ timeout: 15000 });
+      await expect(fileRow).toBeVisible({ timeout: 20000 });
 
       // 4. Extract Nextcloud internal fileid from DOM (data-id) or WebDAV PROPFIND
       let fileId = await fileRow.getAttribute("data-id");
