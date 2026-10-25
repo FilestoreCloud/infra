@@ -78,7 +78,10 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
 
     await loginNextcloud(page, USERNAME, PASSWORD);
     await page.goto(`${targetUrl}/index.php/apps/files/`);
-    await page.waitForURL(/\/apps\/files/);
+    await page.waitForURL(
+      url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+      { timeout: 20000 }
+    );
   });
 
   test("Should display file list and breadcrumbs navigation", async ({
@@ -88,13 +91,13 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
     const sidebar = page
       .locator("#app-navigation, .app-navigation, aside, #appmenu, [role=\"navigation\"]")
       .filter({ hasText: /Files|Deleted files|Recent|Favorites|Shares/i })
-      .or(page.locator("#app-navigation, .app-navigation, aside"))
+      .or(page.locator("aside.app-navigation, #app-navigation"))
       .first();
     await expect(sidebar).toBeVisible({ timeout: 20000 });
 
     // Verify main files content is rendered
     const mainContent = page
-      .locator("#app-content, main, #app-content-vue, .files-list, #fileList")
+      .locator("#app-content, #app-content-files, #app-content-vue, .files-list, #fileList")
       .first();
     await expect(mainContent).toBeVisible({ timeout: 15000 });
   });
@@ -128,6 +131,10 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
 
       // 3. Inspect UI row and assert visibility in Files app
       await page.goto(`${targetUrl}/index.php/apps/files/`);
+      await page.waitForURL(
+        url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+        { timeout: 20000 }
+      );
       const fileRow = page
         .locator(
           `[data-cy-files-list-row-name="${fileName}"], [data-cy-files-list-row]:has-text("${fileName}"), [data-filename="${fileName}"], [data-file="${fileName}"], [role="row"]:has-text("${fileName}"), tr:has-text("${fileName}")`

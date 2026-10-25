@@ -11,41 +11,72 @@ export async function loginNextcloud(
   username: string = process.env.NEXTCLOUD_USER || "admin",
   password: string = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!",
 ) {
-  if (page.url().includes("/apps/files") || page.url().includes("/apps/dashboard")) {
-    return;
-  }
+  try {
+    const cur = new URL(page.url());
+    if (!cur.pathname.includes("/login") && (cur.pathname.includes("/apps/files") || cur.pathname.includes("/apps/dashboard"))) {
+      return;
+    }
+  } catch {}
 
   await page.goto("/index.php/login", { waitUntil: "domcontentloaded" });
 
-  if (!page.url().includes("/login")) {
-    return;
-  }
+  try {
+    const cur = new URL(page.url());
+    if (!cur.pathname.includes("/login")) {
+      return;
+    }
+  } catch {}
 
-  // Wait for login form elements
-  const userInput = page.locator('#user, input[name="user"], input#user_id');
-  const passInput = page.locator('#password, input[name="password"]');
-  const submitBtn = page.locator('#submit-form, button[type="submit"], button:has-text("Log in"), input[type="submit"]');
+  // Wait for login form elements (Nextcloud 30 Vue component)
+  const userInput = page
+    .getByLabel(/Account name or email/i)
+    .or(page.locator('#user, input[name="user"], input#user_id'))
+    .first();
+  const passInput = page
+    .getByLabel(/^Password/i)
+    .or(page.locator('#password, input[name="password"]'))
+    .first();
+  const submitBtn = page
+    .getByRole("button", { name: /^Log in$/i })
+    .or(page.locator('#submit-form, button[type="submit"], input[type="submit"]'))
+    .first();
 
   await expect(userInput).toBeVisible({ timeout: 15000 });
 
   await userInput.fill(username);
   await passInput.fill(password);
-  
+
+  // Submit via click and enter key fallback, wait for navigation away from /login
   await Promise.all([
-    page.waitForURL(url => !url.pathname.includes("/login") || url.pathname.includes("/apps/") || url.search.includes("dashboard") || url.search.includes("files"), {
-      timeout: 25000,
-    }).catch(() => {}),
-    submitBtn.first().click().catch(() => {}),
+    page.waitForURL(
+      url => !url.pathname.includes("/login") && (url.pathname.includes("/apps/") || url.pathname.includes("/index.php")),
+      { timeout: 45000 }
+    ).catch(() => {}),
+    submitBtn.click().catch(() => passInput.press("Enter")),
   ]);
 
-  // If redirect lands on index.php, navigate to files app if needed
-  if (!page.url().includes("/apps/")) {
-    await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
-  }
+  // If still on login screen, press Enter on password input
+  try {
+    const checkUrl = new URL(page.url());
+    if (checkUrl.pathname.includes("/login")) {
+      await passInput.press("Enter").catch(() => {});
+      await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 35000 }).catch(() => {});
+    }
+  } catch {}
 
-  // Verify authenticated header or navigation
-  const headerMenu = page.locator("#app-content, #app-content-files, #fileList, .files-list, #header, header, .app-navigation, #appmenu, [role=\"navigation\"], #content, main");
-  await expect(headerMenu.first()).toBeVisible({ timeout: 20000 });
+  // If redirect lands on index.php without app path, navigate to files app
+  try {
+    const postUrl = new URL(page.url());
+    if (!postUrl.pathname.includes("/login") && !postUrl.pathname.includes("/apps/")) {
+      await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
+    }
+  } catch {}
+
+  // Verify authenticated navigation (strictly exclude login-page elements like main, header, #header)
+  const headerMenu = page.locator(
+    "#app-navigation, aside.app-navigation, #app-content-files, #appmenu, [data-cy-files-list-row], #fileList"
+  );
+  await expect(headerMenu.first()).toBeVisible({ timeout: 25000 });
 
   // Dismiss First Run Wizard modal if presented
   const wizard = page.locator('#firstrunwizard, [role="dialog"], .modal-mask');

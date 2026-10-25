@@ -39,12 +39,15 @@ test.describe("Nextcloud Authentication E2E", () => {
 
     // Navigate to Files app
     await page.goto("/index.php/apps/files/");
-    await expect(page).toHaveURL(/apps\/files/);
-
-    // Files list table or main content view must be visible
-    const fileTable = page.locator(
-      "#fileList, .files-list, #app-content-files, main, #app-content",
+    await page.waitForURL(
+      url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+      { timeout: 20000 }
     );
-    await expect(fileTable.first()).toBeVisible({ timeout: 15000 });
+
+    // Files list table or authenticated navigation must be visible
+    const fileTable = page.locator(
+      "#fileList, .files-list, #app-content-files, #app-navigation, aside.app-navigation"
+    );
+    await expect(fileTable.first()).toBeVisible({ timeout: 20000 });
   });
 });
