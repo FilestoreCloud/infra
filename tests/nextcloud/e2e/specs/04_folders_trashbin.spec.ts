@@ -63,7 +63,10 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
 
     await loginNextcloud(page, USERNAME, PASSWORD);
     await page.goto(`${targetUrl}/index.php/apps/files/`);
-    await page.waitForURL(/\/apps\/files/);
+    await page.waitForURL(
+      url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+      { timeout: 20000 }
+    );
 
     const wizard = page.locator('#firstrunwizard, [role="dialog"], .modal-mask');
     if (await wizard.isVisible({ timeout: 3000 }).catch(() => false)) {
@@ -141,6 +144,10 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
     try {
       // Assert file is visible in active files list
       await page.goto(`${targetUrl}/index.php/apps/files/`);
+      await page.waitForURL(
+        url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+        { timeout: 20000 }
+      );
       const activeRow = page
         .locator(
           `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`

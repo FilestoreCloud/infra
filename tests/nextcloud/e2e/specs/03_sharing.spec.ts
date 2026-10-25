@@ -76,7 +76,10 @@ test.describe("Nextcloud Sharing Lifecycle & Sidebar E2E", () => {
 
     await loginNextcloud(page, USERNAME, PASSWORD);
     await page.goto(`${targetUrl}/index.php/apps/files/`);
-    await page.waitForURL(/\/apps\/files/);
+    await page.waitForURL(
+      url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+      { timeout: 20000 }
+    );
   });
 
   test("Should open file sharing tab when clicking share action", async ({
@@ -102,6 +105,10 @@ test.describe("Nextcloud Sharing Lifecycle & Sidebar E2E", () => {
 
     try {
       await page.goto(`${targetUrl}/index.php/apps/files/`);
+      await page.waitForURL(
+        url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+        { timeout: 20000 }
+      );
       const targetRow = page
         .locator(
           `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`
