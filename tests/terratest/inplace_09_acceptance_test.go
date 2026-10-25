@@ -187,9 +187,34 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	}
 	require.NotEmpty(t, getItemRes.Item, fmt.Sprintf("Tenant '%s' must exist in DynamoDB", tenantID))
 
-	if statusAttr, ok := getItemRes.Item["status"].(*dynamoTypes.AttributeValueMemberS); ok {
-		assert.Equal(t, "ACTIVE", statusAttr.Value, fmt.Sprintf("Tenant %s status must be ACTIVE", tenantID))
+	// Poll tenant status until state transitions to ACTIVE (up to 90s)
+	var finalStatus string
+	pollTimeout := time.After(90 * time.Second)
+	pollTicker := time.NewTicker(2 * time.Second)
+	defer pollTicker.Stop()
+
+	for {
+		if statusAttr, ok := getItemRes.Item["status"].(*dynamoTypes.AttributeValueMemberS); ok {
+			finalStatus = statusAttr.Value
+			if finalStatus == "ACTIVE" {
+				break
+			}
+		}
+		select {
+		case <-pollTimeout:
+			t.Fatalf("Timed out waiting for tenant %s status to transition to ACTIVE (last status: %s)", tenantID, finalStatus)
+		case <-pollTicker.C:
+			getItemRes, err = dynamoClient.GetItem(context.TODO(), &dynamodb.GetItemInput{
+				TableName: aws.String(tableName),
+				Key: map[string]dynamoTypes.AttributeValue{
+					"tenant_id": &dynamoTypes.AttributeValueMemberS{Value: tenantID},
+				},
+				ConsistentRead: aws.Bool(true),
+			})
+			require.NoError(t, err, fmt.Sprintf("Failed to poll tenant %s from DynamoDB", tenantID))
+		}
 	}
+	assert.Equal(t, "ACTIVE", finalStatus, fmt.Sprintf("Tenant %s status must be ACTIVE", tenantID))
 	t.Logf("✅ DynamoDB confirmed: Tenant '%s' is registered and ACTIVE.", tenantID)
 
 	// 3. Nextcloud Tenant Application & Storage verification
