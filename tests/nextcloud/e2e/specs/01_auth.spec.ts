@@ -4,7 +4,7 @@
  */
 
 import { test, expect } from "@playwright/test";
-import { loginNextcloud } from "../support/auth.ts";
+import { loginNextcloud } from "../support/auth.js";
 
 test.describe("Nextcloud Authentication E2E", () => {
   test("Should reject invalid credentials with error message", async ({

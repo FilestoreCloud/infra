@@ -8,15 +8,23 @@ import { generateTotp } from "./totp.js";
 
 export async function loginNextcloud(
   page: Page,
-  username: string = process.env.NEXTCLOUD_USER!,
-  password: string = process.env.NEXTCLOUD_PASSWORD!,
+  username: string = process.env.NEXTCLOUD_USER || "admin",
+  password: string = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!",
 ) {
-  await page.goto("/index.php/login");
+  if (page.url().includes("/apps/files") || page.url().includes("/apps/dashboard")) {
+    return;
+  }
+
+  await page.goto("/index.php/login", { waitUntil: "domcontentloaded" });
+
+  if (!page.url().includes("/login")) {
+    return;
+  }
 
   // Wait for login form elements
-  const userInput = page.locator('#user, input[name="user"]');
+  const userInput = page.locator('#user, input[name="user"], input#user_id');
   const passInput = page.locator('#password, input[name="password"]');
-  const submitBtn = page.locator('#submit-form, button[type="submit"], button:has-text("Log in")');
+  const submitBtn = page.locator('#submit-form, button[type="submit"], button:has-text("Log in"), input[type="submit"]');
 
   await expect(userInput).toBeVisible({ timeout: 15000 });
 
@@ -24,19 +32,19 @@ export async function loginNextcloud(
   await passInput.fill(password);
   
   await Promise.all([
-    page.waitForURL(url => !url.pathname.includes("/login") || url.search.includes("dashboard") || url.search.includes("files"), {
-      timeout: 30000,
+    page.waitForURL(url => !url.pathname.includes("/login") || url.pathname.includes("/apps/") || url.search.includes("dashboard") || url.search.includes("files"), {
+      timeout: 25000,
     }).catch(() => {}),
-    submitBtn.first().click(),
+    submitBtn.first().click().catch(() => {}),
   ]);
 
   // If redirect lands on index.php, navigate to files app if needed
   if (!page.url().includes("/apps/")) {
-    await page.goto("/index.php/apps/files/").catch(() => {});
+    await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
   }
 
   // Verify authenticated header or navigation
-  const headerMenu = page.locator("#header, header, .app-navigation, #appmenu, [role=\"navigation\"], #content, main");
+  const headerMenu = page.locator("#app-content, #app-content-files, #fileList, .files-list, #header, header, .app-navigation, #appmenu, [role=\"navigation\"], #content, main");
   await expect(headerMenu.first()).toBeVisible({ timeout: 20000 });
 
   // Dismiss First Run Wizard modal if presented
@@ -61,10 +69,10 @@ export async function loginSuperAdmin(
   password: string = process.env.SUPERADMIN_PASSWORD || process.env.ADMIN_PASSWORD || "SuperAdmin123!",
   consoleUrl: string = process.env.CONSOLE_URL || process.env.SUPERADMIN_CONSOLE_URL || "http://localhost:3000"
 ): Promise<void> {
-  await page.goto(`${consoleUrl}/login`);
+  await page.goto(`${consoleUrl}/login`, { waitUntil: "domcontentloaded" });
 
-  const emailInput = page.locator('input#email, input[name="email"]');
-  const passInput = page.locator('input#password, input[name="password"]');
+  const emailInput = page.locator('input#email, input[name="email"], input#admin-email, input[type="email"]');
+  const passInput = page.locator('input#password, input[name="password"], input#master-password, input[type="password"]');
   const submitBtn = page.locator('button[type="submit"]');
 
   await expect(emailInput).toBeVisible({ timeout: 15000 });
@@ -75,7 +83,7 @@ export async function loginSuperAdmin(
   // Check for Step 2: MFA Challenge
   const mfaInput = page
     .getByPlaceholder("000000")
-    .or(page.locator('input[placeholder="000000"], input#mfa_code, input#mfaForm_mfa_code'))
+    .or(page.locator('input[placeholder="000000"], input#mfa_code, input#mfa-code, input#mfaForm_mfa_code'))
     .first();
 
   try {
