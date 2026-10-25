@@ -250,10 +250,11 @@ test.describe("SuperAdmin Web Console E2E", () => {
       await pollTenantActiveState(page, newTenantId, 120000);
 
       // 2. Probe tenant's HTTP health endpoint (/status.php)
-      const targetBaseUrl =
+      const rawBaseUrl =
         process.env.ALB_URL ||
         process.env.TENANT_URL ||
         `https://${customDomain}`;
+      const targetBaseUrl = rawBaseUrl.trim().replace(/\/+$/, "");
       const hostHeader = customDomain;
 
       const health = await probeTenantStatusPhp(
@@ -266,16 +267,26 @@ test.describe("SuperAdmin Web Console E2E", () => {
       expect(health.maintenance).toBe(false);
 
       // 3. Authenticate into newly provisioned tenant as its admin via isolated browser context
-      await verifyTenantAdminSession(
-        browser,
-        targetBaseUrl,
-        "admin",
-        process.env.NEXTCLOUD_PASSWORD || "Admin1234!",
-        hostHeader
-      );
+      let sessionError: Error | null = null;
+      try {
+        await verifyTenantAdminSession(
+          browser,
+          targetBaseUrl,
+          "admin",
+          process.env.NEXTCLOUD_PASSWORD || "Admin1234!",
+          hostHeader
+        );
+      } catch (err: any) {
+        sessionError = err;
+      }
 
       // 4. Execute automated teardown/deprovisioning cleanup via UI popconfirm delete
+      // Always attempted to ensure UI cleanup verification runs
       await deprovisionTenantViaUI(page, newTenantId, 60000);
+
+      if (sessionError) {
+        throw sessionError;
+      }
     } finally {
       // Guardrail: ensure zero dangling tenant or infrastructure resources remain
       await deprovisionTenantViaApi(request, CONSOLE_URL, newTenantId).catch(

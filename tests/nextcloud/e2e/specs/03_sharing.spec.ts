@@ -185,6 +185,9 @@ test.describe("Nextcloud Sharing Lifecycle & Sidebar E2E", () => {
       shareId = shareData.id;
       shareToken = shareData.token;
       shareUrl = shareData.url || `${targetUrl}/index.php/s/${shareToken}`;
+      if (targetUrl.startsWith("http://")) {
+        shareUrl = shareUrl.replace(/^https:\/\//, "http://");
+      }
 
       expect(shareId).toBeTruthy();
       expect(shareToken).toBeTruthy();

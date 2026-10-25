@@ -175,19 +175,26 @@ export async function verifyTenantAdminSession(
     process.env.SUPERADMIN_PASSWORD ||
     "Admin1234!";
 
-  const extraHTTPHeaders: Record<string, string> = {};
-  if (hostHeader) {
-    extraHTTPHeaders["Host"] = hostHeader;
-  }
-
+  // Create clean isolated context without restricted Host headers
   const tenantContext = await browser.newContext({
     ignoreHTTPSErrors: true,
-    extraHTTPHeaders: Object.keys(extraHTTPHeaders).length > 0 ? extraHTTPHeaders : undefined,
   });
   const tenantPage = await tenantContext.newPage();
 
+  // If hostHeader is provided and differs from tenantUrl hostname, use page.route
+  // rather than extraHTTPHeaders to safely route requests without triggering net::ERR_INVALID_ARGUMENT
+  if (hostHeader && !tenantUrl.includes(hostHeader)) {
+    await tenantPage.route("**/*", async (route) => {
+      const headers = { ...route.request().headers(), host: hostHeader };
+      await route.continue({ headers });
+    }).catch(() => {});
+  }
+
   try {
-    const loginUrl = `${tenantUrl.replace(/\/+$/, "")}/index.php/login`;
+    const cleanBase = tenantUrl.trim().replace(/\/+$/, "");
+    const loginUrl = cleanBase.includes("/index.php")
+      ? cleanBase
+      : `${cleanBase}/index.php/login`;
     await tenantPage.goto(loginUrl, {
       waitUntil: "domcontentloaded",
       timeout: 30000,
@@ -220,7 +227,7 @@ export async function verifyTenantAdminSession(
     // Direct navigation to files app if not already on an apps view
     if (!tenantPage.url().includes("/apps/files")) {
       await tenantPage
-        .goto(`${tenantUrl.replace(/\/+$/, "")}/index.php/apps/files/`, {
+        .goto(`${cleanBase}/index.php/apps/files/`, {
           waitUntil: "domcontentloaded",
           timeout: 20000,
         })
