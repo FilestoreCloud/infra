@@ -14,7 +14,6 @@ Usage:
 import argparse
 import json
 import os
-import sys
 import urllib.error
 import urllib.request
 import boto3
@@ -139,7 +138,6 @@ def sync_records(env: str, zone_name: str, token: str | None = None):
             print(f"[SKIP] Skipping {d['name']} because target endpoint is not available.")
             continue
 
-        target_name = d["name"].replace("*.", "") if d["name"].startswith("*.") else d["name"]
         existing_rec = records_by_name.get(d["name"]) or records_by_name.get(f"\\*.{zone_name}")
 
         record_payload = {
