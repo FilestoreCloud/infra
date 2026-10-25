@@ -91,5 +91,5 @@ npx playwright test --ui
 
 Full execution logs, evidence screenshots, and verified live test results are documented in:
 
-- **Architecture & E2E Test Report:** [`../reports/2026-10-05/report.md`](../reports/2026-10-05/report.md)
-- **Test Screenshots Gallery:** [`../reports/2026-10-05/imgs/evidence/`](../reports/2026-10-05/imgs/evidence/)
+- **Architecture & E2E Test Report:** [2026-10-05 Sprint Report](https://github.com/FilestoreCloud/reports/blob/main/2026-10-05/report.md)
+- **Test Screenshots Gallery:** [Evidence Screenshots](https://github.com/FilestoreCloud/reports/tree/main/2026-10-05/imgs/evidence/)

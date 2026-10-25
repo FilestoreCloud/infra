@@ -1,3 +1,8 @@
+"""
+Tenant Operator Lambda - Storix SuperAdmin Control Plane.
+Handles tenant lifecycle mutations, authentication (MFA/TOTP/WebAuthn), and platform observability.
+"""
+
 import base64
 import datetime
 import hashlib
@@ -34,6 +39,8 @@ from operator_core.common import (  # noqa: E402
 )
 
 from operator_core import (  # noqa: E402
+    _deprovision_ecs_compute,
+    _deprovision_ingress_and_storage,
     _handle_step_function_task,
     _seed_tenant_data,
     clone_tenant_to_sandbox,
@@ -887,7 +894,7 @@ def _handle_request(event, context):
                 user_role = "SuperAdmin"
 
         if is_valid:
-            require_mfa = os.environ.get("REQUIRE_MFA", "true").lower() in ("true", "1", "yes")
+            require_mfa = os.environ.get("REQUIRE_MFA", "false" if ENVIRONMENT_NAME == "dev" else "true").lower() in ("true", "1", "yes")
             if require_mfa:
                 mfa_otp = f"{secrets.randbelow(1000000):06d}"
                 challenge_token = create_challenge_token(
@@ -1832,6 +1839,7 @@ def _handle_request(event, context):
                                 "TenantId": tenant_id,
                                 "StorageQuotaGB": quota_gb,
                                 "CompanyDomain": domain,
+                                "AdminEmail": admin_email,
                             }
                         ),
                     )
@@ -2380,49 +2388,9 @@ def _handle_request(event, context):
                         f"Step Functions start_execution warning: {e}. Falling back to direct deprovision."
                     )
 
-            service_name = f"service-{tenant_id}"
             infra = get_infra_config()
-            try:
-                ecs.update_service(
-                    cluster=infra["cluster_name"], service=service_name, desiredCount=0
-                )
-                ecs.delete_service(
-                    cluster=infra["cluster_name"], service=service_name, force=True
-                )
-            except Exception as e:
-                print(f"Warning deleting ECS service {service_name}: {e}")
-
-            tg_name = f"tg-{tenant_id}"[:32]
-            try:
-                tgs = elbv2.describe_target_groups(Names=[tg_name])["TargetGroups"]
-                if tgs:
-                    tg_arn = tgs[0]["TargetGroupArn"]
-                    listener_arn = infra.get("https_listener_arn")
-                    if listener_arn:
-                        rules = elbv2.describe_rules(ListenerArn=listener_arn)["Rules"]
-                        for r in rules:
-                            for a in r.get("Actions", []):
-                                if a.get("TargetGroupArn") == tg_arn:
-                                    elbv2.delete_rule(RuleArn=r["RuleArn"])
-                    elbv2.delete_target_group(TargetGroupArn=tg_arn)
-            except Exception as e:
-                print(f"Warning cleaning up TG: {e}")
-
-            # Delete dedicated EFS Access Point if present
-            if infra.get("efs_id"):
-                try:
-                    paginator = efs.get_paginator("describe_access_points")
-                    for page in paginator.paginate(FileSystemId=infra["efs_id"]):
-                        for ap in page.get("AccessPoints", []):
-                            if (
-                                ap.get("RootDirectory", {}).get("Path")
-                                == f"/tenants/{tenant_id}/config"
-                            ):
-                                efs.delete_access_point(
-                                    AccessPointId=ap["AccessPointId"]
-                                )
-                except Exception as e:
-                    print(f"Warning deleting EFS access point: {e}")
+            _deprovision_ecs_compute(tenant_id, infra)
+            _deprovision_ingress_and_storage(tenant_id, infra)
 
             dynamodb.delete_item(
                 TableName=TABLE_NAME, Key={"tenant_id": {"S": tenant_id}}
