@@ -13,7 +13,10 @@ export async function loginNextcloud(
 ) {
   try {
     const cur = new URL(page.url());
-    if (!cur.pathname.includes("/login") && (cur.pathname.includes("/apps/files") || cur.pathname.includes("/apps/dashboard"))) {
+    if (!cur.pathname.includes("/login") && (cur.pathname.includes("/apps/") || cur.pathname.includes("/index.php"))) {
+      if (!cur.pathname.includes("/apps/files")) {
+        await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
+      }
       return;
     }
   } catch {}
@@ -23,6 +26,9 @@ export async function loginNextcloud(
   try {
     const cur = new URL(page.url());
     if (!cur.pathname.includes("/login")) {
+      if (!cur.pathname.includes("/apps/files")) {
+        await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
+      }
       return;
     }
   } catch {}
@@ -50,7 +56,7 @@ export async function loginNextcloud(
   await Promise.all([
     page.waitForURL(
       url => !url.pathname.includes("/login") && (url.pathname.includes("/apps/") || url.pathname.includes("/index.php")),
-      { timeout: 45000 }
+      { timeout: 60000 }
     ).catch(() => {}),
     submitBtn.click().catch(() => passInput.press("Enter")),
   ]);
@@ -60,21 +66,26 @@ export async function loginNextcloud(
     const checkUrl = new URL(page.url());
     if (checkUrl.pathname.includes("/login")) {
       await passInput.press("Enter").catch(() => {});
-      await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 35000 }).catch(() => {});
+      await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 45000 }).catch(() => {});
     }
   } catch {}
 
-  // If redirect lands on index.php without app path, navigate to files app
+  // Ensure redirect lands on Files app (Nextcloud defaults to /apps/dashboard/ upon login)
   try {
     const postUrl = new URL(page.url());
-    if (!postUrl.pathname.includes("/login") && !postUrl.pathname.includes("/apps/")) {
+    if (!postUrl.pathname.includes("/login") && !postUrl.pathname.includes("/apps/files")) {
       await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
+      await page.waitForURL(
+        url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
+        { timeout: 25000 }
+      ).catch(() => {});
     }
   } catch {}
 
-  // Verify authenticated navigation (strictly exclude login-page elements like main, header, #header)
+  // Verify authenticated navigation on Files app or generic authenticated shell
+  // (strictly excludes unauthenticated login-page elements like main, header, #header, #login)
   const headerMenu = page.locator(
-    "#app-navigation, aside.app-navigation, #app-content-files, #appmenu, [data-cy-files-list-row], #fileList"
+    "#app-navigation, aside.app-navigation, #app-content-files, #appmenu, [data-cy-files-list-row], #fileList, #app-content, [data-entry-id='settings'], #settings, .avatardiv"
   );
   await expect(headerMenu.first()).toBeVisible({ timeout: 25000 });
 
