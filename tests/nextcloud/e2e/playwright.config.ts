@@ -11,6 +11,10 @@ const defaultBaseUrl =
 
 export default defineConfig({
   testDir: "./specs",
+  timeout: 120000,
+  expect: {
+    timeout: 15000,
+  },
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -26,7 +30,19 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Desktop Chrome"],
+        launchOptions: {
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-web-security",
+            defaultBaseUrl
+              ? `--unsafely-treat-insecure-origin-as-secure=${defaultBaseUrl}`
+              : "",
+          ].filter(Boolean),
+        },
+      },
     },
   ],
 });

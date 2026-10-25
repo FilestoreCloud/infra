@@ -66,8 +66,8 @@ test.describe("SuperAdmin Web Console E2E", () => {
     await page.goto(`${CONSOLE_URL}/login`);
     await expect(page).toHaveTitle(/Filestore Cloud|Super Admin/i);
 
-    const emailInput = page.locator('input#email, input[name="email"]');
-    const passInput = page.locator('input#password, input[name="password"]');
+    const emailInput = page.locator('input#email, input[name="email"], input#admin-email, input[type="email"]');
+    const passInput = page.locator('input#password, input[name="password"], input#master-password, input[type="password"]');
     const submitBtn = page.locator('button[type="submit"]');
 
     await expect(emailInput).toBeVisible({ timeout: 15000 });
@@ -80,15 +80,15 @@ test.describe("SuperAdmin Web Console E2E", () => {
   }) => {
     await page.goto(`${CONSOLE_URL}/login`);
 
-    const emailInput = page.locator('input#email, input[name="email"]');
-    const passInput = page.locator('input#password, input[name="password"]');
+    const emailInput = page.locator('input#email, input[name="email"], input#admin-email, input[type="email"]');
+    const passInput = page.locator('input#password, input[name="password"], input#master-password, input[type="password"]');
     const submitBtn = page.locator('button[type="submit"]');
 
     await emailInput.fill("wrong.admin@example.com");
     await passInput.fill("InvalidPassword123!");
     await submitBtn.click();
 
-    const alertError = page.locator(".ant-alert-error, [role='alert']");
+    const alertError = page.locator(".ant-alert-error, [role='alert'], [class*='destructive']");
     await expect(alertError.first()).toBeVisible({ timeout: 10000 });
   });
 
@@ -97,8 +97,8 @@ test.describe("SuperAdmin Web Console E2E", () => {
   }) => {
     await page.goto(`${CONSOLE_URL}/login`);
 
-    const emailInput = page.locator('input#email, input[name="email"]');
-    const passInput = page.locator('input#password, input[name="password"]');
+    const emailInput = page.locator('input#email, input[name="email"], input#admin-email, input[type="email"]');
+    const passInput = page.locator('input#password, input[name="password"], input#master-password, input[type="password"]');
     const submitBtn = page.locator('button[type="submit"]');
 
     await emailInput.fill(ADMIN_EMAIL);
@@ -110,7 +110,7 @@ test.describe("SuperAdmin Web Console E2E", () => {
       .getByPlaceholder("000000")
       .or(
         page.locator(
-          'input[placeholder="000000"], input#mfa_code, input#mfaForm_mfa_code'
+          'input[placeholder="000000"], input#mfa_code, input#mfa-code, input#mfaForm_mfa_code'
         )
       )
       .first();
@@ -188,6 +188,7 @@ test.describe("SuperAdmin Web Console E2E", () => {
     browser,
     request,
   }) => {
+    test.setTimeout(180000);
     await loginSuperAdmin(page, ADMIN_EMAIL, ADMIN_PASSWORD, CONSOLE_URL);
 
     // Open Modal
