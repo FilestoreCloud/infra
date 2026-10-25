@@ -267,10 +267,9 @@ export async function deprovisionTenantViaUI(
   tenantId: string,
   timeoutMs: number = 60000
 ): Promise<void> {
-  // Filter or search for target tenant
+  // 1. Filter or search for target tenant
   const searchInput = page
-    .getByPlaceholder(/Search by Tenant ID/i)
-    .or(page.locator('input[placeholder*="Search"]'))
+    .getByPlaceholder(/Search Tenant ID|Search by Tenant ID|Search/i)
     .first();
 
   if (await searchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
@@ -281,7 +280,7 @@ export async function deprovisionTenantViaUI(
   const row = page.locator("tr").filter({ hasText: tenantId }).first();
   await expect(row).toBeVisible({ timeout: 15000 });
 
-  // Locate Delete action button:
+  // 2. Locate Delete action button:
   // In Shadcn/Lucide TenantTable: it is in the "More actions" DropdownMenu.
   // In classic Ant Design: it may be a direct button on the row.
   const directDeleteBtn = row
@@ -302,40 +301,48 @@ export async function deprovisionTenantViaUI(
     await expect(moreActionsBtn).toBeVisible({ timeout: 5000 });
     await moreActionsBtn.click();
 
-    // Click "Delete Tenant" item in dropdown
+    // Click "Delete Tenant" item in Radix DropdownMenu
+    // Strictly target [role="menuitem"] — DO NOT include 'div' as it matches outer popper containers
     const deleteMenuItem = page
-      .locator('[role="menuitem"], .dropdown-menu-item, div')
-      .filter({ hasText: /Delete Tenant/i })
+      .getByRole("menuitem", { name: /Delete Tenant/i })
+      .or(page.locator('[role="menuitem"]').filter({ hasText: /Delete Tenant/i }))
       .first();
+
+    if (!(await deleteMenuItem.isVisible({ timeout: 2000 }).catch(() => false))) {
+      await moreActionsBtn.click().catch(() => {});
+    }
     await expect(deleteMenuItem).toBeVisible({ timeout: 5000 });
     await deleteMenuItem.click();
   }
 
-  // Confirm delete dialog: "Permanently Delete Tenant?"
+  // 3. Confirm delete dialog: "Permanently Delete Tenant?"
   const confirmDialog = page
-    .locator('[role="dialog"], .ant-modal, .ant-popconfirm')
-    .filter({ hasText: /Permanently Delete|Delete tenant/i })
+    .locator('[role="dialog"]')
+    .filter({ hasText: /Permanently Delete|Confirm Tenant Deletion|Delete tenant/i })
     .first();
-  await expect(confirmDialog).toBeVisible({ timeout: 5000 });
+  await expect(confirmDialog).toBeVisible({ timeout: 10000 });
 
-  // Click Delete button in dialog footer
+  // 4. Click Delete button in dialog footer
   const confirmBtn = confirmDialog
-    .getByRole("button", { name: /^Delete$/i })
-    .or(confirmDialog.locator('button:has-text("Delete"), button.bg-destructive'))
+    .getByRole("button", { name: /^(Delete|Confirm Delete)$/i })
+    .or(confirmDialog.locator('button.bg-destructive, button:has-text("Delete")'))
     .first();
+  await expect(confirmBtn).toBeVisible({ timeout: 5000 });
   await confirmBtn.click();
 
-  // If TenantProgressModal opens, dismiss/close it so it doesn't block the UI
-  const progressCloseBtn = page
+  // 5. If TenantProgressModal opens, dismiss/close it so it doesn't block the UI
+  const progressModal = page
     .locator('[role="dialog"]')
-    .filter({ hasText: /Deprovisioning Teardown/i })
-    .locator('button:has-text("Close")')
+    .filter({ hasText: /Deprovisioning Teardown/i });
+  const progressCloseBtn = progressModal
+    .getByRole("button", { name: /Close/i })
+    .or(progressModal.locator('button:has-text("Close")'))
     .first();
-  if (await progressCloseBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (await progressCloseBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
     await progressCloseBtn.click().catch(() => {});
   }
 
-  // Verify tenant row is completely removed from table
+  // 6. Verify tenant row is completely removed from table
   await expect(page.locator("tr").filter({ hasText: tenantId })).not.toBeVisible({
     timeout: timeoutMs,
   });

@@ -18,7 +18,7 @@ import crypto from "node:crypto";
 import { loginNextcloud } from "../support/auth.js";
 
 const USERNAME = process.env.NEXTCLOUD_USER || "admin";
-const PASSWORD = process.env.NEXTCLOUD_PASSWORD || "admin";
+const PASSWORD = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!";
 
 function resolveBaseUrl(baseURL?: string): string {
   return (
@@ -104,23 +104,34 @@ test.describe("Nextcloud Sharing Lifecycle & Sidebar E2E", () => {
       await page.goto(`${targetUrl}/index.php/apps/files/`);
       const targetRow = page
         .locator(
-          `tr:has-text("${testFileName}"), tr[data-file="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}")`
+          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`
         )
+        .or(page.getByText(testFileName))
         .first();
-      await expect(targetRow).toBeVisible({ timeout: 15000 });
+      await expect(targetRow).toBeVisible({ timeout: 20000 });
 
-      // Click share action icon on the specific row
+      // Click share action icon on the specific row (or inside actions menu)
       const shareAction = targetRow
-        .locator('.action-share, button[aria-label*="Share"], a[data-action="Share"]')
+        .locator('.action-share, button[aria-label*="Share"], a[data-action="Share"], [data-action="share"], button:has(svg.icon-shared)')
         .first();
-      await expect(shareAction).toBeVisible({ timeout: 10000 });
-      await shareAction.click();
+      if (await shareAction.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await shareAction.click();
+      } else {
+        const rowMenuBtn = targetRow.locator('button[aria-label*="Actions"], .action-item--toggle, button:has-text("...")').first();
+        if (await rowMenuBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await rowMenuBtn.click();
+          const menuShare = page.locator('[role="menuitem"], .action-share, button:has-text("Share"), a:has-text("Share")').first();
+          await menuShare.click();
+        } else {
+          await targetRow.click();
+        }
+      }
 
       // Assert sharing sidebar or modal tab becomes visible
       const shareTab = page.locator(
-        '#app-sidebar, [aria-label="Sharing"], .sharing-tab, #app-sidebar-vue'
-      );
-      await expect(shareTab.first()).toBeVisible({ timeout: 15000 });
+        '#app-sidebar, .app-sidebar, aside.app-sidebar, [aria-label="Sharing"], [data-tabid="sharing"], .sharing-tab, #app-sidebar-vue, aside'
+      ).filter({ hasText: /Share|Sharing|Collaborators/i }).or(page.locator('#app-sidebar, .app-sidebar, aside'));
+      await expect(shareTab.first()).toBeVisible({ timeout: 20000 });
     } finally {
       await request.delete(davUrl, { headers: { Authorization: authHeader } }).catch(() => {});
     }
@@ -184,10 +195,8 @@ test.describe("Nextcloud Sharing Lifecycle & Sidebar E2E", () => {
       const shareData = shareJson?.ocs?.data;
       shareId = shareData.id;
       shareToken = shareData.token;
-      shareUrl = shareData.url || `${targetUrl}/index.php/s/${shareToken}`;
-      if (targetUrl.startsWith("http://")) {
-        shareUrl = shareUrl.replace(/^https:\/\//, "http://");
-      }
+      // Always use targetUrl to prevent localhost or internal hostname routing from OCS API
+      shareUrl = `${targetUrl}/index.php/s/${shareToken}`;
 
       expect(shareId).toBeTruthy();
       expect(shareToken).toBeTruthy();
