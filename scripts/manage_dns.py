@@ -146,7 +146,7 @@ def audit_zone(env: str, zone_name: str, token: str | None = None):
         # Fetch rules in this ruleset if authorized
         try:
             r_detail = cf_request("GET", f"/zones/{zone_id}/rulesets/{rs.get('id')}", token)
-            if r_detail and r_detail.get("result", {}).get("rules"):
+            if r_detail and (r_detail.get("result") or {}).get("rules"):
                 for rule in r_detail["result"]["rules"]:
                     print(f"    -> Rule: {rule.get('description')} | Action: {rule.get('action')} | Expression: {rule.get('expression')} | Params: {json.dumps(rule.get('action_parameters', {}))}")
         except Exception as e:
@@ -154,7 +154,7 @@ def audit_zone(env: str, zone_name: str, token: str | None = None):
 
     # 6. Fetch Origin Rules entrypoint specifically
     or_res = cf_request("GET", f"/zones/{zone_id}/rulesets/phases/http_request_origin/entrypoint", token)
-    if or_res and or_res.get("result", {}).get("rules"):
+    if or_res and (or_res.get("result") or {}).get("rules"):
         print(f"\n🎯 [Existing Origin Rules ({len(or_res['result']['rules'])} found)]:")
         for rule in or_res["result"]["rules"]:
             print(f"  • {rule.get('description')} | Expression: {rule.get('expression')} | Params: {json.dumps(rule.get('action_parameters', {}))}")
