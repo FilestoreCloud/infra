@@ -82,6 +82,130 @@ def get_zone_id(zone_name: str, token: str) -> str | None:
     return None
 
 
+def upsert_dns_record(zone_id: str, name: str, r_type: str, content: str, proxied: bool, token: str, comment: str = ""):
+    """Upsert a single DNS record in Cloudflare."""
+    existing = cf_request("GET", f"/zones/{zone_id}/dns_records?name={name}&type={r_type}", token)
+    recs = existing.get("result", []) if existing else []
+    payload = {
+        "type": r_type,
+        "name": name,
+        "content": content,
+        "ttl": 1,
+        "proxied": proxied,
+        "comment": comment,
+    }
+    if recs:
+        first_id = recs[0]["id"]
+        res = cf_request("PUT", f"/zones/{zone_id}/dns_records/{first_id}", token, payload)
+        for dup in recs[1:]:
+            cf_request("DELETE", f"/zones/{zone_id}/dns_records/{dup['id']}", token)
+        return res
+    else:
+        return cf_request("POST", f"/zones/{zone_id}/dns_records", token, payload)
+
+
+def ensure_acm_certificate(zone_name: str, domain_name: str, token: str | None = None, wait_for_issuance: bool = True, env: str = "prod"):
+    """Ensure an ACM certificate exists in us-east-1 for CloudFront with automatic Cloudflare DNS validation."""
+    print("\n" + "=" * 60)
+    print(f"🔒 ACM CERTIFICATE PROVISIONING IN US-EAST-1 (Domain: {domain_name})")
+    print("=" * 60)
+
+    acm = boto3.client("acm", region_name="us-east-1")
+    cert_arn = None
+
+    try:
+        paginator = acm.get_paginator("list_certificates")
+        for page in paginator.paginate(CertificateStatuses=["ISSUED", "PENDING_VALIDATION"]):
+            for c in page.get("CertificateSummaryList", []):
+                if c.get("DomainName") in [domain_name, f"*.{zone_name}"]:
+                    cert_arn = c["CertificateArn"]
+                    print(f"  • Found existing ACM certificate: {cert_arn}")
+                    break
+            if cert_arn:
+                break
+    except Exception as e:
+        print(f"  [ERROR] Could not list ACM certificates in us-east-1: {e}")
+        return None
+
+    if not cert_arn:
+        try:
+            print(f"  • Requesting new ACM certificate for '{domain_name}' and '*.{zone_name}' in us-east-1...")
+            resp = acm.request_certificate(
+                DomainName=domain_name,
+                ValidationMethod="DNS",
+                SubjectAlternativeNames=[f"*.{zone_name}", zone_name],
+                Tags=[
+                    {"Key": "Project", "Value": "storix"},
+                    {"Key": "Application", "Value": "storix"},
+                    {"Key": "ManagedBy", "Value": "CI-CD"},
+                ],
+            )
+            cert_arn = resp["CertificateArn"]
+            print(f"  ✔ Requested new ACM Certificate: {cert_arn}")
+        except Exception as e:
+            print(f"  [ERROR] Failed to request ACM certificate: {e}")
+            return None
+
+    # Sync validation CNAME to Cloudflare
+    if token:
+        zone_id = get_zone_id(zone_name, token)
+        if zone_id:
+            import time
+            for attempt in range(10):
+                try:
+                    desc = acm.describe_certificate(CertificateArn=cert_arn).get("Certificate", {})
+                    val_options = desc.get("DomainValidationOptions", [])
+                    records_to_add = [
+                        v.get("ResourceRecord") for v in val_options if v.get("ResourceRecord")
+                    ]
+                    if records_to_add:
+                        for r in records_to_add:
+                            rec_name = r["Name"].rstrip(".")
+                            rec_val = r["Value"].rstrip(".")
+                            res = upsert_dns_record(zone_id, rec_name, "CNAME", rec_val, proxied=False, token=token, comment="acm-validation")
+                            if res and res.get("success"):
+                                print(f"  ✔ Cloudflare DNS validation record created: {rec_name} ➔ {rec_val}")
+                        break
+                except Exception as e:
+                    print(f"  [WARN] Polling validation record: {e}")
+                time.sleep(3)
+
+    # Check / Wait for issuance
+    desc = acm.describe_certificate(CertificateArn=cert_arn).get("Certificate", {})
+    status = desc.get("Status", "UNKNOWN")
+    print(f"  • ACM Certificate Status: {status}")
+
+    if wait_for_issuance and status == "PENDING_VALIDATION":
+        import time
+        print("  ⏳ Waiting for ACM certificate DNS validation to complete...")
+        for _ in range(30):
+            time.sleep(5)
+            desc = acm.describe_certificate(CertificateArn=cert_arn).get("Certificate", {})
+            status = desc.get("Status", "UNKNOWN")
+            if status == "ISSUED":
+                print(f"  ✔ ACM Certificate is now ISSUED: {cert_arn}")
+                break
+            print(f"    ... current status: {status}")
+
+    # Store ARN in SSM Parameter in ap-southeast-1
+    if status == "ISSUED":
+        try:
+            ssm = boto3.client("ssm", region_name="ap-southeast-1")
+            param_name = f"/nextcloud/{env}/control-plane/admin-certificate-arn"
+            ssm.put_parameter(
+                Name=param_name,
+                Value=cert_arn,
+                Type="String",
+                Overwrite=True,
+                Description=f"ACM Certificate ARN in us-east-1 for {domain_name}",
+            )
+            print(f"  ✔ Stored Certificate ARN in SSM: {param_name}")
+        except Exception as e:
+            print(f"  [WARN] Could not store in SSM: {e}")
+
+    return cert_arn
+
+
 def audit_zone(env: str, zone_name: str, token: str | None = None):
     """Audit all Cloudflare DNS records, Origin Rules, and AWS endpoints."""
     alb_dns, cf_domain = get_aws_endpoints(env)
@@ -351,9 +475,10 @@ def clean_records(env: str, zone_name: str, token: str | None = None):
 
 def main():
     parser = argparse.ArgumentParser(description="Storix Cloudflare DNS Manager")
-    parser.add_argument("action", choices=["status", "audit", "sync", "clean"], help="Action to execute")
-    parser.add_argument("--env", default="dev", help="Target environment (default: dev)")
+    parser.add_argument("action", choices=["status", "audit", "sync", "clean", "cert"], help="Action to execute")
+    parser.add_argument("--env", default="prod", help="Target environment (default: prod)")
     parser.add_argument("--zone", default="png261.dev", help="Cloudflare root zone (default: png261.dev)")
+    parser.add_argument("--subdomain", default="admin", help="Subdomain for cert (default: admin)")
     parser.add_argument("--token", default=os.environ.get("CLOUDFLARE_API_TOKEN"), help="Cloudflare API Token")
     args = parser.parse_args()
 
@@ -366,6 +491,9 @@ def main():
         sync_records(args.env, args.zone, args.token)
     elif args.action == "clean":
         clean_records(args.env, args.zone, args.token)
+    elif args.action == "cert":
+        domain = f"{args.subdomain}.{args.zone}" if args.subdomain else args.zone
+        ensure_acm_certificate(args.zone, domain, args.token, wait_for_issuance=True, env=args.env)
 
 
 if __name__ == "__main__":
