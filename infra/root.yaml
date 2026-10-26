@@ -9,12 +9,14 @@ Parameters:
   DBPassword:
     Type: String
     NoEcho: true
-    Description: Master password for RDS PostgreSQL
+    Default: ""
+    Description: Master password for RDS PostgreSQL (optional; leave blank to dynamically auto-generate via AWS Secrets Manager)
 
   AdminPassword:
     Type: String
     NoEcho: true
-    Description: Initial admin password for Nextcloud
+    Default: ""
+    Description: Initial admin password for Nextcloud (optional; leave blank to dynamically auto-generate via AWS Secrets Manager)
 
   TaskCpu:
     Type: String

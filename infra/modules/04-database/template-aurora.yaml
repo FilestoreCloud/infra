@@ -44,7 +44,8 @@ Parameters:
   DBPassword:
     Type: String
     NoEcho: true
-    Description: Master password for Aurora PostgreSQL
+    Default: ""
+    Description: Master password for Aurora PostgreSQL (optional; leave blank to dynamically auto-generate via AWS Secrets Manager)
 
   EnableMultiAZReplica:
     Type: String
@@ -103,7 +104,7 @@ Resources:
       EngineVersion: "16.8"
       DatabaseName: !Ref DBName
       MasterUsername: !Ref DBMasterUsername
-      MasterUserPassword: !Ref DBPassword
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DBSecret}:SecretString:password}}"
       DBSubnetGroupName: !Ref DBSubnetGroup
       DBClusterParameterGroupName: !Ref DBClusterParameterGroup
       VpcSecurityGroupIds:
@@ -160,16 +161,17 @@ Resources:
     Properties:
       Name: !Sub "/nextcloud/${EnvironmentName}/secrets/aurora-db-credentials"
       Description: Database credentials for Nextcloud Aurora Serverless v2 PostgreSQL
-      SecretString: !Sub |
-        {
-          "engine": "postgres",
-          "host": "${AuroraCluster.Endpoint.Address}",
-          "reader_host": "${AuroraCluster.ReadEndpoint.Address}",
-          "port": 5432,
-          "username": "${DBMasterUsername}",
-          "password": "${DBPassword}",
-          "dbname": "${DBName}"
-        }
+      GenerateSecretString:
+        SecretStringTemplate: !Sub |
+          {
+            "engine": "postgres",
+            "port": 5432,
+            "username": "${DBMasterUsername}",
+            "dbname": "${DBName}"
+          }
+        GenerateStringKey: "password"
+        PasswordLength: 32
+        ExcludeCharacters: "\"@/\\'"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
