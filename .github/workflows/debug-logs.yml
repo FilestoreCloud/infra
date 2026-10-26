@@ -54,16 +54,30 @@ jobs:
             --query "tasks[0].taskArn" --output text)
 
           echo "Launched install task: $TASK_ARN"
+          TASK_ID=$(echo "$TASK_ARN" | awk -F'/' '{print $NF}')
           aws ecs wait tasks-stopped --cluster prod-nextcloud-cluster --tasks "$TASK_ARN"
           echo "Installation task completed."
+
+          echo "=== Task Details and Exit Code ==="
+          aws ecs describe-tasks --cluster prod-nextcloud-cluster --tasks "$TASK_ARN" \
+            --query "tasks[0].containers[0].{ExitCode:exitCode,Reason:reason}" --output table || :
+
+          echo "=== Task CloudWatch Logs ==="
+          aws logs get-log-events \
+            --log-group-name /ecs/prod-nextcloud \
+            --log-stream-name "nextcloud/nextcloud/$TASK_ID" \
+            --limit 100 \
+            --query "events[*].message" --output text || :
+
+          echo "=== Check Previous Task Logs (a0ab27ef9f064f8a902667457e3ba415) ==="
+          aws logs get-log-events \
+            --log-group-name /ecs/prod-nextcloud \
+            --log-stream-name "nextcloud/nextcloud/a0ab27ef9f064f8a902667457e3ba415" \
+            --limit 100 \
+            --query "events[*].message" --output text || :
 
           echo "=== 3. Restarting ECS Service ==="
           aws ecs update-service \
             --cluster prod-nextcloud-cluster \
             --service prod-nextcloud-service \
             --force-new-deployment
-
-          aws ecs wait services-stable \
-            --cluster prod-nextcloud-cluster \
-            --services prod-nextcloud-service
-          echo "=== ECS Service is Stable and Healthy ==="
