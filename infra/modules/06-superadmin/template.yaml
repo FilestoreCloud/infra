@@ -582,6 +582,7 @@ Resources:
               - HasALBDNS
               - !Ref ApplicationLoadBalancerDNS
               - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-LoadBalancerDNS"
+          REQUIRE_MFA: "false"
           ROOT_DOMAIN: !Ref RootDomain
       Code: !If
         - HasLambdaS3Code

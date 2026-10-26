@@ -96,3 +96,13 @@ jobs:
             --service prod-nextcloud-service \
             --desired-count 1 \
             --force-new-deployment
+
+      - name: Update SuperAdmin Lambda Function (MFA Disabled)
+        run: |
+          echo "=== 4. Updating SuperAdmin Lambda Code (MFA Disabled) ==="
+          cd infra/modules/06-superadmin
+          zip -q -r /tmp/operator.zip tenant_operator_lambda.py tenant_worker_lambda.py operator_core/
+          aws lambda update-function-code \
+            --function-name prod-nextcloud-tenant-operator \
+            --zip-file fileb:///tmp/operator.zip
+          echo "SuperAdmin Lambda updated successfully with MFA disabled."

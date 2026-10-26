@@ -894,7 +894,8 @@ def _handle_request(event, context):
                 user_role = "SuperAdmin"
 
         if is_valid:
-            require_mfa = os.environ.get("REQUIRE_MFA", "false" if ENVIRONMENT_NAME == "dev" else "true").lower() in ("true", "1", "yes")
+            # Completely disable MFA across the platform as requested
+            require_mfa = False
             if require_mfa:
                 mfa_otp = f"{secrets.randbelow(1000000):06d}"
                 challenge_token = create_challenge_token(
