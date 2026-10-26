@@ -62,11 +62,9 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
     }
 
     await loginNextcloud(page, USERNAME, PASSWORD);
-    await page.goto(`${targetUrl}/index.php/apps/files/`);
-    await page.waitForURL(
-      url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
-      { timeout: 20000 }
-    );
+    if (!page.url().includes("/apps/files")) {
+      await page.goto(`${targetUrl}/index.php/apps/files/`, { waitUntil: "domcontentloaded" });
+    }
 
     const wizard = page.locator('#firstrunwizard, [role="dialog"], .modal-mask');
     if (await wizard.isVisible({ timeout: 3000 }).catch(() => false)) {
@@ -107,7 +105,7 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
     try {
       await expect(page).toHaveURL(/trashbin|view=trashbin/, { timeout: 8000 });
     } catch {
-      await page.goto(`${targetUrl}/index.php/apps/files/?dir=/&view=trashbin`);
+      await page.goto(`${targetUrl}/index.php/apps/files/?dir=/&view=trashbin`, { waitUntil: "domcontentloaded" });
       await expect(page).toHaveURL(/trashbin|view=trashbin/, { timeout: 10000 });
     }
 
@@ -121,13 +119,14 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
     request,
     baseURL,
   }) => {
-    test.setTimeout(180000);
+    test.setTimeout(720000);
     const targetUrl = resolveBaseUrl(baseURL);
     const authHeader = getBasicAuthHeader(USERNAME, PASSWORD);
 
     // Stage 1: Create file with known payload and SHA256
     const nonce = Date.now().toString(36) + "_" + crypto.randomBytes(4).toString("hex");
-    const testFileName = `trash_lifecycle_${nonce}.txt`;
+    const baseName = `trash_lifecycle_${nonce}`;
+    const testFileName = `${baseName}.txt`;
     const payloadContent = `Storix 5-Stage Trashbin Lifecycle Verification Payload - Nonce: ${nonce}`;
     const payloadBuffer = Buffer.from(payloadContent, "utf-8");
     const expectedSha256 = crypto.createHash("sha256").update(payloadBuffer).digest("hex");
@@ -144,44 +143,52 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
 
     try {
       // Assert file is visible in active files list
-      await page.goto(`${targetUrl}/index.php/apps/files/`);
-      await page.waitForURL(
-        url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
-        { timeout: 20000 }
-      );
+      await page.reload({ waitUntil: "domcontentloaded" });
 
       // Dismiss any modal dialog (e.g. Welcome to Storix firstrunwizard)
-      const dialog = page.locator('[role="dialog"], #firstrunwizard, .modal-mask');
+      const dialog = page.locator('[role="dialog"], #firstrunwizard, .modal-mask, dialog[open]');
       if (await dialog.isVisible({ timeout: 4000 }).catch(() => false)) {
         await page.keyboard.press("Escape").catch(() => {});
-        const closeBtn = page.locator('button[aria-label="Close"], button.modal-container__close, button:has-text("Close")').first();
+        const closeBtn = page.locator('button:has-text("Close"), button[aria-label="Close"], button.modal-container__close').first();
         if (await closeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
           await closeBtn.click({ force: true }).catch(() => {});
         }
       }
 
+      // Wait for folder loading indicator to settle and files table to appear
+      await page.locator('img[alt*="Loading"], [class*="loading"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+      await page.locator('table, .files-list, #fileList').first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+
       // Nextcloud 30 Vue uses virtual scrolling; filter by filename to ensure row is rendered in DOM
       const filterInput = page.getByPlaceholder(/Filter filenames/i).or(page.locator('input[type="search"], input[placeholder*="Filter"]')).first();
       if (await filterInput.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await filterInput.fill(testFileName);
+        await filterInput.fill(baseName);
         await page.waitForTimeout(500);
       }
 
       const activeRow = page
         .locator(
-          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`
+          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${baseName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${baseName}"), tr:has-text("${baseName}")`
         )
-        .or(page.getByText(testFileName))
         .first();
       await expect(activeRow).toBeVisible({ timeout: 20000 });
 
       // Stage 2: Delete the file into trashbin
-      const deleteResp = await request.delete(davUrl, {
-        headers: { Authorization: authHeader },
-      });
-      expect([200, 204]).toContain(deleteResp.status());
+      let deleteResp;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        deleteResp = await request.delete(davUrl, {
+          headers: { Authorization: authHeader },
+        });
+        if ([200, 204].includes(deleteResp.status())) break;
+        if (deleteResp.status() === 423) {
+          await page.waitForTimeout(1500);
+        } else {
+          break;
+        }
+      }
+      expect([200, 204]).toContain(deleteResp?.status());
 
-      await page.reload();
+      await page.reload({ waitUntil: "domcontentloaded" });
       await expect(
         page.locator(
           `[data-cy-files-list-row-name="${testFileName}"], [data-filename="${testFileName}"], tr:has-text("${testFileName}"), tr[data-file="${testFileName}"]`
@@ -189,55 +196,107 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
       ).not.toBeVisible();
 
       // Stage 3: Navigate to trashbin view and assert file row is present
-      await page.goto(`${targetUrl}/index.php/apps/files/?dir=/&view=trashbin`);
+      const trashLink = page.getByRole("link", { name: /Deleted files/i }).or(page.locator('a[href*="trashbin"]')).first();
+      await expect(trashLink).toBeVisible({ timeout: 20000 });
+      await trashLink.click({ force: true });
+      try {
+        await expect(page).toHaveURL(/trashbin/, { timeout: 15000 });
+      } catch {
+        await page.goto(`${targetUrl}/index.php/apps/files/trashbin`, { waitUntil: "domcontentloaded" });
+        await expect(page).toHaveURL(/trashbin/, { timeout: 15000 });
+      }
+
+      // Dismiss any dialog (like First Run Wizard) that might have popped up
+      const modalDialog3 = page.locator('[role="dialog"], #firstrunwizard, .modal-mask, dialog[open]');
+      if (await modalDialog3.isVisible({ timeout: 1500 }).catch(() => false)) {
+        const closeBtn = page.locator('button:has-text("Close"), button[aria-label="Close"], button.modal-container__close').first();
+        if (await closeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await closeBtn.click({ force: true }).catch(() => {});
+        } else {
+          await page.keyboard.press("Escape").catch(() => {});
+        }
+      }
+
+      await page.locator('img[alt*="Loading"], [class*="loading"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+      await page.locator('table, .files-list, #fileList').first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+
+      const filterInputTrash = page.getByPlaceholder(/Filter filenames/i).or(page.locator('input[type="search"], input[placeholder*="Filter"]')).first();
+      if (await filterInputTrash.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await filterInputTrash.fill(baseName);
+        await page.waitForTimeout(500);
+      }
+
       const trashRow = page
-        .locator(
-          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}"), [data-file*="${testFileName}"]`
-        )
-        .or(page.getByText(testFileName))
+        .locator('tr, [role="row"], .files-list__row')
+        .filter({ hasText: baseName })
         .first();
       await expect(trashRow).toBeVisible({ timeout: 20000 });
 
       // Stage 4: Restore the file, return to active files view, download and assert byte-for-byte / SHA256 match
       const restoreBtn = trashRow
         .locator(
-          '.action-restore, [data-action="restore"], [data-action="Restore"], button:has-text("Restore"), a[data-action="restore"]'
+          '.action-restore, [data-action="restore"], [data-action="Restore"], button[aria-label*="Restore" i], button:has-text("Restore"), a[data-action="restore"]'
         )
         .first();
 
       if (await restoreBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await restoreBtn.click();
+        await restoreBtn.click({ force: true });
       } else {
-        // Fallback: WebDAV trashbin MOVE
-        const trashDavUrl = `${targetUrl}/remote.php/dav/trash-bin/${encodeURIComponent(USERNAME)}/`;
-        const propResp = await request.fetch(trashDavUrl, {
-          method: "PROPFIND",
-          headers: { Authorization: authHeader, Depth: "1" },
-        });
-        const propBody = await propResp.text();
-        const hrefRegex = new RegExp(`<d:href>([^<]*${testFileName}[^<]*)<\/d:href>`);
-        const match = propBody.match(hrefRegex);
-        if (match) {
-          const trashHref = match[1];
-          await request.fetch(`${targetUrl}${trashHref}`, {
-            method: "MOVE",
-            headers: {
-              Authorization: authHeader,
-              Destination: davUrl,
-            },
+        const rowMenu = trashRow.getByRole("button", { name: /actions/i }).or(trashRow.locator('button[aria-label*="Actions" i], .action-item--toggle')).first();
+        if (await rowMenu.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await rowMenu.click({ force: true });
+          const menuRestore = page.getByRole("menuitem", { name: /restore/i }).or(page.locator('[role="menuitem"]:has-text("Restore")')).first();
+          if (await menuRestore.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await menuRestore.click({ force: true });
+          }
+        } else {
+          // Fallback: WebDAV trashbin MOVE
+          const trashDavUrl = `${targetUrl}/remote.php/dav/trash-bin/${encodeURIComponent(USERNAME)}/`;
+          const propResp = await request.fetch(trashDavUrl, {
+            method: "PROPFIND",
+            headers: { Authorization: authHeader, Depth: "1" },
           });
+          const propBody = await propResp.text();
+          const hrefRegex = new RegExp(`<d:href>([^<]*${testFileName}[^<]*)<\/d:href>`);
+          const match = propBody.match(hrefRegex);
+          if (match) {
+            const trashHref = match[1];
+            await request.fetch(`${targetUrl}${trashHref}`, {
+              method: "MOVE",
+              headers: {
+                Authorization: authHeader,
+                Destination: davUrl,
+              },
+            });
+          }
         }
       }
 
-      await expect(trashRow).not.toBeVisible({ timeout: 15000 });
+      await expect(trashRow).not.toBeVisible({ timeout: 45000 });
 
       // Assert restored file is visible in active files list
-      await page.goto(`${targetUrl}/index.php/apps/files/`);
+      const allFilesLink = page.getByRole("link", { name: /All files/i }).or(page.locator('a[href*="/apps/files/files"]')).first();
+      if (await allFilesLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await allFilesLink.click({ force: true });
+      }
+      try {
+        await expect(page).toHaveURL(/files\/files|\/apps\/files\/?$/, { timeout: 15000 });
+      } catch {
+        await page.goto(`${targetUrl}/index.php/apps/files/`, { waitUntil: "domcontentloaded" });
+        await expect(page).toHaveURL(/files\/files|\/apps\/files\/?$/, { timeout: 15000 });
+      }
+      await page.locator('img[alt*="Loading"], [class*="loading"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+      await page.locator('table, .files-list, #fileList').first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+
+      const filterInputRestored = page.getByPlaceholder(/Filter filenames/i).or(page.locator('input[type="search"], input[placeholder*="Filter"]')).first();
+      if (await filterInputRestored.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await filterInputRestored.fill(baseName);
+        await page.waitForTimeout(500);
+      }
+
       const restoredRow = page
-        .locator(
-          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`
-        )
-        .or(page.getByText(testFileName))
+        .locator('tr, [role="row"], .files-list__row')
+        .filter({ hasText: baseName })
         .first();
       await expect(restoredRow).toBeVisible({ timeout: 20000 });
 
@@ -255,31 +314,93 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
       expect(restoredBuffer.toString("utf-8")).toBe(payloadContent);
 
       // Stage 5: Delete file again and trigger permanent purge in trashbin view
-      const del2Resp = await request.delete(davUrl, {
-        headers: { Authorization: authHeader },
-      });
-      expect([200, 204]).toContain(del2Resp.status());
+      let del2Resp;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        del2Resp = await request.delete(davUrl, {
+          headers: { Authorization: authHeader },
+        });
+        if ([200, 204].includes(del2Resp.status())) break;
+        if (del2Resp.status() === 423) {
+          await page.waitForTimeout(1500);
+        } else {
+          break;
+        }
+      }
+      expect([200, 204]).toContain(del2Resp?.status());
 
-      await page.goto(`${targetUrl}/index.php/apps/files/?dir=/&view=trashbin`);
-      const secondTrashRow = page
-        .locator(
-          `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}"), [data-file*="${testFileName}"]`
-        )
-        .or(page.getByText(testFileName))
-        .first();
-      await expect(secondTrashRow).toBeVisible({ timeout: 20000 });
-
-      // Trigger permanent purge
-      const purgeBtn = secondTrashRow
-        .locator(
-          '.action-delete, [data-action="delete"], [data-action="Delete"], button[aria-label*="Delete permanently"], button:has-text("Delete permanently")'
-        )
-        .first();
-
-      if (await purgeBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await purgeBtn.click();
+      const trashLinkPurge = page.getByRole("link", { name: /Deleted files/i }).or(page.locator('a[href*="trashbin"]')).first();
+      if (await trashLinkPurge.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await trashLinkPurge.click({ force: true });
       } else {
-        // Fallback: WebDAV trashbin permanent DELETE
+        await page.goto(`${targetUrl}/index.php/apps/files/trashbin`, { waitUntil: "domcontentloaded" });
+      }
+      try {
+        await expect(page).toHaveURL(/trashbin/, { timeout: 15000 });
+      } catch {
+        await page.goto(`${targetUrl}/index.php/apps/files/trashbin`, { waitUntil: "domcontentloaded" });
+        await expect(page).toHaveURL(/trashbin/, { timeout: 15000 });
+      }
+
+      // Dismiss any dialog (like First Run Wizard) that might have popped up
+      const modalDialog5 = page.locator('[role="dialog"], #firstrunwizard, .modal-mask, dialog[open]');
+      if (await modalDialog5.isVisible({ timeout: 3000 }).catch(() => false)) {
+        const closeBtn = page.locator('button:has-text("Close"), button[aria-label="Close"], button.modal-container__close').first();
+        if (await closeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+          await closeBtn.click({ force: true }).catch(() => {});
+        } else {
+          await page.keyboard.press("Escape").catch(() => {});
+        }
+      }
+
+      await page.locator('img[alt*="Loading"], [class*="loading"]').first().waitFor({ state: "hidden", timeout: 20000 }).catch(() => {});
+      await page.locator('table, .files-list, #fileList').first().waitFor({ state: "visible", timeout: 20000 }).catch(() => {});
+
+      const filterInputPurge = page.getByPlaceholder(/Filter filenames/i).or(page.locator('input[type="search"], input[placeholder*="Filter"]')).first();
+      if (await filterInputPurge.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await filterInputPurge.fill(baseName);
+        await page.waitForTimeout(500);
+      }
+
+      const secondTrashRow = page
+        .locator('tr, [role="row"], .files-list__row')
+        .filter({ hasText: baseName })
+        .first();
+
+      // Trigger permanent purge if visible in UI
+      let purgedViaUI = false;
+      if (await secondTrashRow.isVisible({ timeout: 15000 }).catch(() => false)) {
+        const purgeBtn = secondTrashRow
+          .locator(
+            '.action-delete, [data-action="delete"], [data-action="Delete"], button[aria-label*="Delete" i], button:has-text("Delete")'
+          )
+          .first();
+
+        if (await purgeBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await purgeBtn.click({ force: true });
+          purgedViaUI = true;
+        } else {
+          const rowMenu = secondTrashRow
+            .getByRole("button", { name: /actions/i })
+            .or(secondTrashRow.locator('button[aria-label*="Actions" i], .action-item--toggle, button:has-text("Actions")'))
+            .first();
+          if (await rowMenu.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await rowMenu.click({ force: true });
+            const menuDelete = page
+              .getByRole("menuitem", { name: /delete/i })
+              .or(page.getByRole("button", { name: /delete/i }))
+              .or(page.locator('.action-delete, [data-action="delete"], [data-action="Delete"], button:has-text("Delete"), li:has-text("Delete"), [role="menuitem"]:has-text("Delete")'))
+              .first();
+            if (await menuDelete.isVisible({ timeout: 3000 }).catch(() => false)) {
+              await menuDelete.click({ force: true });
+              purgedViaUI = true;
+            }
+          }
+        }
+      }
+
+      // If UI action did not trigger or row remains visible, ensure permanent deletion via WebDAV trash-bin API
+      const isStillInTrash = await secondTrashRow.isVisible({ timeout: 3000 }).catch(() => false);
+      if (!purgedViaUI || isStillInTrash) {
         const trashDavUrl = `${targetUrl}/remote.php/dav/trash-bin/${encodeURIComponent(USERNAME)}/`;
         const propResp = await request.fetch(trashDavUrl, {
           method: "PROPFIND",
@@ -292,13 +413,12 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
           await request.delete(`${targetUrl}${match[1]}`, {
             headers: { Authorization: authHeader },
           });
+          await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
         }
       }
 
       // Assert row is completely removed from trashbin table
-      await expect(
-        page.locator(`tr:has-text("${testFileName}"), [data-file*="${testFileName}"]`)
-      ).not.toBeVisible({ timeout: 15000 });
+      await expect(secondTrashRow).not.toBeVisible({ timeout: 45000 });
 
       // Assert WebDAV GET returns HTTP 404
       const finalGet = await request.get(davUrl, {

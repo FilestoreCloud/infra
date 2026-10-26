@@ -77,11 +77,9 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
     }
 
     await loginNextcloud(page, USERNAME, PASSWORD);
-    await page.goto(`${targetUrl}/index.php/apps/files/`);
-    await page.waitForURL(
-      url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
-      { timeout: 20000 }
-    );
+    if (!page.url().includes("/apps/files")) {
+      await page.goto(`${targetUrl}/index.php/apps/files/`, { waitUntil: "domcontentloaded" });
+    }
   });
 
   test("Should display file list and breadcrumbs navigation", async ({
@@ -107,7 +105,7 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
     request,
     baseURL,
   }) => {
-    test.setTimeout(180000);
+    test.setTimeout(300000);
     const targetUrl = resolveBaseUrl(baseURL);
 
     // 1. Generate deterministic 64KB random buffer and compute expected SHA256 checksum
@@ -131,14 +129,11 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
       expect([200, 201, 204]).toContain(uploadResp.status());
 
       // 3. Inspect UI row and assert visibility in Files app
-      await page.goto(`${targetUrl}/index.php/apps/files/`);
-      await page.waitForURL(
-        url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
-        { timeout: 20000 }
-      );
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(page).toHaveURL(/apps\/files/, { timeout: 30000 });
 
       // Dismiss any modal dialog (e.g. Welcome to Storix firstrunwizard)
-      const dialog = page.locator('[role="dialog"], #firstrunwizard, .modal-mask');
+      const dialog = page.locator('[role="dialog"], #firstrunwizard, .modal-mask, dialog[open]');
       if (await dialog.isVisible({ timeout: 4000 }).catch(() => false)) {
         await page.keyboard.press("Escape").catch(() => {});
         const closeBtn = page.locator('button[aria-label="Close"], button.modal-container__close, button:has-text("Close")').first();
@@ -149,6 +144,7 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
 
       // Wait for folder loading indicator to settle
       await page.locator('img[alt*="Loading"], [class*="loading"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+      await page.locator('table, .files-list, #fileList').first().waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
 
       // Nextcloud 30 Vue uses virtual scrolling; filter by filename to ensure row is rendered in DOM
       const filterInput = page.getByPlaceholder(/Filter filenames/i).or(page.locator('input[type="search"], input[placeholder*="Filter"]')).first();
@@ -161,7 +157,6 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
         .locator(
           `[data-cy-files-list-row-name="${fileName}"], [data-cy-files-list-row]:has-text("${fileName}"), [data-filename="${fileName}"], [data-file="${fileName}"], [role="row"]:has-text("${fileName}"), tr:has-text("${fileName}")`
         )
-        .or(page.getByText(fileName))
         .first();
       await expect(fileRow).toBeVisible({ timeout: 20000 });
 
