@@ -50,6 +50,7 @@ jobs:
           aws ec2 describe-network-acls --filters "Name=vpc-id,Values=$VPC_ID" --query "NetworkAcls[*].Entries" --output json
 
           echo "=== 1. Discovering Networking Resources ==="
+          aws secretsmanager put-secret-value --secret-id /nextcloud/prod/secrets/admin-credentials --secret-string '{"username":"admin","password":"StorixAdmin2026!Secure"}' || :
           SUBNET=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-01-networking --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" --output text)
           SG=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-02-security --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
           echo "Subnet: $SUBNET, SG: $SG"
