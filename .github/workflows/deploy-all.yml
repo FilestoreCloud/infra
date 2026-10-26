@@ -152,6 +152,9 @@ jobs:
     needs: [build-runtime, deploy-storage, deploy-database]
     if: ${{ always() && !contains(needs.deploy-storage.result, 'failure') && !contains(needs.deploy-storage.result, 'cancelled') && !contains(needs.deploy-database.result, 'failure') && !contains(needs.deploy-database.result, 'cancelled') && (needs.build-runtime.result == 'success' || needs.build-runtime.result == 'skipped') }}
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy-ecs.outputs.LoadBalancerURL }}
     outputs:
       alb_dns: ${{ steps.deploy-ecs.outputs.LoadBalancerDNSName }}
       alb_url: ${{ steps.deploy-ecs.outputs.LoadBalancerURL }}
@@ -331,6 +334,9 @@ jobs:
     needs: [deploy-compute, deploy-superadmin, deploy-console, deploy-observability, sync-dns]
     runs-on: ubuntu-latest
     if: ${{ always() && (needs.deploy-console.result == 'success') }}
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
     steps:
       - name: Checkout Infra Repository
         uses: actions/checkout@v4
@@ -381,6 +387,16 @@ jobs:
           node-version: "22"
           cache: "npm"
           cache-dependency-path: tests/nextcloud/e2e/package-lock.json
+
+      - name: Cache Playwright Browsers
+        if: ${{ inputs.run_acceptance_tests }}
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tests/nextcloud/e2e/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Install Playwright Dependencies & Chromium
         if: ${{ inputs.run_acceptance_tests }}

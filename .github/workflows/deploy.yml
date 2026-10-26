@@ -180,6 +180,8 @@ jobs:
     name: Deploy 05-Compute
     needs: [deploy-database]
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -395,6 +397,8 @@ jobs:
     name: First-Time Deployment Acceptance (SuperAdmin & Dev Tenant Verification)
     needs: [deploy-superadmin, deploy-observability]
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -440,6 +444,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      - name: Cache Playwright Browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('tests/nextcloud/e2e/package-lock.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Install Playwright Dependencies & Chromium
         run: |
