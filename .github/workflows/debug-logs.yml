@@ -21,19 +21,33 @@ jobs:
           echo "Subnet: $SUBNET, SG: $SG"
 
           echo "=== 2. Running One-Off Fargate Task to Synchronize config.php on EFS ==="
+          python3 -c '
+          import json
+          php_code = """
+          $p = getenv("POSTGRES_PASSWORD");
+          $f = "/var/www/html/config/config.php";
+          if (file_exists($f) && !empty($p)) {
+              $c = file_get_contents($f);
+              $pattern = "/(\x27dbpassword\x27\s*=>\s*\x27)[^\x27]*(\x27)/";
+              $escaped = addcslashes($p, "\x27\\\\");
+              $new_c = preg_replace($pattern, "${1}" . $escaped . "${2}", $c);
+              if ($new_c) {
+                  file_put_contents($f, $new_c);
+                  echo "SUCCESS_CONFIG_UPDATED\n";
+              }
+          }
+          """
+          payload = {"containerOverrides": [{"name": "nextcloud", "command": ["php", "-r", php_code]}]}
+          with open("overrides.json", "w") as f:
+              json.dump(payload, f)
+          '
+
           TASK_ARN=$(aws ecs run-task \
             --cluster prod-nextcloud-cluster \
             --task-definition prod-nextcloud-app \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$SUBNET],securityGroups=[$SG],assignPublicIp=ENABLED}" \
-            --overrides '{
-              "containerOverrides": [
-                {
-                  "name": "nextcloud",
-                  "command": ["php", "-r", "$p=getenv(\"POSTGRES_PASSWORD\");$f=\"/var/www/html/config/config.php\";if(file_exists($f)&&$p){$c=file_get_contents($f);$c=preg_replace(\"/(\x27dbpassword\x27\\s*=>\\s*\x27)[^\x27]*(\x27)/\",\"${1}\".addcslashes($p,\"\x27\\\\\").\"${2}\",$c);file_put_contents($f,$c);echo \"SUCCESS_CONFIG_UPDATED\n\";}"]
-                }
-              ]
-            }' \
+            --overrides file://overrides.json \
             --query "tasks[0].taskArn" --output text)
 
           echo "Launched task: $TASK_ARN"
