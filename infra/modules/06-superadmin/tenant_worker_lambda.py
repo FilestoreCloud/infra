@@ -161,6 +161,16 @@ def get_infra_config():
         except Exception as l_err:
             print(f"Warning discovering ALB listener dynamically: {l_err}")
 
+    # Dynamic active task definition image discovery fallback
+    try:
+        desc_td = ecs.describe_task_definition(taskDefinition=f"{ENVIRONMENT_NAME}-nextcloud-app")
+        for c in desc_td.get("taskDefinition", {}).get("containerDefinitions", []):
+            if c.get("name") == "nextcloud" and c.get("image"):
+                config["ecr_image"] = c.get("image")
+                break
+    except Exception as e:
+        print(f"Notice describing default task definition for image: {e}")
+
     # Dynamic admin secret resolution fallback
     if not config.get("admin_secret_arn"):
         try:
@@ -479,12 +489,14 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
                     break
 
             if not rule_exists:
-                priorities = [
+                used_prios = {
                     int(r["Priority"])
                     for r in rules
-                    if r["Priority"].isdigit() and int(r["Priority"]) < 1000
-                ]
-                next_prio = max(priorities or [10]) + 1
+                    if r.get("Priority", "").isdigit()
+                }
+                next_prio = 10
+                while next_prio in used_prios:
+                    next_prio += 1
                 elbv2.create_rule(
                     ListenerArn=listener_arn,
                     Priority=next_prio,
