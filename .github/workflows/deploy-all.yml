@@ -290,7 +290,7 @@ jobs:
         run: |
           VAULT_BUCKET="${{ inputs.environment }}-nextcloud-vault-${{ steps.aws-creds.outputs.aws-account-id }}-${{ vars.AWS_REGION }}"
           LAMBDA_ZIP="superadmin-lambdas.zip"
-          LAMBDA_KEY="lambda-code/${LAMBDA_ZIP}"
+          LAMBDA_KEY="lambda-code/${{ github.sha }}-${LAMBDA_ZIP}"
 
           echo "Packaging SuperAdmin Lambda bundle from infra/modules/06-superadmin..."
           cd infra/modules/06-superadmin
@@ -329,6 +329,17 @@ jobs:
           tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
+
+      - name: Ensure Lambda Function Code Synchronized
+        run: |
+          aws lambda update-function-code \
+            --function-name "${{ inputs.environment }}-nextcloud-tenant-operator" \
+            --s3-bucket "${{ steps.pkg-lambda.outputs.lambda_bucket }}" \
+            --s3-key "${{ steps.pkg-lambda.outputs.lambda_key }}" || true
+          aws lambda update-function-code \
+            --function-name "${{ inputs.environment }}-nextcloud-tenant-worker" \
+            --s3-bucket "${{ steps.pkg-lambda.outputs.lambda_bucket }}" \
+            --s3-key "${{ steps.pkg-lambda.outputs.lambda_key }}" || true
 
 
   deploy-observability:
