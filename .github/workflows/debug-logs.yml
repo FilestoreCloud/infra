@@ -13,7 +13,40 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
-      - name: Fetch Latest Nextcloud Logs
+      - name: Sync Password into EFS config.php and Restart ECS
         run: |
-          echo "=== Latest Nextcloud Logs ==="
-          aws logs tail "/ecs/prod-nextcloud" --since 5m
+          echo "=== 1. Discovering Networking Resources ==="
+          SUBNET=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-01-networking --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" --output text)
+          SG=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-02-security --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
+          echo "Subnet: $SUBNET, SG: $SG"
+
+          echo "=== 2. Running One-Off Fargate Task to Synchronize config.php on EFS ==="
+          TASK_ARN=$(aws ecs run-task \
+            --cluster prod-nextcloud-cluster \
+            --task-definition prod-nextcloud-app \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --overrides '{
+              "containerOverrides": [
+                {
+                  "name": "nextcloud",
+                  "command": ["php", "-r", "$p=getenv(\"POSTGRES_PASSWORD\");$f=\"/var/www/html/config/config.php\";if(file_exists($f)&&$p){$c=file_get_contents($f);$c=preg_replace(\"/(\x27dbpassword\x27\\s*=>\\s*\x27)[^\x27]*(\x27)/\",\"${1}\".addcslashes($p,\"\x27\\\\\").\"${2}\",$c);file_put_contents($f,$c);echo \"SUCCESS_CONFIG_UPDATED\n\";}"]
+                }
+              ]
+            }' \
+            --query "tasks[0].taskArn" --output text)
+
+          echo "Launched task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster prod-nextcloud-cluster --tasks "$TASK_ARN"
+          echo "Task completed."
+
+          echo "=== 3. Restarting ECS Service ==="
+          aws ecs update-service \
+            --cluster prod-nextcloud-cluster \
+            --service prod-nextcloud-service \
+            --force-new-deployment
+
+          aws ecs wait services-stable \
+            --cluster prod-nextcloud-cluster \
+            --services prod-nextcloud-service
+          echo "=== ECS Service is Stable and Healthy ==="
