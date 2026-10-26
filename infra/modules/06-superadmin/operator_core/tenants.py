@@ -200,7 +200,7 @@ def get_tenant_accounts_data(tenant_id, tenant_item=None):
                 "quota_gb": quota_gb,
                 "storage_used_gb": round(float(quota_gb) * 0.18, 1),
                 "status": "ACTIVE",
-                "mfa_enabled": True,
+                "mfa_enabled": False,
                 "last_login": time.strftime(
                     "%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - 7200)
                 ),

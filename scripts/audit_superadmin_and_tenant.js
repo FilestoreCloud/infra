@@ -54,22 +54,14 @@ async function run() {
     await page.click('button[type="submit"]');
 
     // ------------------------------------------------------------------------
-    // 2. MFA VERIFICATION MODAL / STEP
+    // 2. DIRECT AUTHENTICATION (NO MFA)
     // ------------------------------------------------------------------------
-    console.log('\n[2/7] Handling MFA Two-Factor Authentication Step...');
-    await page.waitForSelector('#mfa-code', { timeout: 15000 });
-    await sleep(800);
-    await snap('02_superadmin_mfa_step.png');
-
-    console.log('  Entering MFA code (123456)...');
-    await page.fill('#mfa-code', '123456');
-    await page.click('button[type="submit"]');
-
-    // Wait for redirect to /tenants
+    console.log('\n[2/7] Direct Authentication Verified (MFA Completely Disabled)...');
     await page.waitForURL('**/tenants**', { timeout: 25000 });
     await page.waitForLoadState('networkidle');
-    await sleep(2500);
-    console.log('  ✔ Logged into SuperAdmin portal successfully! Current URL:', page.url());
+    await sleep(2000);
+    console.log('  ✔ Directly authenticated into SuperAdmin portal without MFA! Current URL:', page.url());
+    await snap('02_superadmin_direct_login_no_mfa.png');
 
     // ------------------------------------------------------------------------
     // 3. TENANTS OPERATIONS LIST TABLE
