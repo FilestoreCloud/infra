@@ -143,11 +143,25 @@ def audit_zone(env: str, zone_name: str, token: str | None = None):
     print(f"\n⚙️ [Cloudflare Rulesets ({len(rulesets)} found)]:")
     for rs in rulesets:
         print(f"  • Name: {rs.get('name')} | Phase: {rs.get('phase')} | ID: {rs.get('id')}")
-        # Fetch rules in this ruleset
-        r_detail = cf_request("GET", f"/zones/{zone_id}/rulesets/{rs.get('id')}", token)
-        if r_detail and r_detail.get("result", {}).get("rules"):
-            for rule in r_detail["result"]["rules"]:
-                print(f"    -> Rule: {rule.get('description')} | Action: {rule.get('action')} | Expression: {rule.get('expression')} | Params: {json.dumps(rule.get('action_parameters', {}))}")
+        # Fetch rules in this ruleset if authorized
+        try:
+            r_detail = cf_request("GET", f"/zones/{zone_id}/rulesets/{rs.get('id')}", token)
+            if r_detail and r_detail.get("result", {}).get("rules"):
+                for rule in r_detail["result"]["rules"]:
+                    print(f"    -> Rule: {rule.get('description')} | Action: {rule.get('action')} | Expression: {rule.get('expression')} | Params: {json.dumps(rule.get('action_parameters', {}))}")
+        except Exception as e:
+            print(f"    (Could not fetch ruleset detail: {e})")
+
+    # 6. Fetch Origin Rules entrypoint specifically
+    or_res = cf_request("GET", f"/zones/{zone_id}/rulesets/phases/http_request_origin/entrypoint", token)
+    if or_res and or_res.get("result", {}).get("rules"):
+        print(f"\n🎯 [Existing Origin Rules ({len(or_res['result']['rules'])} found)]:")
+        for rule in or_res["result"]["rules"]:
+            print(f"  • {rule.get('description')} | Expression: {rule.get('expression')} | Params: {json.dumps(rule.get('action_parameters', {}))}")
+    elif or_res and or_res.get("result"):
+        print(f"\n🎯 [Origin Rules Entrypoint Result]: {or_res['result']}")
+    else:
+        print(f"\n🎯 [Origin Rules Entrypoint]: None or {or_res.get('errors') if or_res else 'Empty'}")
 
     # 3. Detect Discrepancies
     print("\n🚨 [Discrepancy Analysis]:")
@@ -181,11 +195,10 @@ def configure_origin_rules(zone_id: str, zone_name: str, cf_domain: str, token: 
 
     desired_rules = [
         {
-            "description": f"Storix {admin_name} CloudFront Host Override",
+            "description": f"Storix {admin_name} CloudFront Origin Route",
             "expression": f'(http.host eq "{admin_name}")',
             "action": "route",
             "action_parameters": {
-                "host_header": cf_domain,
                 "origin": {
                     "host": cf_domain,
                     "port": 443,
@@ -195,7 +208,7 @@ def configure_origin_rules(zone_id: str, zone_name: str, cf_domain: str, token: 
         },
         {
             "description": f"Storix Tenant Subdomains ALB Port 80 Route",
-            "expression": f'(http.host matches "^.*\\\\.{zone_name}$" and http.host ne "{admin_name}")',
+            "expression": f'(ends_with(http.host, ".{zone_name}") and http.host ne "{admin_name}")',
             "action": "route",
             "action_parameters": {
                 "origin": {
