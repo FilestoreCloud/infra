@@ -13,7 +13,25 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
-      - name: Fetch Nextcloud Error Logs from CloudWatch
+      - name: Diagnose and Fix RDS Password
         run: |
-          echo "=== Recent ECS Logs from /ecs/prod-nextcloud ==="
-          aws logs tail "/ecs/prod-nextcloud" --since 20m
+          echo "=== 1. Checking Database Secret in Secrets Manager ==="
+          SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "/nextcloud/prod/secrets/db-credentials" --query "SecretString" --output text)
+          DB_PASS=$(echo "$SECRET_JSON" | jq -r .password)
+          DB_USER=$(echo "$SECRET_JSON" | jq -r .username)
+          DB_HOST=$(aws rds describe-db-instances --db-instance-identifier prod-nextcloud-db --query "DBInstances[0].Endpoint.Address" --output text)
+          echo "DB Host: $DB_HOST, User: $DB_USER, Password Length: ${#DB_PASS}"
+
+          echo "=== 2. Aligning RDS Master User Password with Secrets Manager ==="
+          aws rds modify-db-instance \
+            --db-instance-identifier prod-nextcloud-db \
+            --master-user-password "$DB_PASS" \
+            --apply-immediately
+          echo "✓ RDS modify-db-instance initiated with apply-immediately."
+
+          echo "=== 3. Restarting ECS Service Tasks to Pick Up Fresh Connection ==="
+          aws ecs update-service \
+            --cluster prod-nextcloud-ecs-cluster \
+            --service prod-nextcloud-ecs-service \
+            --force-new-deployment
+          echo "✓ ECS service force-new-deployment triggered."
