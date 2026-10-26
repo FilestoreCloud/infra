@@ -82,28 +82,31 @@ async function run() {
     await snap('03_superadmin_tenants_table.png');
 
     // ------------------------------------------------------------------------
-    // 4. PROVISION DEDICATED TENANT MODAL
+    // 4. PROVISION DEDICATED TENANT MODAL & LIVE SUBMISSION
     // ------------------------------------------------------------------------
-    console.log('\n[4/7] Testing "Provision Dedicated Tenant" Modal...');
+    console.log('\n[4/7] Testing "Provision Dedicated Tenant" Modal & Submission...');
     const createBtn = await page.waitForSelector('button:has-text("Provision Dedicated Tenant")', { timeout: 10000 });
     await createBtn.click();
     await page.waitForSelector('#create-tenant-id', { timeout: 10000 });
     await sleep(800);
 
-    const testTenantSlug = 'omega-corp';
+    const testTenantSlug = 'omega';
     await page.fill('#create-tenant-id', testTenantSlug);
     await page.fill('#create-domain', `${testTenantSlug}.png261.dev`);
     await page.fill('#create-admin-email', `admin@${testTenantSlug}.com`);
     await sleep(800);
     await snap('04_superadmin_provision_modal.png');
 
-    // Close modal by clicking outside or close button
-    const cancelBtn = await page.$('button:has-text("Cancel")');
-    if (cancelBtn) {
-      await cancelBtn.click();
-    } else {
-      await page.keyboard.press('Escape');
-    }
+    console.log('  Submitting form via "Launch Tenant Instance" button...');
+    const submitBtn = await page.waitForSelector('button:has-text("Launch Tenant Instance")', { timeout: 10000 });
+    await submitBtn.click();
+    await sleep(3000);
+
+    // Verify absence of "name 'get_admin_creds' is not defined" error
+    const postSubmitContent = await page.content();
+    const hasGetAdminCredsError = postSubmitContent.includes('get_admin_creds');
+    console.log(`  Assertion - No 'get_admin_creds' error: ${!hasGetAdminCredsError}`);
+    await snap('04b_superadmin_provision_success.png');
     await sleep(1000);
 
     // ------------------------------------------------------------------------
