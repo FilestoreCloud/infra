@@ -47,12 +47,20 @@ jobs:
           aws ecs describe-tasks --cluster prod-nextcloud-cluster --tasks "$TASK_ARN" \
             --query "tasks[0].containers[0].{ExitCode:exitCode,Reason:reason}" --output table || :
 
+          EXIT_CODE=$(aws ecs describe-tasks --cluster prod-nextcloud-cluster --tasks "$TASK_ARN" \
+            --query "tasks[0].containers[0].exitCode" --output text || echo "1")
+
           echo "=== Task CloudWatch Logs ==="
           aws logs get-log-events \
             --log-group-name /ecs/prod-nextcloud \
             --log-stream-name "nextcloud/nextcloud/$TASK_ID" \
             --limit 100 \
             --query "events[*].message" --output text || :
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "❌ Setup task failed with exit code $EXIT_CODE"
+            exit 1
+          fi
 
           echo "=== 3. Restarting ECS Service ==="
           aws ecs update-service \

@@ -79,10 +79,15 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           SourceSecurityGroupId: !Ref ECSSecurityGroup
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 10.0.0.0/16
+          Description: Allow PostgreSQL from VPC CIDR
       SecurityGroupEgress:
         - IpProtocol: -1
-          DestinationSecurityGroupId: !Ref ECSSecurityGroup
-          Description: Response traffic to ECS Fargate
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound response traffic
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-rds-postgres-sg"
@@ -104,10 +109,15 @@ Resources:
           ToPort: 2049
           SourceSecurityGroupId: !Ref ECSSecurityGroup
           Description: NFS traffic from ECS Fargate
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          CidrIp: 10.0.0.0/16
+          Description: NFS traffic from VPC CIDR
       SecurityGroupEgress:
         - IpProtocol: -1
-          DestinationSecurityGroupId: !Ref ECSSecurityGroup
-          Description: NFS response traffic to ECS Fargate
+          CidrIp: 0.0.0.0/0
+          Description: NFS response traffic to all outbound
       Tags:
         - Key: Name
           Value: !Sub "${EnvironmentName}-efs-sg"
