@@ -349,7 +349,7 @@ Resources:
                 - TLSv1.2
         DefaultCacheBehavior:
           TargetOriginId: S3-AdminWebOrigin
-          ViewerProtocolPolicy: redirect-to-https
+          ViewerProtocolPolicy: allow-all
           AllowedMethods:
             - GET
             - HEAD
@@ -362,7 +362,7 @@ Resources:
         CacheBehaviors:
           - PathPattern: "/api*"
             TargetOriginId: BackendApiOrigin
-            ViewerProtocolPolicy: redirect-to-https
+            ViewerProtocolPolicy: allow-all
             AllowedMethods:
               - GET
               - HEAD
