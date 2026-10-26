@@ -30,8 +30,15 @@ jobs:
           echo "✓ RDS modify-db-instance initiated with apply-immediately."
 
           echo "=== 3. Restarting ECS Service Tasks to Pick Up Fresh Connection ==="
+          aws rds wait db-instance-available --db-instance-identifier prod-nextcloud-db || true
           aws ecs update-service \
-            --cluster prod-nextcloud-ecs-cluster \
-            --service prod-nextcloud-ecs-service \
+            --cluster prod-nextcloud-cluster \
+            --service prod-nextcloud-service \
             --force-new-deployment
           echo "✓ ECS service force-new-deployment triggered."
+
+          echo "=== 4. Watching ECS service rollout ==="
+          aws ecs wait services-stable \
+            --cluster prod-nextcloud-cluster \
+            --services prod-nextcloud-service || true
+          echo "✓ ECS service rollout complete."
