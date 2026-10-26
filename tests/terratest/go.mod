@@ -15,7 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.112.2
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.4
-	github.com/aws/aws-sdk-go-v2/service/sfn v1.51.4
+	github.com/aws/aws-sdk-go-v2/service/sfn v1.52.1
 	github.com/aws/aws-sdk-go-v2/service/sns v1.47.5
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.68.5
 	github.com/gruntwork-io/terratest v1.0.1
