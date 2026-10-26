@@ -419,7 +419,7 @@ jobs:
 
       - name: Upload Playwright Test Report
         if: ${{ always() && inputs.run_acceptance_tests }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-fullstack-report
           path: tests/nextcloud/e2e/playwright-report/

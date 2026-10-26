@@ -512,7 +512,7 @@ jobs:
 
       - name: Upload Playwright Test Report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-e2e-report
           path: tests/nextcloud/e2e/playwright-report/
