@@ -428,7 +428,7 @@ jobs:
           CONSOLE_URL: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
           SUPERADMIN_CONSOLE_URL: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
           NEXTCLOUD_USER: ${{ vars.NEXTCLOUD_USER }}
-          NEXTCLOUD_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          NEXTCLOUD_PASSWORD: ${{ secrets.NEXTCLOUD_PASSWORD || secrets.ADMIN_PASSWORD }}
           SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
           SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}

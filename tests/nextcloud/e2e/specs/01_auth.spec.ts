@@ -44,9 +44,9 @@ test.describe("Nextcloud Authentication E2E", () => {
       { timeout: 20000 }
     );
 
-    // Files list table or authenticated navigation must be visible
+    // Files list breadcrumbs or authenticated navigation must be visible
     const fileTable = page.locator(
-      "#fileList, .files-list, #app-content-files, #app-navigation, aside.app-navigation"
+      ".files-list__breadcrumbs, [data-cy-files-content-breadcrumbs], .app-navigation, aside.app-navigation, button:has-text('New'), #fileList, .files-list"
     );
     await expect(fileTable.first()).toBeVisible({ timeout: 20000 });
   });

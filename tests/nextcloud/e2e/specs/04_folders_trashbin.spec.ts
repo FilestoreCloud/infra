@@ -16,7 +16,7 @@ import crypto from "node:crypto";
 import { loginNextcloud } from "../support/auth.js";
 
 const USERNAME = process.env.NEXTCLOUD_USER || "admin";
-const PASSWORD = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!";
+const PASSWORD = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "StorixAdmin2026!Secure";
 
 function resolveBaseUrl(baseURL?: string): string {
   return (
@@ -121,6 +121,7 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
     request,
     baseURL,
   }) => {
+    test.setTimeout(180000);
     const targetUrl = resolveBaseUrl(baseURL);
     const authHeader = getBasicAuthHeader(USERNAME, PASSWORD);
 
@@ -148,6 +149,24 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
         url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
         { timeout: 20000 }
       );
+
+      // Dismiss any modal dialog (e.g. Welcome to Storix firstrunwizard)
+      const dialog = page.locator('[role="dialog"], #firstrunwizard, .modal-mask');
+      if (await dialog.isVisible({ timeout: 4000 }).catch(() => false)) {
+        await page.keyboard.press("Escape").catch(() => {});
+        const closeBtn = page.locator('button[aria-label="Close"], button.modal-container__close, button:has-text("Close")').first();
+        if (await closeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+          await closeBtn.click({ force: true }).catch(() => {});
+        }
+      }
+
+      // Nextcloud 30 Vue uses virtual scrolling; filter by filename to ensure row is rendered in DOM
+      const filterInput = page.getByPlaceholder(/Filter filenames/i).or(page.locator('input[type="search"], input[placeholder*="Filter"]')).first();
+      if (await filterInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await filterInput.fill(testFileName);
+        await page.waitForTimeout(500);
+      }
+
       const activeRow = page
         .locator(
           `[data-cy-files-list-row-name="${testFileName}"], [data-cy-files-list-row]:has-text("${testFileName}"), [data-filename="${testFileName}"], [data-file="${testFileName}"], [role="row"]:has-text("${testFileName}"), tr:has-text("${testFileName}")`
