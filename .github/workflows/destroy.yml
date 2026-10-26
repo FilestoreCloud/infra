@@ -39,7 +39,7 @@ jobs:
           audience: sts.amazonaws.com
 
       - name: Checkout Infra Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Cleanup Cloudflare DNS Records
         continue-on-error: true
