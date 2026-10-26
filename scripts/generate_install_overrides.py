@@ -14,8 +14,12 @@ php_code = (
 
 cmd = [
     "sh", "-c",
+    "rm -f /var/www/html/config/config.php /var/www/html/config/CAN_INSTALL && "
     f"php -r '{php_code}' && "
     "cp -p /usr/src/nextcloud/version.php /var/www/html/version.php && "
+    "mkdir -p /var/www/html/config /var/www/html/data && "
+    "chown -R www-data:www-data /var/www/html/config /var/www/html/data 2>/dev/null || : && "
+    "chmod -R 775 /var/www/html/config 2>/dev/null || : && "
     "runuser -u www-data -- php /var/www/html/occ maintenance:install "
     "--database pgsql "
     "--database-host \"$POSTGRES_HOST\" "
@@ -29,6 +33,8 @@ cmd = [
     "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 1 --value=127.0.0.1 && "
     "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 2 --value=dev-tenant.png261.dev && "
     "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 3 --value=\"*.png261.dev\" && "
+    "rm -f /var/www/html/config/CAN_INSTALL 2>/dev/null || : && "
+    "chown -R www-data:www-data /var/www/html/config 2>/dev/null || : && "
     "echo NEXTCLOUD_INSTALLED_SUCCESSFULLY"
 ]
 
