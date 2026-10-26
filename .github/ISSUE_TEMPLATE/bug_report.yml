@@ -1,0 +1,90 @@
+name: 🐛 Bug Report
+description: Report an issue or bug in Storix Infrastructure (CloudFormation, Scripts, CI/CD)
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue with Storix Infrastructure! Please provide as much detail as possible.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of the bug encountered.
+      placeholder: Describe the problem clearly...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Affected Module / Component
+      description: Which architecture module is experiencing the issue?
+      options:
+        - "00-cicd (OIDC Provider & IAM Roles)"
+        - "01-networking (VPC, Subnets, Gateways)"
+        - "02-security (KMS, Security Groups)"
+        - "03-storage (S3 Vault, EFS Filesystem)"
+        - "04-database (RDS PostgreSQL, Secrets Manager)"
+        - "05-compute (ECS Fargate, ALB, Task Def)"
+        - "06-superadmin (Cognito, DynamoDB, Step Functions, CloudFront)"
+        - "07-observability (CloudWatch Dashboards, Alarms, Canary)"
+        - "root.yaml (Nested Stack Orchestrator)"
+        - "CI/CD Workflows (deploy-all, rollout, deploy)"
+        - "Scripts (manage_dns.py, simulator, etc.)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Target Environment
+      description: Where did this issue occur?
+      options:
+        - "Development (dev)"
+        - "Staging"
+        - "Production (prod)"
+        - "Local / CI Test Runner"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps or command line invocations to reproduce the issue.
+      placeholder: |
+        1. Run `aws-actions/aws-cloudformation-github-deploy` on module `05-compute`
+        2. Supply parameters `EnvironmentName=dev, ...`
+        3. CloudFormation fails with error: '...'
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant CloudFormation / CLI Logs
+      description: Paste any relevant CloudFormation stack events, terminal logs, or error stack traces.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission Checklist
+      options:
+        - label: I have verified this is not caused by stale AWS credentials or missing IAM permissions.
+          required: true
+        - label: I have checked existing issues to avoid duplicates.
+          required: true
+        - label: This issue does not contain any sensitive customer data, passwords, or AWS secret keys.
+          required: true

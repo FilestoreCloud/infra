@@ -1,0 +1,66 @@
+name: 💡 Feature Request
+description: Suggest an enhancement or architectural extension for Storix Infrastructure
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an enhancement to Storix Infrastructure!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement / Motivation
+      description: Is your feature request related to a specific architectural limitation or business requirement?
+      placeholder: Currently, the architecture lacks [...] which causes [...]
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / Architecture
+      description: Describe the solution you would like to see implemented (e.g. AWS services, CloudFormation resources).
+    validations:
+      required: true
+
+  - type: dropdown
+    id: module
+    attributes:
+      label: Target Architecture Module
+      options:
+        - "01-networking (VPC / Connectivity)"
+        - "02-security (KMS / IAM / Compliance)"
+        - "03-storage (S3 / EFS Lifecycle)"
+        - "04-database (Aurora / RDS / Proxy)"
+        - "05-compute (ECS Fargate / Auto-scaling)"
+        - "06-superadmin (Control Plane / Cognito / DynamoDB)"
+        - "07-observability (Canary / Telemetry / Metrics)"
+        - "CI/CD & DevOps Automation"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative designs or AWS services you considered.
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority / Business Impact
+      options:
+        - "High (Critical for multi-tenant scalability or security compliance)"
+        - "Medium (Performance / FinOps cost savings)"
+        - "Low (Nice-to-have developer convenience)"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I would be willing to submit a Pull Request to implement this feature.
