@@ -33,69 +33,17 @@ concurrency:
 
 jobs:
   # ============================================================================
-  # STAGE 1: RUNTIME (Build & Push Docker Image to ECR)
+  # STAGE 1: RUNTIME (Reusable Workflow from FilestoreCloud/runtime)
   # ============================================================================
   build-runtime:
     name: 1. Runtime — Build & Push Container to ECR
-    runs-on: ubuntu-latest
-    outputs:
-      image_uri: ${{ steps.build-push.outputs.image_uri }}
-    steps:
-      - name: Checkout Runtime Repository
-        if: ${{ !inputs.skip_runtime_build }}
-        uses: actions/checkout@v4
-        with:
-          repository: FilestoreCloud/runtime
-          ref: ${{ inputs.environment == 'prod' && 'main' || 'dev' }}
-          path: runtime-src
-
-      - name: Set up Docker Buildx
-        if: ${{ !inputs.skip_runtime_build }}
-        uses: docker/setup-buildx-action@v3
-
-      - name: Configure AWS Credentials for ECR
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
-          aws-region: ${{ vars.AWS_REGION }}
-          audience: sts.amazonaws.com
-
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Ensure ECR Repository Exists
-        uses: int128/create-ecr-repository-action@v1
-        with:
-          repository: ${{ inputs.environment }}-nextcloud-enterprise
-
-      - name: Build & Push Docker Image
-        if: ${{ !inputs.skip_runtime_build }}
-        id: docker-build
-        uses: docker/build-push-action@v6
-        with:
-          context: runtime-src
-          file: runtime-src/Dockerfile
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.environment }}-nextcloud-enterprise:${{ inputs.environment }}
-            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.environment }}-nextcloud-enterprise:${{ github.sha }}-${{ github.run_id }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Register Output Image URI
-        id: build-push
-        run: |
-          REGISTRY="${{ steps.login-ecr.outputs.registry }}"
-          REPO="${{ inputs.environment }}-nextcloud-enterprise"
-          if [ "${{ inputs.skip_runtime_build }}" = "true" ]; then
-            IMAGE_URI="${REGISTRY}/${REPO}:${{ inputs.environment }}"
-          else
-            IMAGE_URI="${REGISTRY}/${REPO}:${{ github.sha }}-${{ github.run_id }}"
-          fi
-          echo "image_uri=${IMAGE_URI}" >> $GITHUB_OUTPUT
-          echo "✅ Runtime Image Target: ${IMAGE_URI}"
+    if: ${{ !inputs.skip_runtime_build }}
+    uses: FilestoreCloud/runtime/.github/workflows/docker.yml@main
+    with:
+      repository_name: ${{ inputs.environment }}-nextcloud-enterprise
+      image_tag: ${{ inputs.environment }}
+      ref: ${{ inputs.environment == 'prod' && 'main' || 'dev' }}
+    secrets: inherit
 
   # ============================================================================
   # STAGE 2: INFRASTRUCTURE (CloudFormation Stacks 01 to 07)
@@ -202,6 +150,7 @@ jobs:
   deploy-compute:
     name: 2e. Infra — 05-Compute
     needs: [build-runtime, deploy-storage, deploy-database]
+    if: ${{ always() && !contains(needs.deploy-storage.result, 'failure') && !contains(needs.deploy-storage.result, 'cancelled') && !contains(needs.deploy-database.result, 'failure') && !contains(needs.deploy-database.result, 'cancelled') && (needs.build-runtime.result == 'success' || needs.build-runtime.result == 'skipped') }}
     runs-on: ubuntu-latest
     outputs:
       alb_dns: ${{ steps.deploy-ecs.outputs.LoadBalancerDNSName }}
@@ -219,13 +168,46 @@ jobs:
           audience: sts.amazonaws.com
           output-credentials: true
 
+      - name: Resolve Runtime Container Image
+        id: image-resolver
+        env:
+          BUILT_IMAGE: ${{ needs.build-runtime.outputs.image_uri }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ inputs.environment }}
+          ACCOUNT_ID: ${{ steps.aws-creds.outputs.aws-account-id }}
+        run: |
+          if [ -n "$BUILT_IMAGE" ]; then
+            echo "image=$BUILT_IMAGE" >> $GITHUB_OUTPUT
+            echo "✅ Using newly built Golden Image URI: $BUILT_IMAGE"
+          else
+            echo "Resolving pre-built Golden Image from ECR for environment: $ENV"
+            python3 -c "
+            import os, sys, boto3
+            region = os.environ['AWS_REGION']
+            env_name = os.environ['ENV']
+            account_id = os.environ['ACCOUNT_ID']
+            repo = f'{env_name}-nextcloud-enterprise'
+            ecr = boto3.client('ecr', region_name=region)
+            try:
+                desc = ecr.describe_images(repositoryName=repo, imageIds=[{'imageTag': env_name}])
+                digest = desc['imageDetails'][0]['imageDigest']
+                image_uri = f'{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}@{digest}'
+                print(f'✅ Resolved Golden Image Digest URI: {image_uri}')
+            except Exception as e:
+                image_uri = f'{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}:{env_name}'
+                print(f'⚠️ Using fallback tag URI: {image_uri} ({e})')
+            with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                f.write(f'image={image_uri}\n')
+            "
+          fi
+
       - name: Deploy 05-Compute Stack
         id: deploy-ecs
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ needs.build-runtime.outputs.image_uri }},CreateECRRepository=false"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false"
           tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
@@ -291,40 +273,41 @@ jobs:
           capabilities: CAPABILITY_NAMED_IAM
 
   # ============================================================================
-  # STAGE 3: CONSOLE (Build React SPA & Deploy to S3 + CloudFront)
+  # STAGE 3: CONSOLE (Reusable Workflow from FilestoreCloud/console)
   # ============================================================================
   deploy-console:
     name: 3. Console — Build React SPA & Deploy to CloudFront
     needs: [deploy-superadmin]
-    runs-on: ubuntu-latest
-    outputs:
-      console_url: ${{ steps.deploy-spa.outputs.console_url }}
-    steps:
-      - name: Checkout Console Repository
-        uses: actions/checkout@v4
-        with:
-          repository: FilestoreCloud/console
-          ref: ${{ inputs.environment == 'prod' && 'main' || 'dev' }}
-          path: console-src
+    uses: FilestoreCloud/console/.github/workflows/deploy.yml@main
+    with:
+      environment: ${{ inputs.environment }}
+      admin_web_bucket: ${{ needs.deploy-superadmin.outputs.admin_web_bucket }}
+      cloudfront_distribution_id: ${{ needs.deploy-superadmin.outputs.admin_web_distribution_id }}
+      ref: ${{ inputs.environment == 'prod' && 'main' || 'dev' }}
+      run_smoke_test: false
+    secrets: inherit
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+  # ============================================================================
+  # STAGE 3b: DNS (Synchronize Auto Subdomains)
+  # ============================================================================
+  sync-dns:
+    name: 3b. DNS — Synchronize Auto Subdomains
+    needs: [deploy-compute, deploy-superadmin, deploy-console]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Infra Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: console-src/package-lock.json
+          python-version: "3.11"
+          cache: pip
 
       - name: Install Dependencies
-        working-directory: console-src
-        run: npm ci
-
-      - name: Run Vitest Unit Tests
-        working-directory: console-src
-        run: npm test
-
-      - name: Build Production SPA Bundle
-        working-directory: console-src
-        run: npm run build
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt requests boto3
 
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -333,33 +316,19 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
-      - name: Deploy Static Assets to S3 & Invalidate CloudFront Cache
-        run: |
-          echo "Deploying console SPA static assets with correct MIME types to S3..."
-          aws s3 sync console-src/dist "s3://${{ needs.deploy-superadmin.outputs.admin_web_bucket }}" --delete
-          echo "Triggering CloudFront cache invalidation..."
-          aws cloudfront create-invalidation \
-            --distribution-id "${{ needs.deploy-superadmin.outputs.admin_web_distribution_id }}" \
-            --paths "/*"
-
-      - name: Checkout Infra Repository
-        uses: actions/checkout@v4
-        with:
-          path: infra-src
-
       - name: Synchronize DNS & Auto Subdomains
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          python3 infra-src/scripts/manage_dns.py sync --env "${{ inputs.environment }}" --zone png261.dev
+          python3 scripts/manage_dns.py sync --env "${{ inputs.environment }}" --zone png261.dev
 
   # ============================================================================
   # STAGE 4: FULL-STACK ACCEPTANCE & REPORTING (Terratest + Playwright)
   # ============================================================================
   full-acceptance-and-summary:
     name: 4. Acceptance — Full-Stack Verification & Live Audit
-    needs: [deploy-compute, deploy-superadmin, deploy-console, deploy-observability]
+    needs: [deploy-compute, deploy-superadmin, deploy-console, deploy-observability, sync-dns]
     runs-on: ubuntu-latest
     if: ${{ always() && (needs.deploy-console.result == 'success') }}
     steps:
