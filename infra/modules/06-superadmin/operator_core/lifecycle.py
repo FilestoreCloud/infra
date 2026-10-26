@@ -2,7 +2,10 @@
 Tenant Lifecycle Provisioning, Deprovisioning, Sagas, and Task Handlers for Storix Control Plane.
 """
 import json
+import os
+import ssl
 import time
+import urllib.request
 from botocore.exceptions import ClientError
 
 from operator_core.common import (
@@ -143,7 +146,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         {"name": "NEXTCLOUD_ADMIN_USER", "value": "admin"},
         {
             "name": "POSTGRES_HOST",
-            "value": infra.get("db_endpoint", f"{ENVIRONMENT_NAME}-nextcloud-postgres").split(":")[0],
+            "value": (infra.get("db_endpoint") or f"{ENVIRONMENT_NAME}-nextcloud-postgres").split(":")[0],
         },
         {"name": "POSTGRES_DB", "value": f"nc_{clean_id}"},
         {
