@@ -184,6 +184,37 @@ Resources:
       RepositoryName: !Sub "${EnvironmentName}-nextcloud-enterprise"
       ImageScanningConfiguration:
         ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Delete untagged images older than 7 days",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": {
+                  "type": "expire"
+                }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep maximum 15 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 15
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName

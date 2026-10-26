@@ -1,0 +1,160 @@
+name: GitOps Rollout (Fast ECS & Console Continuous Delivery)
+
+on:
+  repository_dispatch:
+    types:
+      - runtime_release
+      - console_release
+  workflow_dispatch:
+    inputs:
+      component:
+        description: "Component to roll out"
+        required: true
+        type: choice
+        options:
+          - runtime
+          - console
+          - all
+      environment:
+        description: "Target Environment"
+        required: true
+        default: "dev"
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      image_uri:
+        description: "Custom Docker Image URI (for runtime rolling update)"
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: gitops-rollout-${{ github.ref_name }}-${{ inputs.environment || github.event.client_payload.environment || 'dev' }}
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # 1. FAST ECS ROLLING UPDATE FOR RUNTIME (Zero-CloudFormation Fast Deploy)
+  # ============================================================================
+  rollout-runtime:
+    name: Fast ECS Rolling Update (Runtime)
+    if: (github.event_name == 'workflow_dispatch' && (inputs.component == 'runtime' || inputs.component == 'all')) || github.event.action == 'runtime_release'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment || github.event.client_payload.environment || 'dev' }}
+    steps:
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Resolve Deployment Parameters
+        id: meta
+        run: |
+          ENV="${{ inputs.environment || github.event.client_payload.environment || 'dev' }}"
+          IMAGE="${{ inputs.image_uri || github.event.client_payload.image }}"
+          echo "env=${ENV}" >> $GITHUB_OUTPUT
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "============================================================"
+          echo "🎯 Target Environment : ${ENV}"
+          echo "🎯 Target Image URI   : ${IMAGE}"
+          echo "============================================================"
+
+      - name: Update ECS Task Definition & Trigger Rolling Update
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ENV: ${{ steps.meta.outputs.env }}
+          NEW_IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          CLUSTER_NAME="${ENV}-nextcloud-cluster"
+          SERVICE_NAME="${ENV}-nextcloud-service"
+
+          echo "🚀 Updating ECS Service: ${SERVICE_NAME} on Cluster: ${CLUSTER_NAME}..."
+
+          python3 -c "
+          import os, sys, boto3
+          region = os.environ['AWS_REGION']
+          env_name = os.environ['ENV']
+          new_image = os.environ.get('NEW_IMAGE', '').strip()
+          cluster = f'{env_name}-nextcloud-cluster'
+          service_name = f'{env_name}-nextcloud-service'
+
+          ecs = boto3.client('ecs', region_name=region)
+          services = ecs.describe_services(cluster=cluster, services=[service_name])['services']
+          if not services or services[0]['status'] != 'ACTIVE':
+              print(f'❌ Service {service_name} not found or not ACTIVE in cluster {cluster}. Fast rollout skipped.')
+              sys.exit(1)
+
+          current_task_def_arn = services[0]['taskDefinition']
+          task_def = ecs.describe_task_definition(taskDefinition=current_task_def_arn)['taskDefinition']
+
+          if new_image:
+              print(f'Updating container image to: {new_image}')
+              container_defs = task_def['containerDefinitions']
+              for c in container_defs:
+                  c['image'] = new_image
+
+              reg_args = {
+                  'family': task_def['family'],
+                  'containerDefinitions': container_defs,
+                  'volumes': task_def.get('volumes', []),
+                  'requiresCompatibilities': task_def.get('requiresCompatibilities', ['FARGATE']),
+                  'networkMode': task_def.get('networkMode', 'awsvpc'),
+                  'cpu': task_def.get('cpu', '1024'),
+                  'memory': task_def.get('memory', '2048')
+              }
+              if 'taskRoleArn' in task_def:
+                  reg_args['taskRoleArn'] = task_def['taskRoleArn']
+              if 'executionRoleArn' in task_def:
+                  reg_args['executionRoleArn'] = task_def['executionRoleArn']
+
+              new_def = ecs.register_task_definition(**reg_args)
+              new_arn = new_def['taskDefinition']['taskDefinitionArn']
+              print(f'✓ Registered new Task Definition: {new_arn}')
+
+              ecs.update_service(
+                  cluster=cluster,
+                  service=service_name,
+                  taskDefinition=new_arn,
+                  forceNewDeployment=True
+              )
+              print('✓ ECS Service updated with new task definition revision.')
+          else:
+              ecs.update_service(
+                  cluster=cluster,
+                  service=service_name,
+                  forceNewDeployment=True
+              )
+              print('✓ ECS Service forceNewDeployment=True triggered.')
+          "
+
+      - name: Wait for ECS Service Stability
+        env:
+          ENV: ${{ steps.meta.outputs.env }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          CLUSTER="${ENV}-nextcloud-cluster"
+          SERVICE="${ENV}-nextcloud-service"
+          echo "Waiting for service ${SERVICE} to reach steady state..."
+          aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+          echo "✅ ECS Service is stable and operational!"
+
+  # ============================================================================
+  # 2. FAST S3 & CLOUDFRONT DEPLOY FOR CONSOLE SPA
+  # ============================================================================
+  rollout-console:
+    name: Fast Console Deploy to CloudFront
+    if: (github.event_name == 'workflow_dispatch' && (inputs.component == 'console' || inputs.component == 'all')) || github.event.action == 'console_release'
+    uses: FilestoreCloud/console/.github/workflows/deploy.yml@main
+    with:
+      environment: ${{ inputs.environment || github.event.client_payload.environment || 'dev' }}
+      ref: ${{ (inputs.environment || github.event.client_payload.environment) == 'prod' && 'main' || 'dev' }}
+      run_smoke_test: true
+    secrets: inherit
