@@ -8,6 +8,10 @@ updates:
     labels:
       - "dependencies"
       - "ci/cd"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
 
   - package-ecosystem: "pip"
     directory: "/"
@@ -17,6 +21,10 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    groups:
+      python-devsecops:
+        patterns:
+          - "*"
 
   - package-ecosystem: "gomod"
     directory: "/tests/terratest"
@@ -26,6 +34,10 @@ updates:
     labels:
       - "dependencies"
       - "terratest"
+    groups:
+      terratest-sdk:
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/tests/nextcloud/e2e"
@@ -35,3 +47,7 @@ updates:
     labels:
       - "dependencies"
       - "e2e"
+    groups:
+      e2e-npm:
+        patterns:
+          - "*"
