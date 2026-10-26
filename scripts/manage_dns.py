@@ -40,10 +40,20 @@ def get_aws_endpoints(env: str, region: str = "ap-southeast-1"):
     try:
         admin_stack = cf_client.describe_stacks(StackName=f"{env}-nextcloud-06-superadmin")
         for output in admin_stack["Stacks"][0].get("Outputs", []):
-            if output["OutputKey"] in ["AdminWebDomainName", "AdminWebURL"]:
+            if output["OutputKey"] == "AdminWebDomainName":
                 val = output["OutputValue"]
                 cloudfront_domain = val.replace("https://", "").replace("http://", "").rstrip("/")
                 break
+        
+        # Ensure cloudfront_domain is an actual cloudfront domain, not a custom hostname
+        if not cloudfront_domain or not cloudfront_domain.endswith(".cloudfront.net"):
+            try:
+                ssm = boto3.client("ssm", region_name=region)
+                dist_id = ssm.get_parameter(Name=f"/nextcloud/{env}/control-plane/cloudfront-distribution-id")["Parameter"]["Value"]
+                cf_svc = boto3.client("cloudfront", region_name=region)
+                cloudfront_domain = cf_svc.get_distribution(Id=dist_id)["Distribution"]["DomainName"]
+            except Exception as e:
+                print(f"[WARN] CloudFront API lookup fallback: {e}")
     except Exception as e:
         print(f"[WARN] Could not retrieve superadmin stack outputs: {e}")
 
