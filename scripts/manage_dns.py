@@ -195,12 +195,11 @@ def configure_origin_rules(zone_id: str, zone_name: str, cf_domain: str, token: 
 
     desired_rules = [
         {
-            "description": f"Storix {admin_name} CloudFront Origin Route",
+            "description": f"Storix {admin_name} CloudFront Port 443 Route",
             "expression": f'(http.host eq "{admin_name}")',
             "action": "route",
             "action_parameters": {
                 "origin": {
-                    "host": cf_domain,
                     "port": 443,
                 },
             },
@@ -306,27 +305,19 @@ def sync_records(env: str, zone_name: str, token: str | None = None):
         }
 
         if matching_recs:
-            # Update the first matching record
-            first_rec = matching_recs[0]
-            rec_id = first_rec["id"]
-            res = cf_request("PUT", f"/zones/{zone_id}/dns_records/{rec_id}", token, record_payload)
-            if res and res.get("success"):
-                print(f"  ✔ Updated: {d['name']} ➔ {d['content']}")
-            else:
-                print(f"  ❌ Update failed for {d['name']}: {res}")
-
-            # Delete any duplicate / conflicting records with the same name
-            for dup in matching_recs[1:]:
-                dup_id = dup["id"]
-                del_res = cf_request("DELETE", f"/zones/{zone_id}/dns_records/{dup_id}", token)
+            # Delete stale records to clear Cloudflare CNAME flattening & edge routing cache
+            for old_rec in matching_recs:
+                del_id = old_rec["id"]
+                del_res = cf_request("DELETE", f"/zones/{zone_id}/dns_records/{del_id}", token)
                 if del_res and del_res.get("success"):
-                    print(f"  🗑 Deleted duplicate/stale record for {d['name']} ({dup.get('content')}) [ID: {dup_id}]")
+                    print(f"  🗑 Refreshed stale record for {d['name']} ({old_rec.get('content')}) [ID: {del_id}]")
+
+        res = cf_request("POST", f"/zones/{zone_id}/dns_records", token, record_payload)
+        if res and res.get("success"):
+            new_id = res.get("result", {}).get("id")
+            print(f"  ✔ Created fresh record: {d['name']} ➔ {d['content']} [ID: {new_id}]")
         else:
-            res = cf_request("POST", f"/zones/{zone_id}/dns_records", token, record_payload)
-            if res and res.get("success"):
-                print(f"  ✔ Created: {d['name']} ➔ {d['content']}")
-            else:
-                print(f"  ❌ Creation failed for {d['name']}: {res}")
+            print(f"  ❌ Failed to create {d['name']}: {res}")
 
     # Configure Origin Rules if CloudFront endpoint exists
     if cf_domain:
