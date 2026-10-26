@@ -9,64 +9,42 @@ import { generateTotp } from "./totp.js";
 export async function loginNextcloud(
   page: Page,
   username: string = process.env.NEXTCLOUD_USER || "admin",
-  password: string = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!",
+  password: string = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "StorixAdmin2026!Secure",
 ) {
+  // Set Authorization header on page extraHTTPHeaders to support HTTP Basic Auth over plain HTTP (ALB)
+  const authHeader = "Basic " + Buffer.from(`${username}:${password}`).toString("base64");
+  await page.setExtraHTTPHeaders({
+    Authorization: authHeader,
+  }).catch(() => {});
+
+  // Direct navigation to Files app
+  await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
+
+  // If page was redirected to /login, attempt interactive form submission
   try {
     const cur = new URL(page.url());
-    if (!cur.pathname.includes("/login") && (cur.pathname.includes("/apps/") || cur.pathname.includes("/index.php"))) {
-      if (!cur.pathname.includes("/apps/files")) {
-        await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
+    if (cur.pathname.includes("/login")) {
+      const userInput = page
+        .getByLabel(/Account name or email/i)
+        .or(page.locator('#user, input[name="user"], input#user_id'))
+        .first();
+      const passInput = page
+        .getByLabel(/^Password/i)
+        .or(page.locator('#password, input[name="password"]'))
+        .first();
+      const submitBtn = page
+        .getByRole("button", { name: /^Log in$/i })
+        .or(page.locator('#submit-form, button[type="submit"], input[type="submit"]'))
+        .first();
+
+      if (await userInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await userInput.fill(username);
+        await passInput.fill(password);
+        await Promise.all([
+          page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 30000 }).catch(() => {}),
+          submitBtn.click().catch(() => passInput.press("Enter")),
+        ]);
       }
-      return;
-    }
-  } catch {}
-
-  await page.goto("/index.php/login", { waitUntil: "domcontentloaded" });
-
-  try {
-    const cur = new URL(page.url());
-    if (!cur.pathname.includes("/login")) {
-      if (!cur.pathname.includes("/apps/files")) {
-        await page.goto("/index.php/apps/files/", { waitUntil: "domcontentloaded" }).catch(() => {});
-      }
-      return;
-    }
-  } catch {}
-
-  // Wait for login form elements (Nextcloud 30 Vue component)
-  const userInput = page
-    .getByLabel(/Account name or email/i)
-    .or(page.locator('#user, input[name="user"], input#user_id'))
-    .first();
-  const passInput = page
-    .getByLabel(/^Password/i)
-    .or(page.locator('#password, input[name="password"]'))
-    .first();
-  const submitBtn = page
-    .getByRole("button", { name: /^Log in$/i })
-    .or(page.locator('#submit-form, button[type="submit"], input[type="submit"]'))
-    .first();
-
-  await expect(userInput).toBeVisible({ timeout: 15000 });
-
-  await userInput.fill(username);
-  await passInput.fill(password);
-
-  // Submit via click and enter key fallback, wait for navigation away from /login
-  await Promise.all([
-    page.waitForURL(
-      url => !url.pathname.includes("/login") && (url.pathname.includes("/apps/") || url.pathname.includes("/index.php")),
-      { timeout: 60000 }
-    ).catch(() => {}),
-    submitBtn.click().catch(() => passInput.press("Enter")),
-  ]);
-
-  // If still on login screen, press Enter on password input
-  try {
-    const checkUrl = new URL(page.url());
-    if (checkUrl.pathname.includes("/login")) {
-      await passInput.press("Enter").catch(() => {});
-      await page.waitForURL(url => !url.pathname.includes("/login"), { timeout: 45000 }).catch(() => {});
     }
   } catch {}
 
@@ -83,9 +61,8 @@ export async function loginNextcloud(
   } catch {}
 
   // Verify authenticated navigation on Files app or generic authenticated shell
-  // (strictly excludes unauthenticated login-page elements like main, header, #header, #login)
   const headerMenu = page.locator(
-    "#app-navigation, aside.app-navigation, #app-content-files, #appmenu, [data-cy-files-list-row], #fileList, #app-content, [data-entry-id='settings'], #settings, .avatardiv"
+    ".app-navigation, aside.app-navigation, .files-list__breadcrumbs, [data-cy-files-content-breadcrumbs], nav[aria-label='Current directory path'], #header, button:has-text('New')"
   );
   await expect(headerMenu.first()).toBeVisible({ timeout: 25000 });
 

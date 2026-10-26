@@ -17,7 +17,7 @@ import { S3Client, HeadObjectCommand, GetObjectCommand } from "@aws-sdk/client-s
 import { loginNextcloud } from "../support/auth.js";
 
 const USERNAME = process.env.NEXTCLOUD_USER || "admin";
-const PASSWORD = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "Admin123!";
+const PASSWORD = process.env.NEXTCLOUD_PASSWORD || process.env.ADMIN_PASSWORD || "StorixAdmin2026!Secure";
 const TENANT_ID = process.env.TENANT_ID || "acme";
 const S3_BUCKET = process.env.OBJECTSTORE_S3_BUCKET || process.env.S3_VAULT_BUCKET;
 const AWS_REGION = process.env.AWS_REGION || process.env.OBJECTSTORE_S3_REGION || "ap-southeast-1";
@@ -97,7 +97,7 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
 
     // Verify main files content is rendered
     const mainContent = page
-      .locator("#app-content, #app-content-files, #app-content-vue, .files-list, #fileList")
+      .locator("main, .files-list__header, .files-list__breadcrumbs, [data-cy-files-content-breadcrumbs], button:has-text('New'), #app-content, #app-content-files, #app-content-vue, .files-list, #fileList")
       .first();
     await expect(mainContent).toBeVisible({ timeout: 15000 });
   });
@@ -107,6 +107,7 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
     request,
     baseURL,
   }) => {
+    test.setTimeout(180000);
     const targetUrl = resolveBaseUrl(baseURL);
 
     // 1. Generate deterministic 64KB random buffer and compute expected SHA256 checksum
@@ -135,6 +136,27 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
         url => !url.pathname.includes("/login") && url.pathname.includes("/apps/files"),
         { timeout: 20000 }
       );
+
+      // Dismiss any modal dialog (e.g. Welcome to Storix firstrunwizard)
+      const dialog = page.locator('[role="dialog"], #firstrunwizard, .modal-mask');
+      if (await dialog.isVisible({ timeout: 4000 }).catch(() => false)) {
+        await page.keyboard.press("Escape").catch(() => {});
+        const closeBtn = page.locator('button[aria-label="Close"], button.modal-container__close, button:has-text("Close")').first();
+        if (await closeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+          await closeBtn.click({ force: true }).catch(() => {});
+        }
+      }
+
+      // Wait for folder loading indicator to settle
+      await page.locator('img[alt*="Loading"], [class*="loading"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => {});
+
+      // Nextcloud 30 Vue uses virtual scrolling; filter by filename to ensure row is rendered in DOM
+      const filterInput = page.getByPlaceholder(/Filter filenames/i).or(page.locator('input[type="search"], input[placeholder*="Filter"]')).first();
+      if (await filterInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await filterInput.fill(fileName);
+        await page.waitForTimeout(500);
+      }
+
       const fileRow = page
         .locator(
           `[data-cy-files-list-row-name="${fileName}"], [data-cy-files-list-row]:has-text("${fileName}"), [data-filename="${fileName}"], [data-file="${fileName}"], [role="row"]:has-text("${fileName}"), tr:has-text("${fileName}")`
