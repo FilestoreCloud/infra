@@ -12,7 +12,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.297.1
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.100.3
 	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.4
-	github.com/aws/aws-sdk-go-v2/service/lambda v1.112.2
+	github.com/aws/aws-sdk-go-v2/service/lambda v1.113.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.3
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.4
 	github.com/aws/aws-sdk-go-v2/service/sfn v1.51.4
@@ -24,7 +24,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.1 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.22 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.24 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.10 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.4 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager v0.1.17 // indirect
