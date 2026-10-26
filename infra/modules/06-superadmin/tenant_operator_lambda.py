@@ -1803,6 +1803,57 @@ def _handle_request(event, context):
             db_name = f"nc_{clean_id}"
             is_demo = action == "PROVISION_DEMO" or bool(payload.get("is_demo"))
 
+            admin_u = "admin"
+            admin_pwd = str(payload.get("admin_password") or "").strip()
+            if not admin_pwd:
+                _, master_pwd = get_admin_creds()
+                admin_pwd = master_pwd or "StorixAdmin2026!Secure"
+            admin_account = {
+                "username": admin_u,
+                "display_name": f"{tenant_id.title()} Administrator",
+                "email": admin_email,
+                "role": "TenantAdmin",
+                "quota_gb": int(quota_gb),
+                "storage_used_gb": 0.0,
+                "status": "ACTIVE",
+                "mfa_enabled": False,
+                "last_login": "Never",
+                "created_at": now_iso,
+            }
+            default_admin = {
+                "username": admin_u,
+                "password": admin_pwd,
+                "email": admin_email,
+            }
+            try:
+                sec_id = f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+                sec_val = json.dumps({
+                    "username": admin_u,
+                    "password": admin_pwd,
+                    "email": admin_email,
+                    "created_at": now_iso,
+                })
+                try:
+                    secretsmanager.put_secret_value(SecretId=sec_id, SecretString=sec_val)
+                except secretsmanager.exceptions.ResourceNotFoundException:
+                    secretsmanager.create_secret(
+                        Name=sec_id,
+                        Description=f"Admin credentials for tenant {tenant_id}",
+                        SecretString=sec_val,
+                    )
+            except Exception as sme:
+                print(f"Notice saving secret for tenant {tenant_id}: {sme}")
+
+            sync_nextcloud_account(
+                tenant_id,
+                domain,
+                admin_u,
+                admin_pwd,
+                admin_email,
+                role="TenantAdmin",
+                quota_gb=int(quota_gb),
+            )
+
             chosen_sfn_arn = (
                 STATE_MACHINE_DEMO_ARN
                 if (is_demo and STATE_MACHINE_DEMO_ARN)
@@ -1824,6 +1875,14 @@ def _handle_request(event, context):
                         "admin_email": {"S": admin_email},
                         "created_at": {"S": now_iso},
                         "last_updated": {"S": now_iso},
+                        "accounts": {"S": json.dumps([admin_account])},
+                        "default_admin": {
+                            "M": {
+                                "username": {"S": admin_u},
+                                "password": {"S": admin_pwd},
+                                "email": {"S": admin_email},
+                            }
+                        },
                     }
                     if is_demo:
                         init_item["is_demo"] = {"BOOL": True}
@@ -1863,6 +1922,7 @@ def _handle_request(event, context):
                                 if is_demo
                                 else "Step Functions Provisioning Workflow Triggered",
                                 "is_demo": is_demo,
+                                "default_admin": default_admin,
                             }
                         ),
                     }
