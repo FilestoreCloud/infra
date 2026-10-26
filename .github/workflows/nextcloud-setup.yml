@@ -30,6 +30,11 @@ jobs:
           echo "RDS SG: $RDS_SG"
           aws ec2 describe-security-groups --group-ids "$RDS_SG" --query "SecurityGroups[0].IpPermissions" --output json
 
+          echo "=== 0c. Inspecting VPC Network ACLs ==="
+          VPC_ID=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-01-networking --query "Stacks[0].Outputs[?OutputKey=='VpcId'].OutputValue" --output text)
+          echo "VPC: $VPC_ID"
+          aws ec2 describe-network-acls --filters "Name=vpc-id,Values=$VPC_ID" --query "NetworkAcls[*].Entries" --output json
+
           echo "=== 1. Discovering Networking Resources ==="
           SUBNET=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-01-networking --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" --output text)
           SG=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-02-security --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
