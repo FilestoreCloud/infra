@@ -284,6 +284,17 @@ jobs:
               sys.exit(1)
           "
 
+      - name: Resolve Custom Domain Certificate
+        id: cert-resolver
+        run: |
+          CERT_ARN=$(aws ssm get-parameter --name "/nextcloud/${{ inputs.environment }}/control-plane/admin-certificate-arn" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          echo "cert_arn=${CERT_ARN}" >> $GITHUB_OUTPUT
+          if [ -n "$CERT_ARN" ]; then
+            echo "✅ Custom Domain ACM Certificate detected: ${CERT_ARN}"
+          else
+            echo "ℹ️ No custom domain ACM certificate in SSM; using standard CloudFront certificate."
+          fi
+
       - name: Deploy 06-SuperAdmin Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
@@ -291,7 +302,7 @@ jobs:
           template: infra/modules/06-superadmin/template.yaml
           s3-bucket: ${{ steps.resolve-bucket.outputs.bucket }}
           s3-prefix: cfn-templates
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminCertificateArn=${{ steps.cert-resolver.outputs.cert_arn }}"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 

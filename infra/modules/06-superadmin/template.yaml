@@ -46,7 +46,13 @@ Parameters:
     Default: "png261.dev"
     Description: "Root domain for tenant subdomains (e.g. png261.dev)"
 
+  AdminCertificateArn:
+    Type: String
+    Default: ""
+    Description: "Optional ACM Certificate ARN in us-east-1 for admin custom domain (e.g. admin.png261.dev)"
+
 Conditions:
+  HasAdminCertificate: !Not [!Equals [!Ref AdminCertificateArn, ""]]
   HasCustomApiOrigin: !Not [!Equals [!Ref ApiOriginDomain, ""]]
   HasLambdaS3Code: !Not [!Equals [!Ref LambdaCodeBucket, ""]]
   HasS3VaultBucketArn: !Not [!Equals [!Ref S3VaultBucketArn, ""]]
@@ -307,6 +313,18 @@ Resources:
         DefaultRootObject: index.html
         HttpVersion: http2and3
         PriceClass: PriceClass_100
+        Aliases:
+          !If
+            - HasAdminCertificate
+            - - !Sub "admin.${RootDomain}"
+            - !Ref "AWS::NoValue"
+        ViewerCertificate:
+          !If
+            - HasAdminCertificate
+            - AcmCertificateArn: !Ref AdminCertificateArn
+              SslSupportMethod: sni-only
+              MinimumProtocolVersion: TLSv1.2_2021
+            - CloudFrontDefaultCertificate: true
         Origins:
           - Id: S3-AdminWebOrigin
             DomainName: !GetAtt AdminWebBucket.RegionalDomainName
@@ -1256,7 +1274,11 @@ Resources:
     Properties:
       Name: !Sub "/nextcloud/${EnvironmentName}/control-plane/admin-web-url"
       Type: String
-      Value: !Sub "https://${AdminWebDistribution.DomainName}"
+      Value:
+        !If
+          - HasAdminCertificate
+          - !Sub "https://admin.${RootDomain}"
+          - !Sub "https://${AdminWebDistribution.DomainName}"
       Description: CloudFront HTTPS URL for Super Admin Web Console
       Tags:
         Environment: !Ref EnvironmentName
@@ -2887,7 +2909,11 @@ Outputs:
 
   AdminWebURL:
     Description: CloudFront HTTPS URL for Super Admin Web Console
-    Value: !Sub "https://${AdminWebDistribution.DomainName}"
+    Value:
+      !If
+        - HasAdminCertificate
+        - !Sub "https://admin.${RootDomain}"
+        - !Sub "https://${AdminWebDistribution.DomainName}"
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-AdminWebURL"
 
