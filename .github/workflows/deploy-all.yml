@@ -376,7 +376,7 @@ jobs:
 
       - name: Setup Node.js for Playwright E2E Tests
         if: ${{ inputs.run_acceptance_tests }}
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: "npm"
