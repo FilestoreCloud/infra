@@ -193,7 +193,7 @@ jobs:
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false,DesiredCount=1"
           tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
@@ -250,6 +250,7 @@ jobs:
           aws ecs update-service \
             --cluster "${{ inputs.environment }}-nextcloud-cluster" \
             --service "${{ inputs.environment }}-nextcloud-service" \
+            --desired-count 1 \
             --force-new-deployment
 
   deploy-superadmin:

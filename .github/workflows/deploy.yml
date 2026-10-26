@@ -228,7 +228,7 @@ jobs:
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false,DesiredCount=1"
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
