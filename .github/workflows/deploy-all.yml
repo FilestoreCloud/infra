@@ -184,24 +184,7 @@ jobs:
             echo "✅ Using newly built Golden Image URI: $BUILT_IMAGE"
           else
             echo "Resolving pre-built Golden Image from ECR for environment: $ENV"
-            python3 -c "
-import os, sys, boto3
-region = os.environ['AWS_REGION']
-env_name = os.environ['ENV']
-account_id = os.environ['ACCOUNT_ID']
-repo = f'{env_name}-nextcloud-enterprise'
-ecr = boto3.client('ecr', region_name=region)
-try:
-    desc = ecr.describe_images(repositoryName=repo, imageIds=[{'imageTag': env_name}])
-    digest = desc['imageDetails'][0]['imageDigest']
-    image_uri = f'{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}@{digest}'
-    print(f'✅ Resolved Golden Image Digest URI: {image_uri}')
-except Exception as e:
-    image_uri = f'{account_id}.dkr.ecr.{region}.amazonaws.com/{repo}:{env_name}'
-    print(f'⚠️ Using fallback tag URI: {image_uri} ({e})')
-with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
-    f.write(f'image={image_uri}\n')
-"
+            python3 -c "import os, sys, boto3; r=os.environ['AWS_REGION']; e=os.environ['ENV']; a=os.environ['ACCOUNT_ID']; repo=f'{e}-nextcloud-enterprise'; ecr=boto3.client('ecr', region_name=r); desc=ecr.describe_images(repositoryName=repo, imageIds=[{'imageTag': e}]); d=desc['imageDetails'][0]['imageDigest']; img=f'{a}.dkr.ecr.{r}.amazonaws.com/{repo}@{d}'; open(os.environ['GITHUB_OUTPUT'],'a').write(f'image={img}\n')" || echo "image=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}-nextcloud-enterprise:${ENV}" >> $GITHUB_OUTPUT
           fi
 
       - name: Deploy 05-Compute Stack
