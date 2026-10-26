@@ -1,0 +1,19 @@
+name: Debug Logs
+on: [workflow_dispatch]
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+      - name: Fetch Nextcloud Error Logs from CloudWatch
+        run: |
+          echo "=== Recent ECS Logs from /ecs/prod-nextcloud ==="
+          aws logs tail "/ecs/prod-nextcloud" --since 20m
