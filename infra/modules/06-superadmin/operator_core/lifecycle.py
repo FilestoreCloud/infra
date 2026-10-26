@@ -184,7 +184,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         "} "
         "} catch (Exception $e) { "
         "echo \"DB_INIT_NOTICE: \" . $e->getMessage() . \"\\n\"; "
-        "}' && exec /entrypoint.sh apache2-foreground"
+        "}' && exec /storix-entrypoint.sh apache2-foreground"
     )
 
     container_def = {
