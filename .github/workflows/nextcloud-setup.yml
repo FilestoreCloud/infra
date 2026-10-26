@@ -25,6 +25,11 @@ jobs:
           echo "=== 0. Checking RDS PostgreSQL Database Status ==="
           aws rds describe-db-instances --query "DBInstances[*].{ID:DBInstanceIdentifier,Status:DBInstanceStatus,Endpoint:Endpoint.Address,Port:Endpoint.Port}" --output table
 
+          echo "=== 0b. Inspecting RDS Security Groups and Ingress Rules ==="
+          RDS_SG=$(aws rds describe-db-instances --db-instance-identifier prod-nextcloud-db --query "DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId" --output text)
+          echo "RDS SG: $RDS_SG"
+          aws ec2 describe-security-groups --group-ids "$RDS_SG" --query "SecurityGroups[0].IpPermissions" --output json
+
           echo "=== 1. Discovering Networking Resources ==="
           SUBNET=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-01-networking --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" --output text)
           SG=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-02-security --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
