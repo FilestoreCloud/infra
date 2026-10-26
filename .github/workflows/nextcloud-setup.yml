@@ -1,16 +1,16 @@
-name: Debug Logs
+name: Nextcloud Initial Setup
 on:
   workflow_dispatch:
     inputs:
-      action:
-        description: "Action to run"
+      reason:
+        description: "Reason for setup"
         required: false
-        default: "install"
+        default: "Initial setup"
 permissions:
   id-token: write
   contents: read
 jobs:
-  debug:
+  setup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,14 +19,14 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
-      - name: Sync Password into EFS config.php and Restart ECS
+      - name: Reset DB and Install Nextcloud via occ
         run: |
           echo "=== 1. Discovering Networking Resources ==="
           SUBNET=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-01-networking --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" --output text)
           SG=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-02-security --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
           echo "Subnet: $SUBNET, SG: $SG"
 
-          echo "=== 2. Running Automated Nextcloud Installation via occ ==="
+          echo "=== 2. Generating Task Overrides ==="
           cat << 'EOF' > generate_overrides.py
 import json
 
@@ -34,10 +34,10 @@ php_code = (
     'try { '
     '$pdo = new PDO("pgsql:host=" . getenv("POSTGRES_HOST") . ";dbname=" . getenv("POSTGRES_DB"), getenv("POSTGRES_USER"), getenv("POSTGRES_PASSWORD")); '
     '$u = getenv("POSTGRES_USER"); '
-    '$pdo->exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO \"$u\"; GRANT ALL ON SCHEMA public TO public;"); '
-    'echo "DB_CLEANED_SUCCESS\n"; '
+    '$pdo->exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO \\"$u\\"; GRANT ALL ON SCHEMA public TO public;"); '
+    'echo "DB_CLEANED_SUCCESS\\n"; '
     '} catch (Exception $e) { '
-    'echo "DB_CLEAN_ERR: " . $e->getMessage() . "\n"; '
+    'echo "DB_CLEAN_ERR: " . $e->getMessage() . "\\n"; '
     '}'
 )
 
@@ -88,13 +88,6 @@ EOF
           aws logs get-log-events \
             --log-group-name /ecs/prod-nextcloud \
             --log-stream-name "nextcloud/nextcloud/$TASK_ID" \
-            --limit 100 \
-            --query "events[*].message" --output text || :
-
-          echo "=== Check Previous Task Logs (a0ab27ef9f064f8a902667457e3ba415) ==="
-          aws logs get-log-events \
-            --log-group-name /ecs/prod-nextcloud \
-            --log-stream-name "nextcloud/nextcloud/a0ab27ef9f064f8a902667457e3ba415" \
             --limit 100 \
             --query "events[*].message" --output text || :
 
