@@ -114,15 +114,40 @@ def audit_zone(env: str, zone_name: str, token: str | None = None):
         prox = "YES" if r.get("proxied") else "NO"
         print(f"  {r.get('type'):<6} {r.get('name'):<30} {r.get('content'):<45} {prox:<8} {r.get('id')}")
 
-    # 2. Fetch Origin Rules
-    ruleset_res = cf_request("GET", f"/zones/{zone_id}/rulesets/phases/http_request_origin/entrypoint", token)
-    origin_rules = ruleset_res.get("result", {}).get("rules", []) if ruleset_res and ruleset_res.get("result") else []
-    print(f"\n⚙️ [Cloudflare Origin Rules ({len(origin_rules)} found)]:")
-    for rule in origin_rules:
-        desc = rule.get("description", "No description")
-        expr = rule.get("expression", "")
-        params = rule.get("action_parameters", {})
-        print(f"  • Rule: {desc} | Expression: {expr} | Params: {json.dumps(params)}")
+    # 2. Fetch Page Rules
+    pr_res = cf_request("GET", f"/zones/{zone_id}/pagerules", token)
+    page_rules = pr_res.get("result", []) if pr_res and pr_res.get("result") else []
+    print(f"\n📜 [Cloudflare Page Rules ({len(page_rules)} found)]:")
+    for pr in page_rules:
+        targets = [t.get("constraint", {}).get("value") for t in pr.get("targets", [])]
+        actions = [a.get("id") for a in pr.get("actions", [])]
+        print(f"  • Targets: {targets} | Actions: {actions} | Status: {pr.get('status')}")
+
+    # 3. Fetch Worker Routes
+    wr_res = cf_request("GET", f"/zones/{zone_id}/workers/routes", token)
+    worker_routes = wr_res.get("result", []) if wr_res and wr_res.get("result") else []
+    print(f"\n⚡ [Cloudflare Worker Routes ({len(worker_routes)} found)]:")
+    for wr in worker_routes:
+        print(f"  • Pattern: {wr.get('pattern')} | Script: {wr.get('script')}")
+
+    # 4. Fetch Custom Hostnames (SSL for SaaS)
+    ch_res = cf_request("GET", f"/zones/{zone_id}/custom_hostnames", token)
+    custom_hostnames = ch_res.get("result", []) if ch_res and ch_res.get("result") else []
+    print(f"\n🌐 [Cloudflare Custom Hostnames ({len(custom_hostnames)} found)]:")
+    for ch in custom_hostnames:
+        print(f"  • Hostname: {ch.get('hostname')} | Origin: {ch.get('custom_origin_server')} | Status: {ch.get('status')}")
+
+    # 5. Fetch Rulesets (all phases)
+    rs_res = cf_request("GET", f"/zones/{zone_id}/rulesets", token)
+    rulesets = rs_res.get("result", []) if rs_res and rs_res.get("result") else []
+    print(f"\n⚙️ [Cloudflare Rulesets ({len(rulesets)} found)]:")
+    for rs in rulesets:
+        print(f"  • Name: {rs.get('name')} | Phase: {rs.get('phase')} | ID: {rs.get('id')}")
+        # Fetch rules in this ruleset
+        r_detail = cf_request("GET", f"/zones/{zone_id}/rulesets/{rs.get('id')}", token)
+        if r_detail and r_detail.get("result", {}).get("rules"):
+            for rule in r_detail["result"]["rules"]:
+                print(f"    -> Rule: {rule.get('description')} | Action: {rule.get('action')} | Expression: {rule.get('expression')} | Params: {json.dumps(rule.get('action_parameters', {}))}")
 
     # 3. Detect Discrepancies
     print("\n🚨 [Discrepancy Analysis]:")
