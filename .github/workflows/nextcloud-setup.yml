@@ -6,6 +6,7 @@ on:
         description: "Reason for setup"
         required: false
         default: "Initial setup"
+        type: string
 permissions:
   id-token: write
   contents: read
