@@ -3,12 +3,12 @@ import json
 
 php_code = (
     'try { '
-    '$pdo = new PDO("pgsql:host=" . getenv("POSTGRES_HOST") . ";dbname=" . getenv("POSTGRES_DB"), getenv("POSTGRES_USER"), getenv("POSTGRES_PASSWORD")); '
+    '$pdo = new PDO("pgsql:host=" . getenv("POSTGRES_HOST") . ";dbname=" . getenv("POSTGRES_DB"), getenv("POSTGRES_USER"), getenv("POSTGRES_PASSWORD"), [PDO::ATTR_TIMEOUT => 10]); '
     '$u = getenv("POSTGRES_USER"); '
     '$pdo->exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO \\"$u\\"; GRANT ALL ON SCHEMA public TO public;"); '
     'echo "DB_CLEANED_SUCCESS\\n"; '
     '} catch (Exception $e) { '
-    'echo "DB_CLEAN_ERR: " . $e->getMessage() . "\\n"; '
+    'echo "DB_CLEAN_ERR: " . $e->getMessage() . "\\n"; exit(1); '
     '}'
 )
 

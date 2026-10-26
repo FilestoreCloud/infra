@@ -23,7 +23,7 @@ jobs:
       - name: Reset DB and Install Nextcloud via occ
         run: |
           echo "=== 0. Checking RDS PostgreSQL Database Status ==="
-          aws rds describe-db-instances --query "DBInstances[*].{ID:DBInstanceIdentifier,Status:DBInstanceStatus,Endpoint:Endpoint.Address,Port:Endpoint.Port}" --output table
+          aws rds describe-db-instances --query "DBInstances[*].{ID:DBInstanceIdentifier,Status:DBInstanceStatus,Endpoint:Endpoint.Address,Port:Endpoint.Port,VpcId:DBSubnetGroup.VpcId}" --output table
 
           echo "=== 0b. Inspecting RDS Security Groups and Ingress Rules ==="
           RDS_SG=$(aws rds describe-db-instances --db-instance-identifier prod-nextcloud-db --query "DBInstances[0].VpcSecurityGroups[0].VpcSecurityGroupId" --output text)
