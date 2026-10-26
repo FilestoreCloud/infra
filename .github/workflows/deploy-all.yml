@@ -285,6 +285,38 @@ jobs:
             echo "ℹ️ No custom domain ACM certificate in SSM; using standard CloudFront certificate."
           fi
 
+      - name: Package and Upload SuperAdmin Lambda Bundle
+        id: pkg-lambda
+        run: |
+          VAULT_BUCKET="${{ inputs.environment }}-nextcloud-vault-${{ steps.aws-creds.outputs.aws-account-id }}-${{ vars.AWS_REGION }}"
+          LAMBDA_ZIP="superadmin-lambdas.zip"
+          LAMBDA_KEY="lambda-code/${LAMBDA_ZIP}"
+
+          echo "Packaging SuperAdmin Lambda bundle from infra/modules/06-superadmin..."
+          cd infra/modules/06-superadmin
+          
+          # Create universal fallback index.py
+          cat << 'EOF' > index.py
+          import json
+          from tenant_operator_lambda import lambda_handler as operator_handler
+          from tenant_worker_lambda import lambda_handler as worker_handler
+
+          def lambda_handler(event, context):
+              if isinstance(event, dict) and "action" in event:
+                  return worker_handler(event, context)
+              return operator_handler(event, context)
+          EOF
+
+          zip -r "${LAMBDA_ZIP}" tenant_operator_lambda.py tenant_worker_lambda.py index.py operator_core/ -x "*.pyc" "*__pycache__*"
+          rm -f index.py
+
+          echo "Uploading ${LAMBDA_ZIP} to s3://${VAULT_BUCKET}/${LAMBDA_KEY}..."
+          aws s3 cp "${LAMBDA_ZIP}" "s3://${VAULT_BUCKET}/${LAMBDA_KEY}"
+          rm -f "${LAMBDA_ZIP}"
+
+          echo "lambda_bucket=${VAULT_BUCKET}" >> $GITHUB_OUTPUT
+          echo "lambda_key=${LAMBDA_KEY}" >> $GITHUB_OUTPUT
+
       - name: Deploy 06-SuperAdmin Stack
         id: deploy-sa
         uses: aws-actions/aws-cloudformation-github-deploy@v2
@@ -293,7 +325,7 @@ jobs:
           template: infra/modules/06-superadmin/template.yaml
           s3-bucket: ${{ inputs.environment }}-nextcloud-vault-${{ steps.aws-creds.outputs.aws-account-id }}-${{ vars.AWS_REGION }}
           s3-prefix: cfn-templates
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminCertificateArn=${{ steps.cert-resolver.outputs.cert_arn }}"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminCertificateArn=${{ steps.cert-resolver.outputs.cert_arn }},LambdaCodeBucket=${{ steps.pkg-lambda.outputs.lambda_bucket }},LambdaCodeKey=${{ steps.pkg-lambda.outputs.lambda_key }}"
           tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM

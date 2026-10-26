@@ -551,7 +551,7 @@ Resources:
       FunctionName: !Sub "${EnvironmentName}-nextcloud-tenant-operator"
       Description: "SaaS Control Plane REST API controller for tenant fleet lifecycle operations"
       Runtime: python3.11
-      Handler: index.lambda_handler
+      Handler: !If [HasLambdaS3Code, "tenant_operator_lambda.lambda_handler", "index.lambda_handler"]
       Role: !GetAtt TenantOperatorLambdaRole.Arn
       Timeout: 60
       MemorySize: 512
@@ -1201,11 +1201,14 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:s3:::${EnvironmentName}-nextcloud-vault-*"
                   - !Sub "arn:aws:s3:::${EnvironmentName}-nextcloud-vault-*/*"
-              - Sid: SecretsManagerTenantPurge
+              - Sid: SecretsManagerTenantManagement
                 Effect: Allow
                 Action:
                   - secretsmanager:GetSecretValue
                   - secretsmanager:DescribeSecret
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:PutSecretValue
+                  - secretsmanager:TagResource
                   - secretsmanager:DeleteSecret
                 Resource:
                   - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:/nextcloud/${EnvironmentName}/*"
@@ -1216,7 +1219,7 @@ Resources:
       FunctionName: !Sub "${EnvironmentName}-nextcloud-tenant-worker"
       Description: "Step Functions micro-task worker for Nextcloud dedicated tenant provisioning and lifecycle operations"
       Runtime: python3.11
-      Handler: index.lambda_handler
+      Handler: !If [HasLambdaS3Code, "tenant_worker_lambda.lambda_handler", "index.lambda_handler"]
       Role: !GetAtt TenantWorkerLambdaRole.Arn
       Timeout: 120
       MemorySize: 512
@@ -1439,16 +1442,26 @@ Resources:
           "States": {
             "ProvisionMarkDynamoDB": {
               "Type": "Task",
-              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Resource": "arn:aws:states:::dynamodb:updateItem",
               "Parameters": {
                 "TableName": "${EnvironmentName}-nextcloud-tenant-registry",
-                "Item": {
-                  "tenant_id": { "S.$": "$.TenantId" },
-                  "status": { "S": "PROVISIONING" },
-                  "progress": { "N": "15" },
-                  "current_step": { "S": "Initializing Registry & Allocating Ingress" },
-                  "quota_gb": { "N.$": "$.StorageQuotaGB" },
-                  "domain": { "S.$": "$.CompanyDomain" }
+                "Key": {
+                  "tenant_id": { "S.$": "$.TenantId" }
+                },
+                "UpdateExpression": "SET #st = :st, #pr = :pr, #cs = :cs, #q = :q, #dm = :dm",
+                "ExpressionAttributeNames": {
+                  "#st": "status",
+                  "#pr": "progress",
+                  "#cs": "current_step",
+                  "#q": "quota_gb",
+                  "#dm": "domain"
+                },
+                "ExpressionAttributeValues": {
+                  ":st": { "S": "PROVISIONING" },
+                  ":pr": { "N": "15" },
+                  ":cs": { "S": "Initializing Registry & Allocating Ingress" },
+                  ":q": { "N.$": "$.StorageQuotaGB" },
+                  ":dm": { "S.$": "$.CompanyDomain" }
                 }
               },
               "ResultPath": "$.ddb_result",
@@ -1463,7 +1476,8 @@ Resources:
                   "action": "PROVISION_TENANT_RESOURCES",
                   "tenant_id.$": "$.TenantId",
                   "domain.$": "$.CompanyDomain",
-                  "quota_gb.$": "$.StorageQuotaGB"
+                  "quota_gb.$": "$.StorageQuotaGB",
+                  "admin_email.$": "$.AdminEmail"
                 }
               },
               "ResultPath": "$.provision_result",
@@ -2315,6 +2329,7 @@ Resources:
                   "TenantId.$": "$.TenantId",
                   "StorageQuotaGB.$": "$.StorageQuotaGB",
                   "CompanyDomain.$": "$.CompanyDomain",
+                  "AdminEmail.$": "$.AdminEmail",
                   "AWS_STEP_FUNCTIONS_STARTED_BY_EXECUTION_ID.$": "$$.Execution.Id"
                 }
               },
