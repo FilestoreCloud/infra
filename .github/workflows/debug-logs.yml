@@ -1,6 +1,11 @@
 name: Debug Logs
 on:
   workflow_dispatch:
+    inputs:
+      action:
+        description: "Action to run"
+        required: false
+        default: "install"
 permissions:
   id-token: write
   contents: read
