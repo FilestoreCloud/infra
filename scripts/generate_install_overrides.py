@@ -34,6 +34,7 @@ cmd = [
     "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 1 --value=127.0.0.1\n"
     "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 2 --value=dev-tenant.png261.dev\n"
     "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 3 --value=\"*.png261.dev\"\n"
+    "sed -i 's/\\x27dbpassword\\x27/\"dbpassword\"/g' /var/www/html/config/config.php\n"
     "rm -f /var/www/html/config/CAN_INSTALL 2>/dev/null || :\n"
     "chown -R www-data:www-data /var/www/html/config 2>/dev/null || :\n"
     "echo NEXTCLOUD_INSTALLED_SUCCESSFULLY"
