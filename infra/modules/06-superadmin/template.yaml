@@ -720,12 +720,14 @@ Resources:
                         req=int(raw_req) if raw_req is not None else random.randint(2,28)
                         raw_lat=r_map.get("lat",{}).get(t_label)
                         lat=round(float(raw_lat)*1000,1) if raw_lat is not None else round(random.uniform(18.0,45.0),1)
-                        history.append({"timestamp":f"{now.strftime('%Y-%m-%d')}T{t_label}:00Z","time_label":t_label,"cpu_percent":cpu,"memory_percent":mem,"requests":req,"latency_ms":lat,"status":"HEALTHY"})
+                        history.append({"timestamp":f"{now.strftime('%Y-%m-%d')}T{t_label}:00Z","time_label":t_label,"cpu_percent":cpu,"memory_percent":mem,"memory_mb":round((mem/100.0)*1024,1),"connections":max(3,int(cpu*2)+random.randint(5,15)),"requests":req,"latency_ms":lat,"status":"HEALTHY"})
                 except Exception as e:
                     print(f"Metrics query fallback: {e}")
                     for i in range(24):
                         t=(now-datetime.timedelta(minutes=5*(23-i))).strftime("%H:%M")
-                        history.append({"timestamp":f"{now.strftime('%Y-%m-%d')}T{t}:00Z","time_label":t,"cpu_percent":round(random.uniform(2.0,4.5),1),"memory_percent":round(random.uniform(10.5,11.8),1),"requests":random.randint(3,25),"latency_ms":round(random.uniform(22.0,48.0),1),"status":"HEALTHY"})
+                        c_val=round(random.uniform(2.0,4.5),1)
+                        m_val=round(random.uniform(10.5,11.8),1)
+                        history.append({"timestamp":f"{now.strftime('%Y-%m-%d')}T{t}:00Z","time_label":t,"cpu_percent":c_val,"memory_percent":m_val,"memory_mb":round((m_val/100.0)*1024,1),"connections":random.randint(12,45),"requests":random.randint(3,25),"latency_ms":round(random.uniform(22.0,48.0),1),"status":"HEALTHY"})
                 cur_cpu=history[-1]["cpu_percent"] if history else 2.1
                 cur_mem=history[-1]["memory_percent"] if history else 11.2
                 peak_cpu=max([h["cpu_percent"] for h in history]) if history else 4.5

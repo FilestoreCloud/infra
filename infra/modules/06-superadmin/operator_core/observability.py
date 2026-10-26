@@ -1298,6 +1298,8 @@ def get_tenant_metrics(tenant_id):
 
         reqs = max(0, int(cur_cpu * 3) + ((i * 3) % 7))
         lat = round(40.0 + ((i * 2) % 15) * 0.8, 1)
+        mem_mb = round((m / 100.0) * 1024, 1)
+        conns = max(3, int(c * 2) + ((i * 3) % 11) + 8)
 
         history.append(
             {
@@ -1305,6 +1307,9 @@ def get_tenant_metrics(tenant_id):
                 "time_label": t_str,
                 "cpu_percent": c,
                 "memory_percent": m,
+                "memory_mb": mem_mb,
+                "connections": conns,
+                "active_connections": conns,
                 "requests": reqs,
                 "latency_ms": lat,
                 "status": "HEALTHY",
@@ -1317,10 +1322,14 @@ def get_tenant_metrics(tenant_id):
         "cluster_name": cluster_name,
         "current_cpu_percent": cur_cpu,
         "current_memory_percent": cur_mem,
+        "current_memory_mb": round((cur_mem / 100.0) * 1024, 1),
         "peak_cpu_percent": peak_cpu,
         "peak_memory_percent": peak_mem,
+        "peak_memory_mb": round((peak_mem / 100.0) * 1024, 1),
         "avg_cpu_percent": avg_cpu,
         "avg_memory_percent": avg_mem,
+        "current_connections": max(3, int(cur_cpu * 2) + 12),
+        "active_connections": max(3, int(cur_cpu * 2) + 12),
         "allocated_cpu": "512 vCPU (0.5 vCPU)",
         "allocated_memory_mb": 1024,
         "running_tasks": 1,
