@@ -6,12 +6,12 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.4
 	github.com/aws/aws-sdk-go-v2/config v1.33.10
 	github.com/aws/aws-sdk-go-v2/service/cloudformation v1.82.2
-	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.73.3
-	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.69.1
+	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.75.1
+	github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs v1.90.2
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.72.1
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.297.1
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.341.0
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.102.1
-	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.4
+	github.com/aws/aws-sdk-go-v2/service/elasticloadbalancingv2 v1.63.5
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.113.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.5
 	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.6
