@@ -28,45 +28,7 @@ jobs:
           echo "Subnet: $SUBNET, SG: $SG"
 
           echo "=== 2. Generating Task Overrides ==="
-          cat << 'EOF' > generate_overrides.py
-import json
-
-php_code = (
-    'try { '
-    '$pdo = new PDO("pgsql:host=" . getenv("POSTGRES_HOST") . ";dbname=" . getenv("POSTGRES_DB"), getenv("POSTGRES_USER"), getenv("POSTGRES_PASSWORD")); '
-    '$u = getenv("POSTGRES_USER"); '
-    '$pdo->exec("DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO \\"$u\\"; GRANT ALL ON SCHEMA public TO public;"); '
-    'echo "DB_CLEANED_SUCCESS\\n"; '
-    '} catch (Exception $e) { '
-    'echo "DB_CLEAN_ERR: " . $e->getMessage() . "\\n"; '
-    '}'
-)
-
-cmd = [
-    "sh", "-c",
-    f"php -r '{php_code}' && "
-    "cp -p /usr/src/nextcloud/version.php /var/www/html/version.php && "
-    "runuser -u www-data -- php /var/www/html/occ maintenance:install "
-    "--database pgsql "
-    "--database-host \"$POSTGRES_HOST\" "
-    "--database-name \"$POSTGRES_DB\" "
-    "--database-user \"$POSTGRES_USER\" "
-    "--database-pass \"$POSTGRES_PASSWORD\" "
-    "--admin-user \"$NEXTCLOUD_ADMIN_USER\" "
-    "--admin-pass \"$NEXTCLOUD_ADMIN_PASSWORD\" "
-    "--data-dir /var/www/html/data && "
-    "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 0 --value=localhost && "
-    "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 1 --value=127.0.0.1 && "
-    "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 2 --value=dev-tenant.png261.dev && "
-    "runuser -u www-data -- php /var/www/html/occ config:system:set trusted_domains 3 --value=\"*.png261.dev\" && "
-    "echo NEXTCLOUD_INSTALLED_SUCCESSFULLY"
-]
-
-payload = {"containerOverrides": [{"name": "nextcloud", "command": cmd}]}
-with open("overrides.json", "w") as f:
-    json.dump(payload, f)
-EOF
-          python3 generate_overrides.py
+          python3 scripts/generate_install_overrides.py
 
           TASK_ARN=$(aws ecs run-task \
             --cluster prod-nextcloud-cluster \
