@@ -53,10 +53,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -78,10 +78,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -103,10 +103,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -128,10 +128,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -160,11 +160,11 @@ jobs:
       alb_url: ${{ steps.deploy-ecs.outputs.LoadBalancerURL }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
         id: aws-creds
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -198,6 +198,60 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
+  setup-nextcloud:
+    name: 2e-ii. Setup — Nextcloud Initial Provisioning
+    needs: [deploy-compute, deploy-database]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Verify and Run Automated Nextcloud Setup
+        run: |
+          ALB_DNS=$(aws cloudformation describe-stacks --stack-name "${{ inputs.environment }}-nextcloud-05-compute" \
+            --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDNSName'].OutputValue" --output text || echo "")
+
+          if [ -n "$ALB_DNS" ]; then
+            STATUS=$(curl -s --connect-timeout 5 "http://${ALB_DNS}/status.php" | grep -o '"installed":true' || :)
+            if [ -n "$STATUS" ]; then
+              echo "✅ Nextcloud is already installed and healthy on ALB. Skipping initial setup."
+              exit 0
+            fi
+          fi
+
+          echo "🚀 Running Nextcloud initial automated installation..."
+          SUBNET=$(aws cloudformation describe-stacks --stack-name "${{ inputs.environment }}-nextcloud-01-networking" \
+            --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" --output text)
+          SG=$(aws cloudformation describe-stacks --stack-name "${{ inputs.environment }}-nextcloud-02-security" \
+            --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
+
+          python3 scripts/generate_install_overrides.py
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ inputs.environment }}-nextcloud-cluster" \
+            --task-definition "${{ inputs.environment }}-nextcloud-app" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --overrides file://overrides.json \
+            --query "tasks[0].taskArn" --output text)
+
+          echo "Launched install task: $TASK_ARN"
+          aws ecs wait tasks-stopped --cluster "${{ inputs.environment }}-nextcloud-cluster" --tasks "$TASK_ARN"
+          echo "Installation task completed."
+
+          aws ecs update-service \
+            --cluster "${{ inputs.environment }}-nextcloud-cluster" \
+            --service "${{ inputs.environment }}-nextcloud-service" \
+            --force-new-deployment
+
   deploy-superadmin:
     name: 2f. Infra — 06-SuperAdmin
     needs: [deploy-compute]
@@ -209,11 +263,11 @@ jobs:
       admin_web_url: ${{ steps.deploy-sa.outputs.AdminWebURL }}
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
         id: aws-creds
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -252,10 +306,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -297,10 +351,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Infra Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
@@ -311,7 +365,7 @@ jobs:
           pip install -r requirements.txt requests boto3
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -337,10 +391,10 @@ jobs:
       url: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
     steps:
       - name: Checkout Infra Repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
@@ -351,7 +405,7 @@ jobs:
           pip install -r requirements.txt requests boto3 pytest
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
           aws-region: ${{ vars.AWS_REGION }}
@@ -359,7 +413,7 @@ jobs:
 
       - name: Setup Go for Terratest
         if: ${{ inputs.run_acceptance_tests }}
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@v5
         with:
           go-version: "1.26"
           cache: true
@@ -380,7 +434,7 @@ jobs:
 
       - name: Setup Node.js for Playwright E2E Tests
         if: ${{ inputs.run_acceptance_tests }}
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: "npm"
@@ -388,7 +442,7 @@ jobs:
 
       - name: Cache Playwright Browsers
         if: ${{ inputs.run_acceptance_tests }}
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         id: playwright-cache
         with:
           path: ~/.cache/ms-playwright
@@ -423,7 +477,7 @@ jobs:
 
       - name: Upload Playwright Test Report
         if: ${{ always() && inputs.run_acceptance_tests }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: playwright-fullstack-report
           path: tests/nextcloud/e2e/playwright-report/
