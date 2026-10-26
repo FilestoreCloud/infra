@@ -55,7 +55,8 @@ Parameters:
   AdminPassword:
     Type: String
     NoEcho: true
-    Description: Initial admin password for Nextcloud
+    Default: ""
+    Description: Initial admin password for Nextcloud (optional; leave blank to dynamically auto-generate via AWS Secrets Manager)
 
   TaskCpu:
     Type: String
@@ -413,11 +414,11 @@ Resources:
     Properties:
       Name: !Sub "/nextcloud/${EnvironmentName}/secrets/admin-credentials"
       Description: Nextcloud SaaS initial super-admin credentials
-      SecretString: !Sub |
-        {
-          "username": "admin",
-          "password": "${AdminPassword}"
-        }
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: "password"
+        PasswordLength: 32
+        ExcludeCharacters: "\"@/\\'"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName

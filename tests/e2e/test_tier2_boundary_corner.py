@@ -297,7 +297,8 @@ class TestTier2BoundaryCorner(unittest.TestCase):
     def test_f8_b3_database_port_locked_to_5432(self):
         """F8.B3: Verify database port is standard PostgreSQL 5432."""
         template = load_cfn_yaml(DATABASE_TEMPLATE_PATH)
-        db_secret = template["Resources"]["DBSecret"]["Properties"]["SecretString"]
+        props = template["Resources"]["DBSecret"]["Properties"]
+        db_secret = props.get("SecretString") or props.get("GenerateSecretString", {}).get("SecretStringTemplate", "")
         self.assertIn('"port": 5432', str(db_secret))
 
     def test_f8_b4_storage_encrypted_enabled(self):

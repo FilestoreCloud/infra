@@ -49,7 +49,8 @@ Parameters:
   DBPassword:
     Type: String
     NoEcho: true
-    Description: Master password for RDS PostgreSQL
+    Default: ""
+    Description: Master password for RDS PostgreSQL (optional; leave blank to dynamically auto-generate via AWS Secrets Manager)
 
   EnableRDSProxy:
     Type: String
@@ -161,7 +162,7 @@ Resources:
       StorageType: gp3
       DBName: !Ref DBName
       MasterUsername: !Ref DBMasterUsername
-      MasterUserPassword: !Ref DBPassword
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DBSecret}:SecretString:password}}"
       DBSubnetGroupName: !Ref DBSubnetGroup
       DBParameterGroupName: !Ref DBParameterGroup
       VPCSecurityGroups:
@@ -186,15 +187,17 @@ Resources:
     Properties:
       Name: !Sub "/nextcloud/${EnvironmentName}/secrets/db-credentials"
       Description: Database credentials for Nextcloud RDS PostgreSQL
-      SecretString: !Sub |
-        {
-          "engine": "postgres",
-          "host": "${RDSInstance.Endpoint.Address}",
-          "port": 5432,
-          "username": "${DBMasterUsername}",
-          "password": "${DBPassword}",
-          "dbname": "${DBName}"
-        }
+      GenerateSecretString:
+        SecretStringTemplate: !Sub |
+          {
+            "engine": "postgres",
+            "port": 5432,
+            "username": "${DBMasterUsername}",
+            "dbname": "${DBName}"
+          }
+        GenerateStringKey: "password"
+        PasswordLength: 32
+        ExcludeCharacters: "\"@/\\'"
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
