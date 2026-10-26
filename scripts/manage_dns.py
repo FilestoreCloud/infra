@@ -3,15 +3,16 @@
 Storix Cloudflare DNS & Auto-Subdomain Lifecycle Manager
 =========================================================
 Automatically discovers ALB & CloudFront endpoints from AWS CloudFormation
-and configures/cleans DNS records on Cloudflare (via Cloudflare API or CLI).
+and configures/cleans DNS records and Origin Rules on Cloudflare.
 
 Usage:
-    python3 manage_dns.py status --env dev --zone png261.dev
-    python3 manage_dns.py sync   --env dev --zone png261.dev [--token <CF_TOKEN>]
-    python3 manage_dns.py clean  --env dev --zone png261.dev [--token <CF_TOKEN>]
+    python3 manage_dns.py audit  --env prod --zone png261.dev [--token <CF_TOKEN>]
+    python3 manage_dns.py sync   --env prod --zone png261.dev [--token <CF_TOKEN>]
+    python3 manage_dns.py clean  --env prod --zone png261.dev [--token <CF_TOKEN>]
 """
 
 import argparse
+from collections import defaultdict
 import json
 import os
 import urllib.error
@@ -56,7 +57,7 @@ def cf_request(method: str, path: str, token: str, data: dict = None):
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
     }
-    body = json.dumps(data).encode("utf-8") if data else None
+    body = json.dumps(data).encode("utf-8") if data is not None else None
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req) as resp:
@@ -64,7 +65,10 @@ def cf_request(method: str, path: str, token: str, data: dict = None):
     except urllib.error.HTTPError as e:
         err_body = e.read().decode("utf-8")
         print(f"[ERROR] Cloudflare API {method} {path} failed: {e.code} - {err_body}")
-        return None
+        try:
+            return json.loads(err_body)
+        except Exception:
+            return None
     except Exception as exc:
         print(f"[ERROR] Cloudflare API connection failed: {exc}")
         return None
@@ -78,8 +82,115 @@ def get_zone_id(zone_name: str, token: str) -> str | None:
     return None
 
 
+def audit_zone(env: str, zone_name: str, token: str | None = None):
+    """Audit all Cloudflare DNS records, Origin Rules, and AWS endpoints."""
+    alb_dns, cf_domain = get_aws_endpoints(env)
+    print("\n" + "=" * 70)
+    print(f"🔍 STORIX CLOUDFLARE & AWS DNS AUDIT REPORT (Env: {env})")
+    print("=" * 70)
+    print(f"  • Active AWS ALB DNS:            {alb_dns or 'NOT_DEPLOYED'}")
+    print(f"  • Active AWS CloudFront Domain:  {cf_domain or 'NOT_DEPLOYED'}")
+    print(f"  • Root Zone Domain:              {zone_name}")
+    print("=" * 70)
+
+    if not token:
+        print("\n[ERROR] CLOUDFLARE_API_TOKEN is required for audit.")
+        return
+
+    zone_id = get_zone_id(zone_name, token)
+    if not zone_id:
+        print(f"[ERROR] Zone {zone_name} not found with provided token.")
+        return
+
+    print(f"\n[Zone ID]: {zone_id}")
+
+    # 1. Fetch DNS records
+    dns_res = cf_request("GET", f"/zones/{zone_id}/dns_records?per_page=100", token)
+    records = dns_res.get("result", []) if dns_res else []
+    print(f"\n📋 [DNS Records in Zone ({len(records)} found)]:")
+    print(f"  {'TYPE':<6} {'NAME':<30} {'CONTENT':<45} {'PROXIED':<8} {'ID'}")
+    print("  " + "-" * 115)
+    for r in records:
+        prox = "YES" if r.get("proxied") else "NO"
+        print(f"  {r.get('type'):<6} {r.get('name'):<30} {r.get('content'):<45} {prox:<8} {r.get('id')}")
+
+    # 2. Fetch Origin Rules
+    ruleset_res = cf_request("GET", f"/zones/{zone_id}/rulesets/phases/http_request_origin/entrypoint", token)
+    origin_rules = ruleset_res.get("result", {}).get("rules", []) if ruleset_res and ruleset_res.get("result") else []
+    print(f"\n⚙️ [Cloudflare Origin Rules ({len(origin_rules)} found)]:")
+    for rule in origin_rules:
+        desc = rule.get("description", "No description")
+        expr = rule.get("expression", "")
+        params = rule.get("action_parameters", {})
+        print(f"  • Rule: {desc} | Expression: {expr} | Params: {json.dumps(params)}")
+
+    # 3. Detect Discrepancies
+    print("\n🚨 [Discrepancy Analysis]:")
+    admin_name = f"admin.{zone_name}"
+    admin_recs = [r for r in records if r.get("name") == admin_name]
+    if not admin_recs:
+        print(f"  ⚠️ No DNS record for {admin_name}!")
+    else:
+        for ar in admin_recs:
+            if cf_domain and ar.get("content") != cf_domain:
+                print(f"  ❌ MISMATCH for {admin_name}: points to '{ar.get('content')}', expected '{cf_domain}'!")
+            else:
+                print(f"  ✅ {admin_name} DNS record matches CloudFront '{cf_domain}'.")
+
+    wildcard_name = f"*.{zone_name}"
+    wildcard_recs = [r for r in records if r.get("name") in [wildcard_name, f"\\*.{zone_name}"]]
+    if not wildcard_recs:
+        print(f"  ⚠️ No DNS record for {wildcard_name}!")
+    else:
+        for wr in wildcard_recs:
+            if alb_dns and wr.get("content") != alb_dns:
+                print(f"  ❌ MISMATCH for {wildcard_name}: points to '{wr.get('content')}', expected '{alb_dns}'!")
+            else:
+                print(f"  ✅ {wildcard_name} DNS record matches ALB '{alb_dns}'.")
+
+
+def configure_origin_rules(zone_id: str, zone_name: str, cf_domain: str, token: str):
+    """Ensure Cloudflare Origin Rules rewrite Host header for CloudFront and port 80 for ALB."""
+    print("\n⚙️ Configuring Cloudflare Origin Rules...")
+    admin_name = f"admin.{zone_name}"
+
+    desired_rules = [
+        {
+            "description": f"Storix {admin_name} CloudFront Host Override",
+            "expression": f'(http.host eq "{admin_name}")',
+            "action": "route",
+            "action_parameters": {
+                "host_header": cf_domain,
+                "origin": {
+                    "host": cf_domain,
+                    "port": 443,
+                },
+            },
+            "enabled": True,
+        },
+        {
+            "description": f"Storix Tenant Subdomains ALB Port 80 Route",
+            "expression": f'(http.host matches "^.*\\\\.{zone_name}$" and http.host ne "{admin_name}")',
+            "action": "route",
+            "action_parameters": {
+                "origin": {
+                    "port": 80,
+                },
+            },
+            "enabled": True,
+        },
+    ]
+
+    payload = {"rules": desired_rules}
+    res = cf_request("PUT", f"/zones/{zone_id}/rulesets/phases/http_request_origin/entrypoint", token, payload)
+    if res and res.get("success"):
+        print("  ✔ Successfully applied Cloudflare Origin Rules (Host Header override + ALB Port 80 route).")
+    else:
+        print(f"  ⚠️ Could not update Origin Rules (Token may lack Ruleset permissions): {res.get('errors') if res else 'Unknown'}")
+
+
 def sync_records(env: str, zone_name: str, token: str | None = None):
-    """Upsert CNAME records for Wildcard Tenants and SuperAdmin Console."""
+    """Upsert CNAME records for Wildcard Tenants, SuperAdmin Console, and Apex domain."""
     alb_dns, cf_domain = get_aws_endpoints(env)
     print("\n" + "=" * 60)
     print(f"🚀 STORIX DNS RESOLUTION CONFIGURATION (Environment: {env})")
@@ -111,6 +222,13 @@ def sync_records(env: str, zone_name: str, token: str | None = None):
             "proxied": True,
             "comment": f"storix-{env}-admin-console",
         },
+        {
+            "name": zone_name,
+            "type": "CNAME",
+            "content": cf_domain,
+            "proxied": True,
+            "comment": f"storix-{env}-root-apex",
+        },
     ]
 
     if not token:
@@ -126,19 +244,19 @@ def sync_records(env: str, zone_name: str, token: str | None = None):
         print(f"[ERROR] Zone {zone_name} not found with provided token.")
         return
 
-    # List existing records
+    # List ALL existing records
     existing = cf_request("GET", f"/zones/{zone_id}/dns_records?per_page=100", token)
-    records_by_name = {}
+    records_by_name = defaultdict(list)
     if existing and existing.get("result"):
         for rec in existing["result"]:
-            records_by_name[rec["name"]] = rec
+            records_by_name[rec["name"]].append(rec)
 
     for d in desired_records:
         if not d["content"]:
             print(f"[SKIP] Skipping {d['name']} because target endpoint is not available.")
             continue
 
-        existing_rec = records_by_name.get(d["name"]) or records_by_name.get(f"\\*.{zone_name}")
+        matching_recs = records_by_name.get(d["name"]) or records_by_name.get(f"\\*.{zone_name}", [])
 
         record_payload = {
             "type": d["type"],
@@ -149,15 +267,35 @@ def sync_records(env: str, zone_name: str, token: str | None = None):
             "comment": d["comment"],
         }
 
-        if existing_rec:
-            rec_id = existing_rec["id"]
+        if matching_recs:
+            # Update the first matching record
+            first_rec = matching_recs[0]
+            rec_id = first_rec["id"]
             res = cf_request("PUT", f"/zones/{zone_id}/dns_records/{rec_id}", token, record_payload)
             if res and res.get("success"):
                 print(f"  ✔ Updated: {d['name']} ➔ {d['content']}")
+            else:
+                print(f"  ❌ Update failed for {d['name']}: {res}")
+
+            # Delete any duplicate / conflicting records with the same name
+            for dup in matching_recs[1:]:
+                dup_id = dup["id"]
+                del_res = cf_request("DELETE", f"/zones/{zone_id}/dns_records/{dup_id}", token)
+                if del_res and del_res.get("success"):
+                    print(f"  🗑 Deleted duplicate/stale record for {d['name']} ({dup.get('content')}) [ID: {dup_id}]")
         else:
             res = cf_request("POST", f"/zones/{zone_id}/dns_records", token, record_payload)
             if res and res.get("success"):
                 print(f"  ✔ Created: {d['name']} ➔ {d['content']}")
+            else:
+                print(f"  ❌ Creation failed for {d['name']}: {res}")
+
+    # Configure Origin Rules if CloudFront endpoint exists
+    if cf_domain:
+        try:
+            configure_origin_rules(zone_id, zone_name, cf_domain, token)
+        except Exception as e:
+            print(f"  [WARN] Origin rule configuration exception: {e}")
 
 
 def clean_records(env: str, zone_name: str, token: str | None = None):
@@ -184,7 +322,7 @@ def clean_records(env: str, zone_name: str, token: str | None = None):
 
 def main():
     parser = argparse.ArgumentParser(description="Storix Cloudflare DNS Manager")
-    parser.add_argument("action", choices=["status", "sync", "clean"], help="Action to execute")
+    parser.add_argument("action", choices=["status", "audit", "sync", "clean"], help="Action to execute")
     parser.add_argument("--env", default="dev", help="Target environment (default: dev)")
     parser.add_argument("--zone", default="png261.dev", help="Cloudflare root zone (default: png261.dev)")
     parser.add_argument("--token", default=os.environ.get("CLOUDFLARE_API_TOKEN"), help="Cloudflare API Token")
@@ -193,6 +331,8 @@ def main():
     if args.action == "status":
         alb, cf = get_aws_endpoints(args.env)
         print(f"ALB: {alb}\nCloudFront: {cf}")
+    elif args.action == "audit":
+        audit_zone(args.env, args.zone, args.token)
     elif args.action == "sync":
         sync_records(args.env, args.zone, args.token)
     elif args.action == "clean":
