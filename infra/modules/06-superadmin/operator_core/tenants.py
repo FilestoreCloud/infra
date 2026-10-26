@@ -42,6 +42,36 @@ def get_all_tenants():
                 "master_key",
             ]:
                 t.pop(secret_key, None)
+
+            # Ensure admin_email is always populated and consistent across views
+            admin_email = t.get("admin_email")
+            if not admin_email:
+                def_admin = t.get("default_admin")
+                if isinstance(def_admin, dict) and def_admin.get("email"):
+                    admin_email = def_admin.get("email")
+                elif not admin_email:
+                    raw_accs = t.get("accounts")
+                    accs = []
+                    if isinstance(raw_accs, str):
+                        try:
+                            accs = json.loads(raw_accs)
+                        except Exception:
+                            pass
+                    elif isinstance(raw_accs, list):
+                        accs = raw_accs
+                    if accs and isinstance(accs, list):
+                        admin_acc = next(
+                            (a for a in accs if isinstance(a, dict) and (a.get("role") in ("TenantAdmin", "admin") or a.get("username") == "admin")),
+                            accs[0] if isinstance(accs[0], dict) else None
+                        )
+                        if admin_acc and admin_acc.get("email"):
+                            admin_email = admin_acc.get("email")
+            if not admin_email:
+                tid = t.get("tenant_id") or "tenant"
+                dom = t.get("domain") or (f"{tid}.{ROOT_DOMAIN}" if ROOT_DOMAIN else f"{tid}.com")
+                admin_email = f"admin@{dom}"
+            t["admin_email"] = admin_email
+
             sanitized.append(t)
         if sanitized:
             return sanitized
@@ -207,16 +237,24 @@ def get_tenant_accounts_data(tenant_id, tenant_item=None):
 def save_tenant_accounts(tenant_id, accounts):
     """Persist tenant user accounts list to DynamoDB tenant registry."""
     now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    admin_acc = next(
+        (a for a in accounts if isinstance(a, dict) and (a.get("role") in ("TenantAdmin", "admin") or a.get("username") == "admin")),
+        None,
+    )
+    update_expr = "SET #acc = :a, #lu = :t"
+    expr_names = {"#acc": "accounts", "#lu": "last_updated"}
+    expr_vals = {":a": {"S": json.dumps(accounts)}, ":t": {"S": now_iso}}
+    if admin_acc and admin_acc.get("email"):
+        update_expr += ", #ae = :ae"
+        expr_names["#ae"] = "admin_email"
+        expr_vals[":ae"] = {"S": admin_acc["email"]}
     try:
         dynamodb.update_item(
             TableName=TABLE_NAME,
             Key={"tenant_id": {"S": tenant_id}},
-            UpdateExpression="SET #acc = :a, #lu = :t",
-            ExpressionAttributeNames={"#acc": "accounts", "#lu": "last_updated"},
-            ExpressionAttributeValues={
-                ":a": {"S": json.dumps(accounts)},
-                ":t": {"S": now_iso},
-            },
+            UpdateExpression=update_expr,
+            ExpressionAttributeNames=expr_names,
+            ExpressionAttributeValues=expr_vals,
         )
     except Exception as e:
         print(f"Warning persisting accounts for tenant {tenant_id}: {e}")
@@ -529,6 +567,29 @@ def get_tenant_detail(tenant_id):
         print(f"Notice: live ECS describe fallback used: {e}")
 
     accounts = get_tenant_accounts_data(tenant_id, tenant_record)
+
+    # Reconcile tenant admin email across tenant record and user accounts
+    resolved_email = tenant_record.get("admin_email")
+    if not resolved_email:
+        def_admin = tenant_record.get("default_admin")
+        if isinstance(def_admin, dict) and def_admin.get("email"):
+            resolved_email = def_admin.get("email")
+        elif accounts and isinstance(accounts, list):
+            admin_acc = next(
+                (a for a in accounts if isinstance(a, dict) and (a.get("role") in ("TenantAdmin", "admin") or a.get("username") == "admin")),
+                accounts[0] if isinstance(accounts[0], dict) else None,
+            )
+            if admin_acc and admin_acc.get("email"):
+                resolved_email = admin_acc.get("email")
+    if not resolved_email:
+        resolved_email = f"admin@{domain}" if domain else f"admin@{tenant_id}.com"
+    tenant_record["admin_email"] = resolved_email
+
+    if accounts and isinstance(accounts, list):
+        for acc in accounts:
+            if isinstance(acc, dict) and (acc.get("role") in ("TenantAdmin", "admin") or acc.get("username") == "admin"):
+                if not acc.get("email"):
+                    acc["email"] = resolved_email
 
     incident_details = tenant_record.get("incident_details")
     if isinstance(incident_details, str):
