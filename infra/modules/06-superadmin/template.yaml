@@ -841,10 +841,24 @@ Resources:
                     items=tbl.scan().get("Items",[])
                     if not items:
                         tid=os.environ.get("TENANT_ID") or "dev-tenant"
-                        item={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":f"{tid}.{rdom}","admin_email":f"admin@{tid}.com","quota_gb":100,"storage_quota_gb":100,"tier":"ENTERPRISE"}
+                        item={"tenant_id":tid,"status":"ACTIVE","progress":100,"current_step":"Ready & Operational","created_at":int(time.time()),"domain":f"{tid}.{rdom}","admin_email":f"admin@{tid}.{rdom}","quota_gb":100,"storage_quota_gb":100,"tier":"ENTERPRISE"}
                         try:tbl.put_item(Item=item)
                         except:pass
                         items=[item]
+                    for it in items:
+                        if not it.get("admin_email"):
+                            em=None
+                            def_adm=it.get("default_admin")
+                            if isinstance(def_adm,dict):em=def_adm.get("email")
+                            if not em:
+                                raw_a=it.get("accounts")
+                                acc_list=[]
+                                if isinstance(raw_a,str):
+                                    try:acc_list=json.loads(raw_a)
+                                    except:pass
+                                elif isinstance(raw_a,list):acc_list=raw_a
+                                if acc_list and isinstance(acc_list[0],dict):em=acc_list[0].get("email")
+                            it["admin_email"]=em or f"admin@{it.get('domain',f\"{it.get('tenant_id')}.{rdom}\")}"
                     return resp(200,{"status":"OK","tenants":items,"data":items,"items":items,"count":len(items),"total":len(items)})
                 if act in ("DESCRIBE","GET_TENANT_DETAIL"):
                     tid=b.get("tenant_id") or q.get("tenant_id")
@@ -879,6 +893,12 @@ Resources:
                         }]
                         try:tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET accounts=:a",ExpressionAttributeValues={":a":json.dumps(accs)})
                         except:pass
+                    if not it.get("admin_email"):
+                        em=None
+                        def_adm=it.get("default_admin")
+                        if isinstance(def_adm,dict):em=def_adm.get("email")
+                        if not em and accs and isinstance(accs[0],dict):em=accs[0].get("email")
+                        it["admin_email"]=em or f"admin@{it.get('domain',f\"{tid}.{rdom}\")}"
                     m_data=get_metrics_data(tid)
                     return resp(200,{"status":"OK","tenant":it,"item":it,"accounts":accs,"aws_topology":{"ecs_service":f"{tid}-svc"},"metrics":m_data})
                 if act in ("GET_TENANT_ACCOUNTS","LIST_TENANT_ACCOUNTS","ACCOUNTS"):
@@ -972,7 +992,12 @@ Resources:
                             updated=a
                             break
                     if updated:
-                        tbl.update_item(Key={"tenant_id":tid},UpdateExpression="SET accounts=:a,#lu=:lu",ExpressionAttributeNames={"#lu":"last_updated"},ExpressionAttributeValues={":a":json.dumps(accs),":lu":int(time.time())})
+                        uexpr="SET accounts=:a,#lu=:lu"
+                        evals={":a":json.dumps(accs),":lu":int(time.time())}
+                        if (u=="admin" or updated.get("role") in ("TenantAdmin","admin")) and "email" in b:
+                            uexpr+=", admin_email=:ae"
+                            evals[":ae"]=b["email"]
+                        tbl.update_item(Key={"tenant_id":tid},UpdateExpression=uexpr,ExpressionAttributeNames={"#lu":"last_updated"},ExpressionAttributeValues=evals)
                     return resp(200,{"status":"OK","message":f"Account '{u}' updated successfully","account":updated})
                 if act in ("METRICS","GET_TENANT_METRICS"):
                     tid=b.get("tenant_id") or q.get("tenant_id") or "dev-tenant"
