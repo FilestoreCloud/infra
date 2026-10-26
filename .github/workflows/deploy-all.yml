@@ -201,6 +201,7 @@ jobs:
   deploy-superadmin:
     name: 2f. Infra — 06-SuperAdmin
     needs: [deploy-compute]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     outputs:
       admin_web_bucket: ${{ steps.deploy-sa.outputs.AdminWebBucketName }}
@@ -247,6 +248,7 @@ jobs:
   deploy-observability:
     name: 2g. Infra — 07-Observability
     needs: [deploy-compute]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -275,6 +277,7 @@ jobs:
   deploy-console:
     name: 3. Console — Build React SPA & Deploy to CloudFront
     needs: [deploy-superadmin]
+    if: ${{ !failure() && !cancelled() }}
     uses: FilestoreCloud/console/.github/workflows/deploy.yml@main
     with:
       environment: ${{ inputs.environment }}
@@ -290,6 +293,7 @@ jobs:
   sync-dns:
     name: 3b. DNS — Synchronize Auto Subdomains
     needs: [deploy-compute, deploy-superadmin, deploy-console]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Infra Repository
