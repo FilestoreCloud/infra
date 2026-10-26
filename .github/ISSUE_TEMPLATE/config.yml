@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Storix Documentation
+    url: https://docs.png261.dev
+    about: Official architecture guides, deployment walk-throughs, and API documentation.
+  - name: 🔒 Security Vulnerability Reporting
+    url: https://github.com/FilestoreCloud/infra/security/advisories/new
+    about: Report sensitive cloud security vulnerabilities or data leaks privately.
