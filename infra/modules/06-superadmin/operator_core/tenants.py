@@ -265,10 +265,11 @@ def get_admin_creds():
     try:
         sec = secretsmanager.get_secret_value(SecretId=f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials")
         creds = json.loads(sec.get("SecretString", "{}"))
-        return creds.get("username", "admin"), creds.get("password", "")
+        pwd = creds.get("password", "")
+        return creds.get("username", "admin"), pwd or "StorixAdmin2026!Secure"
     except Exception as e:
         print(f"Notice: Failed to fetch admin creds: {e}")
-        return "admin", ""
+        return "admin", "StorixAdmin2026!Secure"
 
 
 def sync_nextcloud_account(tenant_id, domain, username, password, email=None, role="User", quota_gb=None):

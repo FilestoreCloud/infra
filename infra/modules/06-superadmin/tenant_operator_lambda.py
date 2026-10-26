@@ -63,6 +63,7 @@ from operator_core import (  # noqa: E402
     get_tenant_health,
     export_tenant_data,
     crypto_shred_tenant_data,
+    get_admin_creds,
     get_tenant_metrics,
     get_webhook_config,
     register_tenant_custom_domain,

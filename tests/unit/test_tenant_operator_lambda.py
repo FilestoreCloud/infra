@@ -363,6 +363,64 @@ class TestTenantOperatorLambdaUnit(unittest.TestCase):
             body = json.loads(resp["body"])
             self.assertIn("error", body)
 
+    def test_provision_tenant_resolves_admin_credentials_without_name_error(self):
+        """Verify PROVISION action resolves get_admin_creds() when admin_password is not supplied."""
+        token = tol.create_session_token("admin", "SuperAdmin", self.mock_signing_key)
+        event = {
+            "httpMethod": "POST",
+            "headers": {"authorization": f"Bearer {token}", "content-type": "application/json"},
+            "body": json.dumps({
+                "action": "PROVISION",
+                "tenant_id": "test-new-tenant",
+                "domain": "test-new-tenant.png261.dev",
+                "quota_gb": 50,
+            }),
+        }
+        with patch.object(tol, "STATE_MACHINE_PROVISION_ARN", "arn:aws:states:ap-southeast-1:123456789012:stateMachine:provision"), \
+             patch.object(tol, "get_signing_key", return_value=self.mock_signing_key), \
+             patch.object(tol, "get_admin_creds", return_value=("admin", "MockAdminPass123!")) as mock_creds, \
+             patch.object(tol.dynamodb, "put_item") as mock_put_item, \
+             patch.object(tol.secretsmanager, "put_secret_value"), \
+             patch.object(tol, "sync_nextcloud_account") as mock_sync, \
+             patch.object(tol.sfn, "start_execution") as mock_sfn:
+            mock_sfn.return_value = {"executionArn": "arn:aws:states:test:exec"}
+            resp = tol.lambda_handler(event, None)
+            self.assertIn(resp["statusCode"], [200, 202])
+            mock_creds.assert_called_once()
+            mock_sync.assert_called_once()
+            call_args = mock_sync.call_args[0]
+            self.assertEqual(call_args[0], "test-new-tenant")
+            self.assertEqual(call_args[3], "MockAdminPass123!")
+
+    def test_direct_provision_fallback_no_name_error(self):
+        """Verify direct provision fallback does not crash on missing os or split attributes."""
+        token = tol.create_session_token("admin", "SuperAdmin", self.mock_signing_key)
+        event = {
+            "httpMethod": "POST",
+            "headers": {"authorization": f"Bearer {token}", "content-type": "application/json"},
+            "body": json.dumps({
+                "action": "PROVISION",
+                "tenant_id": "test-fallback-tenant",
+                "domain": "test-fallback-tenant.png261.dev",
+                "quota_gb": 50,
+            }),
+        }
+        with patch.object(tol, "STATE_MACHINE_PROVISION_ARN", None), \
+             patch.object(tol, "get_signing_key", return_value=self.mock_signing_key), \
+             patch.object(tol, "get_admin_creds", return_value=("admin", "MockAdminPass123!")), \
+             patch.object(tol.dynamodb, "put_item"), \
+             patch.object(tol.secretsmanager, "put_secret_value"), \
+             patch.object(tol, "sync_nextcloud_account"), \
+             patch.object(tol, "ensure_tenant_efs_access_point", return_value="fsap-123"), \
+             patch.object(tol, "register_tenant_task_definition", return_value="arn:aws:ecs:ap-southeast-1:123:task-definition/td:1"), \
+             patch.object(tol.elbv2, "create_target_group", return_value={"TargetGroups": [{"TargetGroupArn": "arn:aws:tg:123"}]}), \
+             patch.object(tol.elbv2, "describe_listeners", return_value={"Listeners": [{"ListenerArn": "arn:aws:lis:123"}]}), \
+             patch.object(tol.elbv2, "describe_rules", return_value={"Rules": [{"Priority": "10"}]}), \
+             patch.object(tol.elbv2, "create_rule"), \
+             patch.object(tol.ecs, "create_service", return_value={"service": {"serviceArn": "arn:aws:ecs:svc:1"}}):
+            resp = tol.lambda_handler(event, None)
+            self.assertEqual(resp["statusCode"], 200)
+
 
 if __name__ == "__main__":
     unittest.main()

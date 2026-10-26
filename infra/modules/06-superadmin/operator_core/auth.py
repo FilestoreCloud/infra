@@ -13,6 +13,7 @@ import os
 import secrets
 import struct
 import time
+import uuid
 from typing import Any, Dict, Optional, Tuple
 
 
@@ -134,12 +135,22 @@ def get_user_account(username: str) -> Optional[Dict[str, Any]]:
 
     # Built-in Master Admin fallback from Secrets Manager or default
     if username == "admin":
-        master_creds = get_sm_admin_credentials()
+        master_pwd = "StorixAdmin2026!Secure"
+        master_email = "admin@storix.cloud"
+        try:
+            sec = secretsmanager.get_secret_value(SecretId=f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials")
+            creds = json.loads(sec.get("SecretString", "{}"))
+            if creds.get("password"):
+                master_pwd = creds["password"]
+            if creds.get("email"):
+                master_email = creds["email"]
+        except Exception:
+            pass
         return {
             "username": "admin",
-            "passwordHash": hash_password(master_creds.get("password", "StorixAdmin2026!Secure")),
+            "passwordHash": hash_password(master_pwd),
             "role": "SUPER_ADMIN",
-            "email": master_creds.get("email", "admin@storix.cloud"),
+            "email": master_email,
             "mfaEnabled": False,
         }
     return None
@@ -157,7 +168,7 @@ def record_audit_event(
 ) -> None:
     """Persists immutable audit log entry to DynamoDB."""
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    log_id = f"aud-{uuid_v4()}"
+    log_id = f"aud-{uuid.uuid4().hex[:16]}"
     item = {
         "logId": {"S": log_id},
         "timestamp": {"S": now},
