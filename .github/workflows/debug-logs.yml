@@ -20,24 +20,11 @@ jobs:
           SG=$(aws cloudformation describe-stacks --stack-name prod-nextcloud-02-security --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
           echo "Subnet: $SUBNET, SG: $SG"
 
-          echo "=== 2. Running One-Off Fargate Task to Synchronize config.php on EFS ==="
+          echo "=== 2. Running One-Off Fargate Task to Allow Clean Automated Nextcloud Installation ==="
           python3 -c '
           import json
-          php_code = """
-          $p = getenv("POSTGRES_PASSWORD");
-          $f = "/var/www/html/config/config.php";
-          if (file_exists($f) && !empty($p)) {
-              $c = file_get_contents($f);
-              $pattern = "/(\x27dbpassword\x27\s*=>\s*\x27)[^\x27]*(\x27)/";
-              $escaped = addcslashes($p, "\x27\\\\");
-              $new_c = preg_replace($pattern, "${1}" . $escaped . "${2}", $c);
-              if ($new_c) {
-                  file_put_contents($f, $new_c);
-                  echo "SUCCESS_CONFIG_UPDATED\n";
-              }
-          }
-          """
-          payload = {"containerOverrides": [{"name": "nextcloud", "command": ["php", "-r", php_code]}]}
+          cmd = ["sh", "-c", "rm -f /var/www/html/config/config.php /var/www/html/version.php; touch /var/www/html/config/CAN_INSTALL; echo CAN_INSTALL_READY"]
+          payload = {"containerOverrides": [{"name": "nextcloud", "command": cmd}]}
           with open("overrides.json", "w") as f:
               json.dump(payload, f)
           '
@@ -54,7 +41,7 @@ jobs:
           aws ecs wait tasks-stopped --cluster prod-nextcloud-cluster --tasks "$TASK_ARN"
           echo "Task completed."
 
-          echo "=== 3. Restarting ECS Service ==="
+          echo "=== 3. Restarting ECS Service for Clean Automated Provisioning ==="
           aws ecs update-service \
             --cluster prod-nextcloud-cluster \
             --service prod-nextcloud-service \
