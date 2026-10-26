@@ -25,6 +25,7 @@ jobs:
           import json
           cmd = [
               "sh", "-c",
+              "cp -p /usr/src/nextcloud/version.php /var/www/html/version.php && "
               "runuser -u www-data -- php /var/www/html/occ maintenance:install "
               "--database pgsql "
               "--database-host \"$POSTGRES_HOST\" "
