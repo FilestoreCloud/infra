@@ -113,16 +113,17 @@ def cleanup_efs(region):
 
 
 def get_failed_resources(cfn, stack_name):
-    """Query CloudFormation stack events to find all logical resources in DELETE_FAILED."""
+    """Query CloudFormation describe_stack_resources to find resources currently in DELETE_FAILED."""
     try:
-        events = cfn.describe_stack_events(StackName=stack_name).get("StackEvents", [])
-        failed = set()
-        for ev in events:
-            if ev.get("ResourceStatus") == "DELETE_FAILED":
-                failed.add(ev["LogicalResourceId"])
-        return list(failed)
+        resources = cfn.describe_stack_resources(StackName=stack_name).get("StackResources", [])
+        failed = [
+            r["LogicalResourceId"]
+            for r in resources
+            if r.get("ResourceStatus") == "DELETE_FAILED" and r["LogicalResourceId"] != stack_name
+        ]
+        return failed
     except Exception as e:
-        print(f"  ⚠️ Could not query stack events for {stack_name}: {e}")
+        print(f"  ⚠️ Could not query stack resources for {stack_name}: {e}")
         return []
 
 
@@ -168,6 +169,12 @@ def delete_stack_safely(cfn, stack_name, max_wait_mins=15):
                     cfn.delete_stack(StackName=stack_name, RetainResources=failed)
                     waiter.wait(StackName=stack_name, WaiterConfig={"Delay": 10, "MaxAttempts": attempts})
                     print(f"  ✔ Stack [{stack_name}] deleted successfully after retaining.")
+                    return True
+                else:
+                    print(f"  Retrying deletion of [{stack_name}] without retain resources...")
+                    cfn.delete_stack(StackName=stack_name)
+                    waiter.wait(StackName=stack_name, WaiterConfig={"Delay": 10, "MaxAttempts": attempts})
+                    print(f"  ✔ Stack [{stack_name}] deleted successfully.")
                     return True
         except Exception as retry_err:
             print(f"  ⚠️ Retry failed: {retry_err}")
