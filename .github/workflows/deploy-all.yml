@@ -224,6 +224,17 @@ jobs:
             echo "ℹ️ No OpenSearch Endpoint found in SSM."
           fi
 
+      - name: Self-Healing Clean up Stale DELETE_FAILED Stack if Present
+        run: |
+          STATUS=$(aws cloudformation describe-stacks --stack-name "${{ inputs.environment }}-nextcloud-05-compute" --query "Stacks[0].StackStatus" --output text 2>/dev/null || echo "NOT_FOUND")
+          if [ "$STATUS" = "DELETE_FAILED" ]; then
+            echo "⚠️ Found ${{ inputs.environment }}-nextcloud-05-compute in DELETE_FAILED state. Cleaning up before deploy..."
+            aws cloudformation delete-stack --stack-name "${{ inputs.environment }}-nextcloud-05-compute" --retain-resources ECSCluster || true
+            aws cloudformation wait stack-delete-complete --stack-name "${{ inputs.environment }}-nextcloud-05-compute" || true
+            aws ecs delete-cluster --cluster "${{ inputs.environment }}-nextcloud-cluster" 2>/dev/null || true
+            echo "✅ Stale stack cleared."
+          fi
+
       - name: Deploy 05-Compute Stack
         id: deploy-ecs
         uses: aws-actions/aws-cloudformation-github-deploy@v2
