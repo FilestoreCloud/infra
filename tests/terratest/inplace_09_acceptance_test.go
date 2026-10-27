@@ -522,7 +522,11 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	}
 	targetImage := os.Getenv("TARGET_IMAGE")
 	if targetImage == "" {
-		targetImage = currentImage
+		if currentImage != "" && !strings.Contains(currentImage, "tika") {
+			targetImage = currentImage
+		} else {
+			targetImage = "nextcloud:30.0.17-apache"
+		}
 	}
 	t.Logf("   -> Target Upgrade Image: %s", targetImage)
 	t.Logf("   -> Current Active TaskDef: %s", currentTaskDefArn)
