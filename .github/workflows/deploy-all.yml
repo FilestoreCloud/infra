@@ -402,6 +402,57 @@ jobs:
             --s3-bucket "${{ steps.pkg-lambda.outputs.lambda_bucket }}" \
             --s3-key "${{ steps.pkg-lambda.outputs.lambda_key }}" || true
 
+      - name: Seed Admin Users and Default Tenant Registry
+        run: |
+          python3 - << 'EOF'
+          import boto3, hashlib, secrets, time, os
+
+          region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+          env_name = "${{ inputs.environment }}"
+          dynamodb = boto3.client('dynamodb', region_name=region)
+
+          def hash_pwd(password):
+              salt = secrets.token_hex(16)
+              hashed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+              return f'{salt}:{hashed}'
+
+          users = [
+              {'username': 'admin', 'email': 'admin@storix.cloud', 'password': 'StorixAdmin2026!Secure', 'role': 'SUPER_ADMIN'},
+              {'username': 'admin@png261.dev', 'email': 'admin@png261.dev', 'password': 'StorixAdmin2026!Secure', 'role': 'SUPER_ADMIN'},
+              {'username': 'admin@png261.dev_legacy', 'email': 'admin@png261.dev', 'password': 'AdminPassword123!', 'role': 'SUPER_ADMIN'}
+          ]
+
+          for u in users:
+              dynamodb.put_item(
+                  TableName=f'{env_name}-nextcloud-admin-users',
+                  Item={
+                      'username': {'S': u['username']},
+                      'email': {'S': u['email']},
+                      'passwordHash': {'S': hash_pwd(u['password'])},
+                      'role': {'S': u['role']},
+                      'mfaEnabled': {'BOOL': False},
+                      'createdAt': {'S': str(int(time.time()))}
+                  }
+              )
+              print(f"✓ Seeded SuperAdmin user: {u['username']}")
+
+          dynamodb.put_item(
+              TableName=f'{env_name}-nextcloud-tenant-registry',
+              Item={
+                  'tenant_id': {'S': 'dev-tenant'},
+                  'domain': {'S': 'dev-tenant.png261.dev'},
+                  'status': {'S': 'ACTIVE'},
+                  'progress': {'N': '100'},
+                  'current_step': {'S': 'Ready & Operational'},
+                  'admin_email': {'S': 'admin@png261.dev'},
+                  'quota_gb': {'N': '100'},
+                  'storage_used_gb': {'N': '1.2'},
+                  'created_at': {'S': str(int(time.time()))}
+              }
+          )
+          print(f"✓ Seeded dev-tenant into {env_name}-nextcloud-tenant-registry")
+          EOF
+
 
   deploy-observability:
     name: 2g. Infra — 07-Observability
