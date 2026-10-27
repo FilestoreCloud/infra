@@ -1826,6 +1826,7 @@ def _handle_request(event, context):
                 "display_name": f"{tenant_id.title()} Administrator",
                 "email": admin_email,
                 "role": "TenantAdmin",
+                "password": admin_pwd,
                 "quota_gb": int(quota_gb),
                 "storage_used_gb": 0.0,
                 "status": "ACTIVE",
