@@ -112,7 +112,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
-      - name: Clean up Orphaned S3 Buckets from Retained Deletions if Stack Does Not Exist
+      - name: Clean up Orphaned S3 Buckets and Stale Stack State Before Deploying 03-Storage
         run: |
           python3 - << 'EOF'
           import boto3, os
@@ -122,18 +122,37 @@ jobs:
           s3 = boto3.client('s3', region_name=region)
           s3_res = boto3.resource('s3', region_name=region)
 
-          stack_exists = True
+          # 1. Clean up stale or broken stack states (REVIEW_IN_PROGRESS, ROLLBACK_COMPLETE, DELETE_FAILED)
           try:
-              cfn.describe_stacks(StackName=f"{env_name}-nextcloud-03-storage")
-          except Exception:
-              stack_exists = False
+              desc = cfn.describe_stacks(StackName=f"{env_name}-nextcloud-03-storage")['Stacks'][0]
+              status = desc['StackStatus']
+              print(f"Current {env_name}-nextcloud-03-storage status: {status}")
+              if status in ['REVIEW_IN_PROGRESS', 'ROLLBACK_COMPLETE', 'DELETE_FAILED']:
+                  print(f"Stack is in stale state ({status}). Deleting stack...")
+                  cfn.delete_stack(StackName=f"{env_name}-nextcloud-03-storage")
+                  try:
+                      waiter = cfn.get_waiter('stack_delete_complete')
+                      waiter.wait(StackName=f"{env_name}-nextcloud-03-storage", WaiterConfig={'Delay': 5, 'MaxAttempts': 30})
+                      print("✔ Deleted stale stack.")
+                  except Exception as we:
+                      print(f"Wait complete warning: {we}")
+          except Exception as e:
+              print(f"No existing active stack: {e}")
 
-          if not stack_exists:
-              print(f"Stack {env_name}-nextcloud-03-storage does not exist. Checking for orphaned buckets...")
+          # 2. Check and delete ANY orphaned S3 buckets for this environment if stack is not CREATE_COMPLETE / UPDATE_COMPLETE
+          try:
+              status = cfn.describe_stacks(StackName=f"{env_name}-nextcloud-03-storage")['Stacks'][0]['StackStatus']
+          except Exception:
+              status = 'NOT_FOUND'
+
+          if status not in ['CREATE_COMPLETE', 'UPDATE_COMPLETE']:
+              print(f"Stack status is {status}. Purging any orphaned S3 buckets for {env_name}...")
               buckets = s3.list_buckets().get('Buckets', [])
               for b in buckets:
                   name = b['Name']
-                  if name.startswith(f"{env_name}-nextcloud-vault-") or name.startswith(f"{env_name}-nextcloud-data-") or name.startswith(f"{env_name}-storix-"):
+                  if (name.startswith(f"{env_name}-nextcloud-vault-") or 
+                      name.startswith(f"{env_name}-nextcloud-data-") or 
+                      name.startswith(f"{env_name}-storix-")):
                       print(f"Purging and deleting orphaned bucket: {name}")
                       try:
                           s3.delete_bucket_policy(Bucket=name)
@@ -143,9 +162,9 @@ jobs:
                           bucket = s3_res.Bucket(name)
                           bucket.object_versions.delete()
                           s3.delete_bucket(Bucket=name)
-                          print(f"✔ Successfully deleted orphaned bucket: {name}")
-                      except Exception as e:
-                          print(f"⚠️ Warning deleting {name}: {e}")
+                          print(f"✔ Successfully deleted: {name}")
+                      except Exception as be:
+                          print(f"⚠️ Error deleting {name}: {be}")
           EOF
 
       - name: Deploy 03-Storage Stack
