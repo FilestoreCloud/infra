@@ -304,7 +304,7 @@ jobs:
             --task-definition "${{ inputs.environment }}-nextcloud-app" \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$SUBNET],securityGroups=[$SG],assignPublicIp=ENABLED}" \
-            --overrides '{"containerOverrides":[{"name":"nextcloud","command":["sh","-c","runuser -u www-data -- php /var/www/html/occ fulltextsearch:index --no-readline || true; runuser -u www-data -- php /var/www/html/occ fulltextsearch:test || true"]}]}' \
+            --overrides '{"containerOverrides":[{"name":"nextcloud","command":["sh","-c","mkdir -p /var/www/html/data/admin/files && echo \"Tai lieu mat he thong Storix ma khoa DOC_QUYEN_NOI_DUNG_9999 bao mat doanh nghiep.\" > /var/www/html/data/admin/files/tai_lieu_bao_mat_storix.txt && chown -R www-data:www-data /var/www/html/data 2>/dev/null || :; runuser -u www-data -- php /var/www/html/occ files:scan admin 2>/dev/null || :; runuser -u www-data -- php /var/www/html/occ fulltextsearch:index --no-readline || true; runuser -u www-data -- php /var/www/html/occ fulltextsearch:test || true"]}]}' \
             --query "tasks[0].taskArn" --output text 2>/dev/null || echo "")
 
           if [ -n "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
