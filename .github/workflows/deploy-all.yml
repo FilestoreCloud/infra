@@ -213,13 +213,24 @@ jobs:
             python3 -c "import os, sys, boto3; r=os.environ['AWS_REGION']; e=os.environ['ENV']; a=os.environ['ACCOUNT_ID']; repo=f'{e}-nextcloud-enterprise'; ecr=boto3.client('ecr', region_name=r); desc=ecr.describe_images(repositoryName=repo, imageIds=[{'imageTag': e}]); d=desc['imageDetails'][0]['imageDigest']; img=f'{a}.dkr.ecr.{r}.amazonaws.com/{repo}@{d}'; open(os.environ['GITHUB_OUTPUT'],'a').write(f'image={img}\n')" || echo "image=${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ENV}-nextcloud-enterprise:${ENV}" >> $GITHUB_OUTPUT
           fi
 
+      - name: Resolve OpenSearch Endpoint
+        id: opensearch-resolver
+        run: |
+          OPENSEARCH_ENDPOINT=$(aws ssm get-parameter --name "/nextcloud/${{ inputs.environment }}/infra/opensearch-endpoint" --query "Parameter.Value" --output text 2>/dev/null || echo "")
+          echo "endpoint=${OPENSEARCH_ENDPOINT}" >> $GITHUB_OUTPUT
+          if [ -n "$OPENSEARCH_ENDPOINT" ]; then
+            echo "✅ OpenSearch Endpoint resolved: ${OPENSEARCH_ENDPOINT}"
+          else
+            echo "ℹ️ No OpenSearch Endpoint found in SSM."
+          fi
+
       - name: Deploy 05-Compute Stack
         id: deploy-ecs
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
           name: ${{ inputs.environment }}-nextcloud-05-compute
           template: infra/modules/05-compute/template.yaml
-          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},CreateECRRepository=false,DesiredCount=1"
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }},AdminPassword=${{ secrets.ADMIN_PASSWORD }},ContainerImage=${{ steps.image-resolver.outputs.image }},OpenSearchEndpoint=${{ steps.opensearch-resolver.outputs.endpoint }},EnableTikaExtractor=true,CreateECRRepository=false,DesiredCount=1"
           tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
@@ -278,6 +289,29 @@ jobs:
             --service "${{ inputs.environment }}-nextcloud-service" \
             --desired-count 1 \
             --force-new-deployment
+
+      - name: Index FullTextSearch Files in OpenSearch
+        continue-on-error: true
+        run: |
+          echo "🔍 Triggering initial FullTextSearch OpenSearch indexing..."
+          SUBNET=$(aws cloudformation describe-stacks --stack-name "${{ inputs.environment }}-nextcloud-01-networking" \
+            --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" --output text)
+          SG=$(aws cloudformation describe-stacks --stack-name "${{ inputs.environment }}-nextcloud-02-security" \
+            --query "Stacks[0].Outputs[?OutputKey=='ECSSecurityGroupId'].OutputValue" --output text)
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ inputs.environment }}-nextcloud-cluster" \
+            --task-definition "${{ inputs.environment }}-nextcloud-app" \
+            --launch-type FARGATE \
+            --network-configuration "awsvpcConfiguration={subnets=[$SUBNET],securityGroups=[$SG],assignPublicIp=ENABLED}" \
+            --overrides '{"containerOverrides":[{"name":"nextcloud","command":["sh","-c","runuser -u www-data -- php /var/www/html/occ fulltextsearch:test && runuser -u www-data -- php /var/www/html/occ fulltextsearch:index -n"]}]}' \
+            --query "tasks[0].taskArn" --output text 2>/dev/null || echo "")
+
+          if [ -n "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
+            echo "Launched FullTextSearch indexing task: $TASK_ARN"
+            aws ecs wait tasks-stopped --cluster "${{ inputs.environment }}-nextcloud-cluster" --tasks "$TASK_ARN" || true
+            echo "FullTextSearch indexing task finished."
+          fi
 
   deploy-superadmin:
     name: 2f. Infra — 06-SuperAdmin
