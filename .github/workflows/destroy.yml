@@ -73,6 +73,14 @@ jobs:
           region: ${{ vars.AWS_REGION }}
           force: true
 
+      - name: Destroy 05-OpenSearch
+        continue-on-error: true
+        uses: go-to-k/delstack@main
+        with:
+          stack-name: ${{ inputs.environment }}-nextcloud-05-opensearch
+          region: ${{ vars.AWS_REGION }}
+          force: true
+
       - name: Destroy 04-Database
         continue-on-error: true
         uses: go-to-k/delstack@main

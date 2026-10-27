@@ -1,0 +1,197 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Nextcloud Multi-Tenant SaaS - Module 05: OpenSearch Service for Enterprise Full-Text & Semantic Search"
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    Description: Environment prefix (prod, staging, dev)
+
+  VpcId:
+    Type: String
+    Default: ""
+    Description: VPC ID for OpenSearch cluster (Leave blank to import from Module 01)
+
+  PrivateSubnet1Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 1 ID for OpenSearch (Leave blank to import from Module 01)
+
+  PrivateSubnet2Id:
+    Type: String
+    Default: ""
+    Description: Private Subnet 2 ID for Multi-AZ OpenSearch (Leave blank to import from Module 01)
+
+  ECSSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: Security Group ID of ECS Tasks to allow OpenSearch access (port 443)
+
+  OpenSearchInstanceType:
+    Type: String
+    Default: t3.small.search
+    AllowedValues:
+      - t3.small.search
+      - t3.medium.search
+      - m6g.large.search
+      - r6g.large.search
+    Description: Instance type for OpenSearch cluster nodes
+
+  OpenSearchInstanceCount:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 10
+    Description: Number of data nodes in OpenSearch cluster
+
+  OpenSearchEBSVolumeSize:
+    Type: Number
+    Default: 20
+    MinValue: 10
+    MaxValue: 500
+    Description: EBS volume size in GB per node (gp3)
+
+  EnableMultiAZ:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable Zone Awareness (Multi-AZ) across Subnet 1 and Subnet 2
+
+Conditions:
+  HasVpcId: !Not [!Equals [!Ref VpcId, ""]]
+  HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
+  HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
+  HasECSSecurityGroupId: !Not [!Equals [!Ref ECSSecurityGroupId, ""]]
+  ShouldEnableMultiAZ: !And
+    - !Equals [!Ref EnableMultiAZ, "true"]
+    - !Not [!Equals [!Ref OpenSearchInstanceCount, 1]]
+
+Resources:
+  # ── OpenSearch Security Group ───────────────────────────────────────────────
+  OpenSearchSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security Group for Storix OpenSearch Cluster
+      VpcId:
+        Fn::If:
+          - HasVpcId
+          - !Ref VpcId
+          - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-VpcId"
+      SecurityGroupIngress:
+        - Description: Ingress HTTPS from ECS Fargate Tasks
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId:
+            Fn::If:
+              - HasECSSecurityGroupId
+              - !Ref ECSSecurityGroupId
+              - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-ECSSecurityGroupId"
+      SecurityGroupEgress:
+        - Description: Allow all outbound traffic for updates and NTP
+          IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-opensearch-sg"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ── OpenSearch Domain ───────────────────────────────────────────────────────
+  OpenSearchDomain:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Sub "${EnvironmentName}-storix-search"
+      EngineVersion: "OpenSearch_2.11"
+      ClusterConfig:
+        InstanceType: !Ref OpenSearchInstanceType
+        InstanceCount: !Ref OpenSearchInstanceCount
+        DedicatedMasterEnabled: false
+        ZoneAwarenessEnabled: !If [ShouldEnableMultiAZ, true, false]
+        ZoneAwarenessConfig:
+          Fn::If:
+            - ShouldEnableMultiAZ
+            - AvailabilityZoneCount: 2
+            - !Ref "AWS::NoValue"
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: !Ref OpenSearchEBSVolumeSize
+      VPCOptions:
+        SubnetIds:
+          Fn::If:
+            - ShouldEnableMultiAZ
+            - - Fn::If:
+                  - HasPrivateSubnet1Id
+                  - !Ref PrivateSubnet1Id
+                  - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
+              - Fn::If:
+                  - HasPrivateSubnet2Id
+                  - !Ref PrivateSubnet2Id
+                  - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet2Id"
+            - - Fn::If:
+                  - HasPrivateSubnet1Id
+                  - !Ref PrivateSubnet1Id
+                  - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-PrivateSubnet1Id"
+        SecurityGroupIds:
+          - !Ref OpenSearchSecurityGroup
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      EncryptionAtRestOptions:
+        Enabled: true
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+        TLSSecurityPolicy: "Policy-Min-TLS-1-2-2019-07"
+      AccessPolicies:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: "*"
+            Action: "es:*"
+            Resource: !Sub "arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${EnvironmentName}-storix-search/*"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-opensearch-domain"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ── SSM Parameter Outputs ───────────────────────────────────────────────────
+  SSMOpenSearchEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/opensearch-endpoint"
+      Type: String
+      Value: !GetAtt OpenSearchDomain.DomainEndpoint
+      Description: VPC Endpoint for Storix OpenSearch cluster
+      Tags:
+        Environment: !Ref EnvironmentName
+
+  SSMOpenSearchDomainArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/infra/opensearch-arn"
+      Type: String
+      Value: !GetAtt OpenSearchDomain.Arn
+      Description: ARN for Storix OpenSearch cluster
+      Tags:
+        Environment: !Ref EnvironmentName
+
+Outputs:
+  OpenSearchDomainEndpoint:
+    Description: VPC Endpoint for Storix OpenSearch cluster
+    Value: !GetAtt OpenSearchDomain.DomainEndpoint
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-OpenSearchEndpoint"
+
+  OpenSearchDomainArn:
+    Description: ARN for Storix OpenSearch domain
+    Value: !GetAtt OpenSearchDomain.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-OpenSearchDomainArn"
+
+  OpenSearchSecurityGroupId:
+    Description: Security Group ID for OpenSearch cluster
+    Value: !Ref OpenSearchSecurityGroup
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-OpenSearchSecurityGroupId"

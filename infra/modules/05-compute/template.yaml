@@ -150,6 +150,33 @@ Parameters:
     Default: "*.png261.dev *.appleai.codes"
     Description: Space-delimited additional trusted domains or wildcard for multi-tenant ingress
 
+  OpenSearchEndpoint:
+    Type: String
+    Default: ""
+    Description: Private Amazon OpenSearch VPC Endpoint for enterprise full-text search
+
+  EnableTikaExtractor:
+    Type: String
+    Default: "true"
+    AllowedValues: ["true", "false"]
+    Description: Enable Apache Tika sidecar container for document text extraction (PDF, Office, OCR)
+
+  AIApiUrl:
+    Type: String
+    Default: "https://api.vilao.ai/v1"
+    Description: External OpenAI-compatible AI API URL for Nextcloud Assistant
+
+  AIApiKey:
+    Type: String
+    NoEcho: true
+    Default: "sk-9e55145c6edcbbcd434716fd67df824a57d9a5af491b863ec8fee6d33f5604f9"
+    Description: API Key for AI provider
+
+  AIModelName:
+    Type: String
+    Default: "occ/claude-haiku-4-5-20251001"
+    Description: AI Model Name for Nextcloud Assistant
+
 Conditions:
   IsProduction: !Equals [!Ref EnvironmentName, "prod"]
   ShouldCreateECR: !Equals [!Ref CreateECRRepository, "true"]
@@ -698,6 +725,22 @@ Resources:
                   - ""
             - Name: REDIS_PORT
               Value: "6379"
+            - Name: OPENSEARCH_HOST
+              Value: !Ref OpenSearchEndpoint
+            - Name: TIKA_HOST
+              Value: "127.0.0.1"
+            - Name: TIKA_PORT
+              Value: "9998"
+            - Name: AI_API_URL
+              Value: !Ref AIApiUrl
+            - Name: AI_API_KEY
+              Value: !Ref AIApiKey
+            - Name: AI_MODEL_NAME
+              Value: !Ref AIModelName
+            - Name: OPENAI_API_URL
+              Value: !Ref AIApiUrl
+            - Name: OPENAI_API_KEY
+              Value: !Ref AIApiKey
           Secrets:
             - Name: POSTGRES_PASSWORD
               ValueFrom:
@@ -724,6 +767,24 @@ Resources:
             Timeout: 5
             Retries: 5
             StartPeriod: 120
+        - Name: tika-extractor
+          Image: apache/tika:2.9.2.0
+          Essential: false
+          PortMappings:
+            - ContainerPort: 9998
+              HostPort: 9998
+              Protocol: tcp
+          Environment:
+            - Name: TIKA_SERVER_HOST
+              Value: "0.0.0.0"
+            - Name: TIKA_SERVER_PORT
+              Value: "9998"
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CloudWatchLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: tika
 
   ECSService:
     Type: AWS::ECS::Service

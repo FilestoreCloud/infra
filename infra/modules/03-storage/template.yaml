@@ -54,6 +54,28 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: Provision dedicated Immutable S3 Audit Vault (WORM) for SOC 2 / HIPAA compliance
 
+  EnableCrossRegionReplication:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable S3 Cross-Region Replication (CRR) for multi-region disaster recovery
+
+  DRDestinationRegion:
+    Type: String
+    Default: "us-east-1"
+    Description: Secondary AWS Region for disaster recovery replica bucket
+
+  DRDestinationBucketArn:
+    Type: String
+    Default: ""
+    Description: Destination S3 Bucket ARN in DR Region (leave blank to use conventional ARN)
+
+  EnableMalwareProtection:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Provision dedicated Quarantine S3 Bucket for AWS GuardDuty Malware Protection isolation
+
 Conditions:
   HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
   HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
@@ -61,6 +83,9 @@ Conditions:
   ShouldEnableObjectLock: !Equals [!Ref EnableObjectLock, "true"]
   ShouldEnableKMS: !Equals [!Ref EnableCustomerManagedKMS, "true"]
   ShouldEnableAuditVault: !Equals [!Ref EnableAuditVault, "true"]
+  ShouldEnableCRR: !Equals [!Ref EnableCrossRegionReplication, "true"]
+  HasDRDestinationBucketArn: !Not [!Equals [!Ref DRDestinationBucketArn, ""]]
+  ShouldEnableMalwareProtection: !Equals [!Ref EnableMalwareProtection, "true"]
 
 Resources:
   # ── S3 Multi-Tenant Object Storage Vault ─────────────────────────────────────
@@ -104,6 +129,31 @@ Resources:
       NotificationConfiguration:
         EventBridgeConfiguration:
           EventBridgeEnabled: true
+      ReplicationConfiguration:
+        Fn::If:
+          - ShouldEnableCRR
+          - Role: !GetAtt S3ReplicationRole.Arn
+            Rules:
+              - Id: StorixDisasterRecoveryReplication
+                Status: Enabled
+                Priority: 1
+                DeleteMarkerReplication:
+                  Status: Enabled
+                Filter:
+                  Prefix: ""
+                Destination:
+                  Bucket:
+                    Fn::If:
+                      - HasDRDestinationBucketArn
+                      - !Ref DRDestinationBucketArn
+                      - !Sub "arn:aws:s3:::${EnvironmentName}-nextcloud-vault-dr-${AWS::AccountId}-${DRDestinationRegion}"
+                  ReplicationTime:
+                    Status: Enabled
+                    Time:
+                      Minutes: 15
+                  Metrics:
+                    Status: Enabled
+          - !Ref "AWS::NoValue"
       LifecycleConfiguration:
         Rules:
           - Id: TenantStorageLifecycleOptimization
@@ -144,6 +194,71 @@ Resources:
             Condition:
               Bool:
                 "aws:SecureTransport": "false"
+
+  # ── S3 Cross-Region Replication Role ────────────────────────────────────────
+  S3ReplicationRole:
+    Type: AWS::IAM::Role
+    Condition: ShouldEnableCRR
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-s3-crr-role-${AWS::Region}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: "sts:AssumeRole"
+      Policies:
+        - PolicyName: S3ReplicationPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "s3:GetReplicationConfiguration"
+                  - "s3:ListBucket"
+                Resource: !Sub "${S3VaultBucket.Arn}"
+              - Effect: Allow
+                Action:
+                  - "s3:GetObjectVersionForReplication"
+                  - "s3:GetObjectVersionAcl"
+                  - "s3:GetObjectVersionTagging"
+                Resource: !Sub "${S3VaultBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - "s3:ReplicateObject"
+                  - "s3:ReplicateDelete"
+                  - "s3:ReplicateTags"
+                Resource:
+                  Fn::If:
+                    - HasDRDestinationBucketArn
+                    - !Sub "${DRDestinationBucketArn}/*"
+                    - !Sub "arn:aws:s3:::${EnvironmentName}-nextcloud-vault-dr-${AWS::AccountId}-${DRDestinationRegion}/*"
+
+  # ── S3 Quarantine Bucket for Malware Isolation ──────────────────────────────
+  QuarantineBucket:
+    Type: AWS::S3::Bucket
+    Condition: ShouldEnableMalwareProtection
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-nextcloud-quarantine-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-quarantine-bucket"
+        - Key: Purpose
+          Value: MalwareQuarantineIsolation
 
   # ── Amazon EFS Shared Persistent Config Store (/var/www/html/config) ────────
   NextcloudEFS:
