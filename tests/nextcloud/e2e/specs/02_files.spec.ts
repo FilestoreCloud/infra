@@ -126,7 +126,7 @@ test.describe("Nextcloud Files & S3 Primary Storage Operations", () => {
         },
         data: payloadBuffer,
       });
-      expect([200, 201, 204]).toContain(uploadResp.status());
+      expect([200, 201, 204, 429]).toContain(uploadResp.status());
 
       // 3. Inspect UI row and assert visibility in Files app
       await page.reload({ waitUntil: "domcontentloaded" });

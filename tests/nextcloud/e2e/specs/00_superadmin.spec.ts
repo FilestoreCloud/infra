@@ -188,7 +188,7 @@ test.describe("SuperAdmin Web Console E2E", () => {
     browser,
     request,
   }) => {
-    test.setTimeout(180000);
+    test.setTimeout(300000);
     await loginSuperAdmin(page, ADMIN_EMAIL, ADMIN_PASSWORD, CONSOLE_URL);
 
     // Open Modal

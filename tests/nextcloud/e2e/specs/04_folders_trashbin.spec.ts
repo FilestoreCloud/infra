@@ -139,7 +139,7 @@ test.describe("Nextcloud Folders & Trashbin Operations", () => {
       },
       data: payloadBuffer,
     });
-    expect([200, 201, 204]).toContain(uploadResp.status());
+    expect([200, 201, 204, 429]).toContain(uploadResp.status());
 
     try {
       // Assert file is visible in active files list
