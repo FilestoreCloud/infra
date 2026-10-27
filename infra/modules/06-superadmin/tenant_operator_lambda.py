@@ -1815,6 +1815,13 @@ def _handle_request(event, context):
     infra = get_infra_config()
 
     try:
+        if action == "SET_STATUS":
+            target_status = str(payload.get("status") or "").upper()
+            if target_status == "SUSPENDED":
+                action = "SUSPEND"
+            elif target_status in ["ACTIVE", "RESUME"]:
+                action = "RESUME"
+
         if action in ["PROVISION", "PROVISION_DEMO"]:
             domain = payload.get("domain") or f"{tenant_id}.{ROOT_DOMAIN}"
             quota_gb = str(payload.get("quota_gb", 100))
