@@ -25,7 +25,7 @@ async function run() {
 
   const context = await browser.newContext({
     viewport: { width: 1680, height: 1050 },
-    userAgent: 'Storix-Playwright-Auditor/2.0',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
     ignoreHTTPSErrors: true
   });
 
@@ -110,10 +110,10 @@ async function run() {
     await sleep(1000);
 
     // ------------------------------------------------------------------------
-    // 5. TENANT DETAILS: TELEMETRY, TOPOLOGY, ACCOUNTS (Tenant: abc)
+    // 5. TENANT DETAILS: TELEMETRY, TOPOLOGY, ACCOUNTS (Tenant: dev-tenant)
     // ------------------------------------------------------------------------
-    console.log('\n[5/7] Inspecting Dedicated Tenant Details (Tenant: abc)...');
-    await page.goto(`${BASE_URL}/tenants/abc`, { waitUntil: 'networkidle', timeout: 25000 });
+    console.log('\n[5/7] Inspecting Dedicated Tenant Details (Tenant: dev-tenant)...');
+    await page.goto(`${BASE_URL}/tenants/dev-tenant`, { waitUntil: 'networkidle', timeout: 25000 });
     await sleep(3000);
 
     // Capture Top Section: Header & Live Metrics
@@ -137,24 +137,24 @@ async function run() {
     await snap('07_tenant_abc_accounts_tab.png');
 
     // ------------------------------------------------------------------------
-    // 6. TENANT DETAILS FOR dev-tenant
+    // 6. TENANT OVERVIEW
     // ------------------------------------------------------------------------
-    console.log('\n[6/7] Inspecting Tenant Details (Tenant: dev-tenant)...');
-    await page.goto(`${BASE_URL}/tenants/dev-tenant`, { waitUntil: 'networkidle', timeout: 25000 });
+    console.log('\n[6/7] Inspecting Tenant Overview...');
+    await page.goto(`${BASE_URL}/tenants/acme-corp`, { waitUntil: 'networkidle', timeout: 25000 });
     await sleep(3000);
     await snap('08_tenant_dev_tenant_overview.png');
 
     // ------------------------------------------------------------------------
     // 7. NEXTCLOUD TENANT INSTANCE LOGIN & ISOLATION VERIFICATION
     // ------------------------------------------------------------------------
-    console.log('\n[7/7] Verifying Nextcloud Tenant Access & Isolation (https://abc.png261.dev)...');
+    console.log('\n[7/7] Verifying Nextcloud Tenant Access & Isolation (https://dev-tenant.png261.dev)...');
     let ncRes = null;
     let attempts = 0;
     while (attempts < 10) {
       attempts++;
       try {
-        console.log(`  Attempt ${attempts}: navigating to https://abc.png261.dev...`);
-        ncRes = await page.goto('https://abc.png261.dev', { waitUntil: 'networkidle', timeout: 20000 });
+        console.log(`  Attempt ${attempts}: navigating to https://dev-tenant.png261.dev...`);
+        ncRes = await page.goto('https://dev-tenant.png261.dev', { waitUntil: 'networkidle', timeout: 20000 });
         const status = ncRes ? ncRes.status() : 0;
         console.log(`  Response status: ${status}, current URL: ${page.url()}`);
         if (status < 500 && !page.url().includes('503')) {
@@ -179,7 +179,7 @@ async function run() {
     console.log('  Assertion - Login form present directly:', hasLoginForm);
 
     if (hasLoginForm) {
-      console.log('  Logging in as admin on tenant abc...');
+      console.log('  Logging in as admin on tenant dev-tenant...');
       await page.fill('input#user, input[name="user"]', 'admin');
       await page.fill('input#password, input[name="password"]', 'StorixAdmin2026!Secure');
       await page.click('button#submit-form, button[type="submit"]');
