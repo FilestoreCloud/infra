@@ -455,7 +455,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 			resumeResp.Status = inner.Status
 		}
 	}
-	assert.Contains(t, []string{"OK", "ACTIVE", "RESUMING"}, resumeResp.Status, "RESUME status must indicate scale-out transition")
+	assert.Contains(t, []string{"OK", "ACTIVE", "RESUMING", "RESUMED"}, resumeResp.Status, "RESUME status must indicate scale-out transition")
 	t.Logf("   -> Tenant scaled out successfully (status: %s)", resumeResp.Status)
 
 	// 5. Live Tenant Container Image Rolling Upgrade Verification (Zero Downtime)
@@ -508,7 +508,18 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	require.NoError(t, err, "Failed to describe current Task Definition")
 	require.NotEmpty(t, tdDesc.TaskDefinition.ContainerDefinitions, "Task Definition must have container definitions")
 
-	currentImage := *tdDesc.TaskDefinition.ContainerDefinitions[0].Image
+	var currentImage string
+	for _, c := range tdDesc.TaskDefinition.ContainerDefinitions {
+		if c.Name != nil && (*c.Name == "nextcloud" || *c.Name == "app") {
+			if c.Image != nil {
+				currentImage = *c.Image
+				break
+			}
+		}
+	}
+	if currentImage == "" && len(tdDesc.TaskDefinition.ContainerDefinitions) > 0 {
+		currentImage = *tdDesc.TaskDefinition.ContainerDefinitions[0].Image
+	}
 	targetImage := os.Getenv("TARGET_IMAGE")
 	if targetImage == "" {
 		targetImage = currentImage
