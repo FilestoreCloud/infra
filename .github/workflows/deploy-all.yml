@@ -147,9 +147,35 @@ jobs:
           fail-on-empty-changeset: "0"
           capabilities: CAPABILITY_NAMED_IAM
 
+  deploy-opensearch:
+    name: 2d-ii. Infra — 05-OpenSearch
+    needs: [deploy-networking, deploy-security]
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_INFRA }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Deploy 05-OpenSearch Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v2
+        with:
+          name: ${{ inputs.environment }}-nextcloud-05-opensearch
+          template: infra/modules/05-compute/opensearch.yaml
+          parameter-overrides: "EnvironmentName=${{ inputs.environment }}"
+          tags: '[{"Key": "Project", "Value": "storix"}, {"Key": "Application", "Value": "storix"}, {"Key": "Environment", "Value": "${{ inputs.environment }}"}]'
+          fail-on-empty-changeset: "0"
+          capabilities: CAPABILITY_NAMED_IAM
+
   deploy-compute:
     name: 2e. Infra — 05-Compute
-    needs: [build-runtime, deploy-storage, deploy-database]
+    needs: [build-runtime, deploy-storage, deploy-database, deploy-opensearch]
     if: ${{ always() && !contains(needs.deploy-storage.result, 'failure') && !contains(needs.deploy-storage.result, 'cancelled') && !contains(needs.deploy-database.result, 'failure') && !contains(needs.deploy-database.result, 'cancelled') && (needs.build-runtime.result == 'success' || needs.build-runtime.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment:

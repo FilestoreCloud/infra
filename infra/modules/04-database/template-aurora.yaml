@@ -53,11 +53,18 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: Provision dedicated reader instance for automated Multi-AZ failover (<30 seconds)
 
+  EnableGlobalDatabase:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: Enable Aurora Global Database for cross-region disaster recovery (RPO < 1s)
+
 Conditions:
   HasPrivateSubnet1Id: !Not [!Equals [!Ref PrivateSubnet1Id, ""]]
   HasPrivateSubnet2Id: !Not [!Equals [!Ref PrivateSubnet2Id, ""]]
   HasDBSecurityGroupId: !Not [!Equals [!Ref DBSecurityGroupId, ""]]
   ShouldEnableMultiAZ: !Equals [!Ref EnableMultiAZReplica, "true"]
+  ShouldEnableGlobalDB: !Equals [!Ref EnableGlobalDatabase, "true"]
 
 Resources:
   DBSubnetGroup:
@@ -94,12 +101,24 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  # ── Aurora Global Database (Cross-Region DR) ────────────────────────────────
+  AuroraGlobalCluster:
+    Type: AWS::RDS::GlobalCluster
+    Condition: ShouldEnableGlobalDB
+    Properties:
+      GlobalClusterIdentifier: !Sub "${EnvironmentName}-storix-aurora-global"
+      Engine: aurora-postgresql
+      EngineVersion: "16.8"
+      StorageEncrypted: true
+      DeletionProtection: false
+
   AuroraCluster:
     Type: AWS::RDS::DBCluster
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
       DBClusterIdentifier: !Sub "${EnvironmentName}-nextcloud-aurora-cluster"
+      GlobalClusterIdentifier: !If [ShouldEnableGlobalDB, !Ref AuroraGlobalCluster, !Ref "AWS::NoValue"]
       Engine: aurora-postgresql
       EngineVersion: "16.8"
       DatabaseName: !Ref DBName
