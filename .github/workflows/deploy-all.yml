@@ -112,6 +112,42 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           audience: sts.amazonaws.com
 
+      - name: Clean up Orphaned S3 Buckets from Retained Deletions if Stack Does Not Exist
+        run: |
+          python3 - << 'EOF'
+          import boto3, os
+          region = os.environ.get('AWS_REGION', 'ap-southeast-1')
+          env_name = "${{ inputs.environment }}"
+          cfn = boto3.client('cloudformation', region_name=region)
+          s3 = boto3.client('s3', region_name=region)
+          s3_res = boto3.resource('s3', region_name=region)
+
+          stack_exists = True
+          try:
+              cfn.describe_stacks(StackName=f"{env_name}-nextcloud-03-storage")
+          except Exception:
+              stack_exists = False
+
+          if not stack_exists:
+              print(f"Stack {env_name}-nextcloud-03-storage does not exist. Checking for orphaned buckets...")
+              buckets = s3.list_buckets().get('Buckets', [])
+              for b in buckets:
+                  name = b['Name']
+                  if name.startswith(f"{env_name}-nextcloud-vault-") or name.startswith(f"{env_name}-nextcloud-data-") or name.startswith(f"{env_name}-storix-"):
+                      print(f"Purging and deleting orphaned bucket: {name}")
+                      try:
+                          s3.delete_bucket_policy(Bucket=name)
+                      except Exception:
+                          pass
+                      try:
+                          bucket = s3_res.Bucket(name)
+                          bucket.object_versions.delete()
+                          s3.delete_bucket(Bucket=name)
+                          print(f"✔ Successfully deleted orphaned bucket: {name}")
+                      except Exception as e:
+                          print(f"⚠️ Warning deleting {name}: {e}")
+          EOF
+
       - name: Deploy 03-Storage Stack
         uses: aws-actions/aws-cloudformation-github-deploy@v2
         with:
