@@ -410,12 +410,48 @@ jobs:
           region = os.environ.get('AWS_REGION', 'ap-southeast-1')
           env_name = "${{ inputs.environment }}"
           dynamodb = boto3.client('dynamodb', region_name=region)
+          cognito = boto3.client('cognito-idp', region_name=region)
 
           def hash_pwd(password):
               salt = secrets.token_hex(16)
               hashed = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
-              return f'{salt}:{hashed}'
+              return f'{salt}${hashed}'
 
+          # 1. Seed Cognito User Pool
+          try:
+              cfn = boto3.client('cloudformation', region_name=region)
+              stacks = cfn.describe_stacks(StackName=f'{env_name}-nextcloud-06-superadmin')
+              pool_id = None
+              for o in stacks['Stacks'][0].get('Outputs', []):
+                  if o['OutputKey'] == 'CognitoUserPoolId':
+                      pool_id = o['OutputValue']
+                      break
+              if pool_id:
+                  try:
+                      cognito.admin_create_user(
+                          UserPoolId=pool_id,
+                          Username='admin@png261.dev',
+                          UserAttributes=[
+                              {'Name': 'email', 'Value': 'admin@png261.dev'},
+                              {'Name': 'email_verified', 'Value': 'true'}
+                          ],
+                          MessageAction='SUPPRESS'
+                      )
+                      print(f"✓ Created user admin@png261.dev in Cognito User Pool {pool_id}")
+                  except cognito.exceptions.UsernameExistsException:
+                      print(f"ℹ️ User admin@png261.dev already exists in Cognito User Pool {pool_id}")
+
+                  cognito.admin_set_user_password(
+                      UserPoolId=pool_id,
+                      Username='admin@png261.dev',
+                      Password='StorixAdmin2026!Secure',
+                      Permanent=True
+                  )
+                  print("✓ Set permanent password StorixAdmin2026!Secure in Cognito")
+          except Exception as e:
+              print(f"Cognito seeding warning: {e}")
+
+          # 2. Seed DynamoDB Admin Users
           users = [
               {'username': 'admin', 'email': 'admin@storix.cloud', 'password': 'StorixAdmin2026!Secure', 'role': 'SUPER_ADMIN'},
               {'username': 'admin@png261.dev', 'email': 'admin@png261.dev', 'password': 'StorixAdmin2026!Secure', 'role': 'SUPER_ADMIN'},
@@ -423,13 +459,16 @@ jobs:
           ]
 
           for u in users:
+              h = hash_pwd(u['password'])
               dynamodb.put_item(
                   TableName=f'{env_name}-nextcloud-admin-users',
                   Item={
                       'username': {'S': u['username']},
                       'email': {'S': u['email']},
-                      'passwordHash': {'S': hash_pwd(u['password'])},
+                      'password_hash': {'S': h},
+                      'passwordHash': {'S': h},
                       'role': {'S': u['role']},
+                      'mfa_enabled': {'BOOL': False},
                       'mfaEnabled': {'BOOL': False},
                       'createdAt': {'S': str(int(time.time()))}
                   }
