@@ -2,7 +2,7 @@
 """
 Storix Platform Zero-Cost Teardown Automation
 Natively tears down all AWS CloudFormation stacks, ECS resources, S3 versioned buckets,
-and CloudFront distributions in strict reverse-dependency order.
+EFS file systems, and CloudFront distributions in strict reverse-dependency order.
 """
 
 import os
@@ -22,18 +22,35 @@ def get_resource(service, region):
 
 
 def empty_s3_bucket(bucket_name, region):
-    s3 = get_resource("s3", region)
-    bucket = s3.Bucket(bucket_name)
+    s3_client = get_client("s3", region)
+    s3_resource = get_resource("s3", region)
     try:
-        # Check if bucket exists
-        bucket.meta.client.head_bucket(Bucket=bucket_name)
-        print(f"  🗑️  Purging all objects and versions in bucket: {bucket_name}")
-        bucket.object_versions.delete()
-        print(f"  ✔ Successfully emptied S3 bucket: {bucket_name}")
+        s3_client.head_bucket(Bucket=bucket_name)
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code")
-        if code not in ["NoSuchBucket", "404", "403"]:
-            print(f"  ⚠️ Warning emptying {bucket_name}: {e}")
+        if code in ["NoSuchBucket", "404"]:
+            return
+
+    # 1. Remove bucket policy so nothing blocks deletion
+    try:
+        s3_client.delete_bucket_policy(Bucket=bucket_name)
+    except Exception:
+        pass
+
+    # 2. Delete all versions and delete markers
+    try:
+        bucket = s3_resource.Bucket(bucket_name)
+        bucket.object_versions.delete()
+        print(f"  ✔ Emptied all objects and versions in S3 bucket: {bucket_name}")
+    except Exception as e:
+        print(f"  ⚠️ Warning emptying {bucket_name}: {e}")
+
+    # 3. Attempt direct bucket deletion if retained
+    try:
+        s3_client.delete_bucket(Bucket=bucket_name)
+        print(f"  ✔ Deleted S3 bucket: {bucket_name}")
+    except Exception:
+        pass
 
 
 def empty_matching_s3_buckets(prefix, region):
@@ -74,7 +91,42 @@ def cleanup_ecs(cluster_name, region):
             print(f"  ⚠️ ECS cluster cleanup warning: {e}")
 
 
-def delete_stack_safely(cfn, stack_name, retain_resources=None, max_wait_mins=15):
+def cleanup_efs(region):
+    efs = get_client("efs", region)
+    try:
+        filesystems = efs.describe_file_systems().get("FileSystems", [])
+        for fs in filesystems:
+            fs_id = fs["FileSystemId"]
+            name = fs.get("Name", "")
+            if "nextcloud" in name or "storix" in name:
+                print(f"  🔍 Inspecting EFS filesystem: {fs_id} ({name})")
+                try:
+                    mount_targets = efs.describe_mount_targets(FileSystemId=fs_id).get("MountTargets", [])
+                    for mt in mount_targets:
+                        mt_id = mt["MountTargetId"]
+                        print(f"    Deleting mount target: {mt_id}")
+                        efs.delete_mount_target(MountTargetId=mt_id)
+                except Exception as mte:
+                    print(f"    Mount target cleanup: {mte}")
+    except Exception as e:
+        print(f"  ⚠️ EFS check: {e}")
+
+
+def get_failed_resources(cfn, stack_name):
+    """Query CloudFormation stack events to find all logical resources in DELETE_FAILED."""
+    try:
+        events = cfn.describe_stack_events(StackName=stack_name).get("StackEvents", [])
+        failed = set()
+        for ev in events:
+            if ev.get("ResourceStatus") == "DELETE_FAILED":
+                failed.add(ev["LogicalResourceId"])
+        return list(failed)
+    except Exception as e:
+        print(f"  ⚠️ Could not query stack events for {stack_name}: {e}")
+        return []
+
+
+def delete_stack_safely(cfn, stack_name, max_wait_mins=15):
     try:
         desc = cfn.describe_stacks(StackName=stack_name)["Stacks"][0]
         status = desc["StackStatus"]
@@ -86,10 +138,12 @@ def delete_stack_safely(cfn, stack_name, retain_resources=None, max_wait_mins=15
         print(f"⚠️ Error checking stack {stack_name}: {e}")
         return False
 
+    failed_resources = get_failed_resources(cfn, stack_name)
+
     try:
-        if status == "DELETE_FAILED" and retain_resources:
-            print(f"  ⚠️ Stack is DELETE_FAILED. Deleting with retain-resources: {retain_resources}")
-            cfn.delete_stack(StackName=stack_name, RetainResources=retain_resources)
+        if status == "DELETE_FAILED" and failed_resources:
+            print(f"  ⚠️ Stack is DELETE_FAILED. Deleting with RetainResources={failed_resources}...")
+            cfn.delete_stack(StackName=stack_name, RetainResources=failed_resources)
         else:
             cfn.delete_stack(StackName=stack_name)
     except Exception as e:
@@ -104,17 +158,19 @@ def delete_stack_safely(cfn, stack_name, retain_resources=None, max_wait_mins=15
         return True
     except Exception as e:
         print(f"  ⚠️ Waiter reported: {e}")
-        # Check current status
+        # Retry with dynamically discovered failed resources
         try:
             cur = cfn.describe_stacks(StackName=stack_name)["Stacks"][0]["StackStatus"]
-            if cur == "DELETE_FAILED" and retain_resources:
-                print(f"  Retrying deletion of {stack_name} with retain-resources: {retain_resources}")
-                cfn.delete_stack(StackName=stack_name, RetainResources=retain_resources)
-                waiter.wait(StackName=stack_name, WaiterConfig={"Delay": 10, "MaxAttempts": attempts})
-                print(f"  ✔ Stack [{stack_name}] deleted after retaining failed resources.")
-                return True
-        except Exception:
-            pass
+            if cur == "DELETE_FAILED":
+                failed = get_failed_resources(cfn, stack_name)
+                if failed:
+                    print(f"  Retrying deletion of [{stack_name}] with RetainResources={failed}...")
+                    cfn.delete_stack(StackName=stack_name, RetainResources=failed)
+                    waiter.wait(StackName=stack_name, WaiterConfig={"Delay": 10, "MaxAttempts": attempts})
+                    print(f"  ✔ Stack [{stack_name}] deleted successfully after retaining.")
+                    return True
+        except Exception as retry_err:
+            print(f"  ⚠️ Retry failed: {retry_err}")
         return False
 
 
@@ -135,13 +191,8 @@ def teardown(env: str, region: str):
 
     # 3. Compute (ECS + OpenSearch)
     cleanup_ecs(f"{env}-nextcloud-cluster", region)
-    delete_stack_safely(
-        cfn,
-        f"{env}-nextcloud-05-compute",
-        retain_resources=["ECSCluster"],
-        max_wait_mins=15
-    )
-    # Delete cluster directly if retained
+    delete_stack_safely(cfn, f"{env}-nextcloud-05-compute", max_wait_mins=15)
+    # Direct cleanup of ECS cluster if retained
     try:
         ecs = get_client("ecs", region)
         ecs.delete_cluster(cluster=f"{env}-nextcloud-cluster")
@@ -161,6 +212,7 @@ def teardown(env: str, region: str):
     empty_matching_s3_buckets(f"{env}-storix-vault-", region)
     empty_matching_s3_buckets(f"{env}-storix-audit-vault-", region)
     empty_matching_s3_buckets(f"{env}-storix-quarantine-", region)
+    cleanup_efs(region)
     delete_stack_safely(cfn, f"{env}-nextcloud-03-storage", max_wait_mins=15)
 
     # 7. Security (IAM & Security Groups)
@@ -171,32 +223,33 @@ def teardown(env: str, region: str):
 
     # 9. Final Sweep Check
     print("\n" + "=" * 70)
-    print("🔍 Final Stack Status Verification")
+    print("🔍 Final Stack Status Verification & Sweep")
     print("=" * 70)
-    try:
-        resp = cfn.list_stacks(
-            StackStatusFilter=[
-                "CREATE_COMPLETE",
-                "UPDATE_COMPLETE",
-                "ROLLBACK_COMPLETE",
-                "DELETE_FAILED",
-                "DELETE_IN_PROGRESS"
+    for attempt in range(3):
+        try:
+            resp = cfn.list_stacks(
+                StackStatusFilter=[
+                    "CREATE_COMPLETE",
+                    "UPDATE_COMPLETE",
+                    "ROLLBACK_COMPLETE",
+                    "DELETE_FAILED",
+                    "DELETE_IN_PROGRESS"
+                ]
+            )
+            remaining = [
+                s["StackName"]
+                for s in resp.get("StackSummaries", [])
+                if s["StackName"].startswith(f"{env}-nextcloud-")
             ]
-        )
-        remaining = [
-            s["StackName"]
-            for s in resp.get("StackSummaries", [])
-            if s["StackName"].startswith(f"{env}-nextcloud-")
-        ]
-        if remaining:
-            print(f"⚠️ Remaining stacks detected: {remaining}")
+            if not remaining:
+                print(f"🎉 All {env} CloudFormation stacks are 100% cleanly deleted.")
+                break
+            print(f"⚠️ Remaining stacks detected on attempt {attempt + 1}: {remaining}")
             for rem in remaining:
-                print(f"Executing final force deletion on {rem}...")
-                cfn.delete_stack(StackName=rem)
-        else:
-            print(f"🎉 All {env} CloudFormation stacks are 100% cleanly deleted.")
-    except Exception as e:
-        print(f"Error during final sweep: {e}")
+                delete_stack_safely(cfn, rem, max_wait_mins=5)
+        except Exception as e:
+            print(f"Error during final sweep: {e}")
+            break
 
     print("\nTeardown complete.")
 
