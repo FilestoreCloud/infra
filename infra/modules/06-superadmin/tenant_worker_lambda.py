@@ -348,9 +348,14 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         "$pdo->exec(\"CREATE DATABASE \" . $safe_db); "
         "echo \"CREATED_DB \" . $safe_db . \"\\n\"; "
         "} "
+        "$q = $pdo->quote($p); "
+        "$users = $pdo->query(\"SELECT usename FROM pg_user WHERE usename LIKE \\x27oc_%\\x27\")->fetchAll(PDO::FETCH_COLUMN); "
+        "foreach ($users as $oc_user) { "
+        "$pdo->exec(\"ALTER USER \\\"\" . $oc_user . \"\\\" WITH PASSWORD \" . $q); "
+        "} "
         "} catch (Exception $e) { "
         "echo \"DB_INIT_NOTICE: \" . $e->getMessage() . \"\\n\"; "
-        "}' && exec /storix-entrypoint.sh apache2-foreground"
+        "}' && mkdir -p /var/www/html/data && touch /var/www/html/data/.ncdata && echo '# Nextcloud data directory' > /var/www/html/data/.ncdata && chown -R www-data:www-data /var/www/html/data && exec /storix-entrypoint.sh apache2-foreground"
     )
 
     container_def = {
