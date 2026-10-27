@@ -56,6 +56,18 @@ class TestDisasterRecoveryConfig(unittest.TestCase):
         self.assertIn("SwitchRoute53DNSFailover", content)
         self.assertIn("CompensatingRollbackNotice", content)
 
+    def test_opensearch_sqs_file_indexing_queue_configuration(self):
+        """Verify 05-compute opensearch.yaml defines decoupled SQS Queue, DLQ, and EventRule."""
+        template_file = MODULES_DIR / "05-compute" / "opensearch.yaml"
+        content = template_file.read_text(encoding="utf-8")
+
+        self.assertIn("FileIndexingQueue", content)
+        self.assertIn("FileIndexingDLQ", content)
+        self.assertIn("FileIndexingEventRule", content)
+        self.assertIn("FileIndexingQueueUrl", content)
+        self.assertIn("FileIndexingQueueArn", content)
+        self.assertIn("FileIndexingDLQArn", content)
+
 
 if __name__ == "__main__":
     unittest.main()

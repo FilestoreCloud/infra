@@ -158,6 +158,72 @@ Resources:
         - Key: Environment
           Value: !Ref EnvironmentName
 
+  # ── SQS Dead-Letter Queue (DLQ) for Unprocessable Ingestion Messages ────────
+  FileIndexingDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${EnvironmentName}-storix-file-indexing-dlq"
+      MessageRetentionPeriod: 1209600
+      KmsMasterKeyId: alias/aws/sqs
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-file-indexing-dlq"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  # ── Amazon SQS Asynchronous Ingestion Buffer ────────────────────────────────
+  FileIndexingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${EnvironmentName}-storix-file-indexing-queue"
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 345600
+      KmsMasterKeyId: alias/aws/sqs
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt FileIndexingDLQ.Arn
+        maxReceiveCount: 3
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-file-indexing-queue"
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  FileIndexingQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref FileIndexingQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: "sqs:SendMessage"
+            Resource: !GetAtt FileIndexingQueue.Arn
+
+  # ── EventBridge Rule: S3 ObjectCreated to SQS ──────────────────────────────
+  FileIndexingEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub "${EnvironmentName}-storix-file-indexing-rule"
+      Description: Routes S3 ObjectCreated events from S3 Vault to SQS Ingestion Queue
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - "Object Created"
+        detail:
+          bucket:
+            name:
+              - !Sub "${EnvironmentName}-nextcloud-vault-${AWS::AccountId}-${AWS::Region}"
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt FileIndexingQueue.Arn
+          Id: FileIndexingQueueTarget
+          DeadLetterConfig:
+            Arn: !GetAtt FileIndexingDLQ.Arn
+
   # ── SSM Parameter Outputs ───────────────────────────────────────────────────
   SSMOpenSearchEndpoint:
     Type: AWS::SSM::Parameter
@@ -197,3 +263,21 @@ Outputs:
     Value: !Ref OpenSearchSecurityGroup
     Export:
       Name: !Sub "${EnvironmentName}-nextcloud-OpenSearchSecurityGroupId"
+
+  FileIndexingQueueUrl:
+    Description: SQS Queue URL for Asynchronous File Indexing
+    Value: !Ref FileIndexingQueue
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-FileIndexingQueueUrl"
+
+  FileIndexingQueueArn:
+    Description: SQS Queue ARN for Asynchronous File Indexing
+    Value: !GetAtt FileIndexingQueue.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-FileIndexingQueueArn"
+
+  FileIndexingDLQArn:
+    Description: SQS Dead-Letter Queue ARN for File Indexing Failures
+    Value: !GetAtt FileIndexingDLQ.Arn
+    Export:
+      Name: !Sub "${EnvironmentName}-nextcloud-FileIndexingDLQArn"
