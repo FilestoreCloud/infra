@@ -115,6 +115,7 @@ def hash_password(password: str, salt: Optional[str] = None) -> str:
 def verify_password(password: str, stored_hash: str) -> bool:
     """Verifies password matches PBKDF2 stored hash."""
     try:
+        password = (password or "").strip()
         salt, _ = stored_hash.split(":", 1)
         return hmac.compare_digest(hash_password(password, salt), stored_hash)
     except Exception:
