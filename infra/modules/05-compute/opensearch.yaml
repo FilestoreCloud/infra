@@ -103,6 +103,8 @@ Resources:
     Properties:
       DomainName: !Sub "${EnvironmentName}-storix-search"
       EngineVersion: "OpenSearch_2.11"
+      AdvancedOptions:
+        override_main_response_version: "true"
       ClusterConfig:
         InstanceType: !Ref OpenSearchInstanceType
         InstanceCount: !Ref OpenSearchInstanceCount
