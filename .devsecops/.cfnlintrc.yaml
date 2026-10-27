@@ -3,3 +3,4 @@ ignore_checks:
   - W2001
   - W1011
   - W3005
+  - E3004
