@@ -6,7 +6,7 @@ Modular CloudFormation architecture for enterprise Storix Multi-Tenant SaaS on A
 
 ## 1. Architecture Overview
 
-![Storix Multi-Tenant AWS Architecture](../docs/images/nextcloud_architecture.png)
+![Storix Multi-Tenant AWS Architecture](../docs/images/storix_system_architecture_master.png)
 
 The infrastructure delivers:
 
