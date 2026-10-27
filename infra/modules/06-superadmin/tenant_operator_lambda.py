@@ -258,10 +258,14 @@ def hash_password(password, salt=None):
 
 def verify_password(password, stored_hash):
     """Verify password against salt and PBKDF2 hash."""
-    if not stored_hash or "$" not in stored_hash:
+    if not stored_hash or not password:
+        return False
+    password = str(password).strip()
+    sep = "$" if "$" in stored_hash else (":" if ":" in stored_hash else None)
+    if not sep:
         return False
     try:
-        salt, expected_h = stored_hash.split("$", 1)
+        salt, expected_h = stored_hash.split(sep, 1)
         h = hashlib.pbkdf2_hmac(
             "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
         )
@@ -517,6 +521,8 @@ def authenticate_with_cognito(username, password):
     """Authenticate username and password directly against AWS Cognito User Pool."""
     if not COGNITO_USER_POOL_ID or not COGNITO_CLIENT_ID:
         return False, None, "Cognito User Pool not configured."
+    username = (username or "").strip().lower()
+    password = (password or "").strip()
     try:
         cognito_idp.admin_initiate_auth(
             UserPoolId=COGNITO_USER_POOL_ID,
@@ -852,7 +858,7 @@ def _handle_request(event, context):
         username = (
             (payload.get("username") or payload.get("email") or "").strip().lower()
         )
-        password = payload.get("password") or ""
+        password = (payload.get("password") or "").strip()
 
         if not username or not password:
             return {
@@ -990,14 +996,15 @@ def _handle_request(event, context):
 
     # 2. Handle VERIFY_MFA endpoint (Verify 6-digit verification code)
     if action == "VERIFY_MFA":
-        challenge_token = payload.get("challenge_token") or query_params.get(
-            "challenge_token"
-        )
+        challenge_token = (
+            payload.get("challenge_token") or query_params.get("challenge_token") or ""
+        ).strip()
         mfa_code = (
             payload.get("mfa_code")
             or payload.get("totp_code")
             or query_params.get("mfa_code")
-        )
+            or ""
+        ).strip()
 
         if not challenge_token or not mfa_code:
             return {
