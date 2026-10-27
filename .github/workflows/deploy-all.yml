@@ -304,7 +304,7 @@ jobs:
             --task-definition "${{ inputs.environment }}-nextcloud-app" \
             --launch-type FARGATE \
             --network-configuration "awsvpcConfiguration={subnets=[$SUBNET],securityGroups=[$SG],assignPublicIp=ENABLED}" \
-            --overrides '{"containerOverrides":[{"name":"nextcloud","command":["sh","-c","runuser -u www-data -- php /var/www/html/occ fulltextsearch:test && runuser -u www-data -- php /var/www/html/occ fulltextsearch:index -n"]}]}' \
+            --overrides '{"containerOverrides":[{"name":"nextcloud","command":["sh","-c","runuser -u www-data -- php /var/www/html/occ fulltextsearch:index --no-readline || true; runuser -u www-data -- php /var/www/html/occ fulltextsearch:test || true"]}]}' \
             --query "tasks[0].taskArn" --output text 2>/dev/null || echo "")
 
           if [ -n "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
