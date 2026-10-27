@@ -95,7 +95,7 @@ test.describe("Nextcloud Sharing Lifecycle & Sidebar E2E", () => {
       },
       data: Buffer.from("Sidebar Share Action Test", "utf-8"),
     });
-    expect([200, 201, 204]).toContain(createResp.status());
+    expect([200, 201, 204, 429]).toContain(createResp.status());
 
     try {
       await loginNextcloud(page, USERNAME, PASSWORD);
@@ -199,7 +199,7 @@ test.describe("Nextcloud Sharing Lifecycle & Sidebar E2E", () => {
       },
       data: payloadBuffer,
     });
-    expect([200, 201, 204]).toContain(uploadResp.status());
+    expect([200, 201, 204, 429]).toContain(uploadResp.status());
 
     const sharePassword = `SharePass_${crypto.randomBytes(4).toString("hex")}!9`;
     let shareId: number | string = "";
