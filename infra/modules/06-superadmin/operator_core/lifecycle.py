@@ -168,6 +168,12 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         {"name": "OVERWRITEHOST", "value": domain},
         {"name": "TENANT_ID", "value": tenant_id},
         {"name": "TENANT_STORAGE_PREFIX", "value": f"tenants/{tenant_id}/"},
+        {"name": "OPENSEARCH_HOST", "value": infra.get("opensearch_endpoint", "")},
+        {"name": "TIKA_HOST", "value": "127.0.0.1"},
+        {"name": "TIKA_PORT", "value": "9998"},
+        {"name": "AI_API_URL", "value": os.environ.get("AI_API_URL", "https://api.vilao.ai/v1")},
+        {"name": "AI_API_KEY", "value": os.environ.get("AI_API_KEY", "sk-9e55145c6edcbbcd434716fd67df824a57d9a5af491b863ec8fee6d33f5604f9")},
+        {"name": "AI_MODEL_NAME", "value": os.environ.get("AI_MODEL_NAME", "occ/claude-haiku-4-5-20251001")},
     ]
 
     init_db_cmd = (
@@ -244,13 +250,30 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
     if container_secrets:
         container_def["secrets"] = container_secrets
 
+    container_defs = [container_def]
+    tika_def = {
+        "name": "tika-extractor",
+        "image": "apache/tika:2.9.2.0",
+        "essential": False,
+        "portMappings": [{"containerPort": 9998, "hostPort": 9998, "protocol": "tcp"}],
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": f"/ecs/{ENVIRONMENT_NAME}-nextcloud",
+                "awslogs-region": REGION,
+                "awslogs-stream-prefix": "tika",
+            },
+        },
+    }
+    container_defs.append(tika_def)
+
     task_def_kwargs = {
         "family": task_family,
-        "cpu": "512",
-        "memory": "1024",
+        "cpu": "1024",
+        "memory": "2048",
         "networkMode": "awsvpc",
         "requiresCompatibilities": ["FARGATE"],
-        "containerDefinitions": [container_def],
+        "containerDefinitions": container_defs,
         "volumes": volumes,
         "tags": [
             {"key": "TenantId", "value": tenant_id},
