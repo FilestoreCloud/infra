@@ -708,11 +708,21 @@ def _extract_token(event, payload):
 def _is_authenticated(event, payload):
     """Verify if request contains a valid signed session token (rejects temporary challenge tokens)."""
     token = _extract_token(event, payload)
-    if not token:
+    if token:
+        user_info = verify_session_token(token)
+        if user_info and user_info.get("type") != "mfa_challenge":
+            return True, user_info
         return False, None
-    user_info = verify_session_token(token)
-    if user_info and user_info.get("type") != "mfa_challenge":
-        return True, user_info
+
+    # Direct invocation via AWS SDK / IAM (not through ALB / HTTP gateway) is authenticated via AWS IAM
+    is_http = (
+        bool(event.get("httpMethod") or event.get("requestContext"))
+        if isinstance(event, dict)
+        else False
+    )
+    if not is_http and not (isinstance(event, dict) and event.get("headers")):
+        return True, {"user": "SYSTEM", "role": "SuperAdmin"}
+
     return False, None
 
 
