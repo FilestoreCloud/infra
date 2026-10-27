@@ -169,6 +169,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		provPayload, _ := json.Marshal(map[string]interface{}{
 			"action":    "PROVISION",
 			"tenant_id": tenantID,
+			"token":     sessionToken,
 		})
 		_, provErr := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
 			FunctionName: aws.String(lambdaArn),
@@ -385,6 +386,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	metricsPayload, _ := json.Marshal(map[string]interface{}{
 		"action":    "METRICS",
 		"tenant_id": tenantID,
+		"token":     sessionToken,
 	})
 	metricsInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
 		FunctionName: aws.String(lambdaArn),
@@ -399,6 +401,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	suspendPayload, _ := json.Marshal(map[string]interface{}{
 		"action":    "SUSPEND",
 		"tenant_id": tenantID,
+		"token":     sessionToken,
 	})
 	suspendInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
 		FunctionName: aws.String(lambdaArn),
@@ -430,6 +433,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 	resumePayload, _ := json.Marshal(map[string]interface{}{
 		"action":    "RESUME",
 		"tenant_id": tenantID,
+		"token":     sessionToken,
 	})
 	resumeInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
 		FunctionName: aws.String(lambdaArn),
@@ -518,6 +522,7 @@ func TestInPlaceDeploymentAcceptance(t *testing.T) {
 		"tenant_id": tenantID,
 		"image":     targetImage,
 		"dry_run":   false,
+		"token":     sessionToken,
 	})
 	upgradeInv, err := lambdaClient.Invoke(context.TODO(), &lambda.InvokeInput{
 		FunctionName: aws.String(lambdaArn),
