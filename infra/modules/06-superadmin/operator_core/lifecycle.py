@@ -505,7 +505,7 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
                     {"Key": "stickiness.enabled", "Value": "true"},
                     {"Key": "stickiness.type", "Value": "lb_cookie"},
                     {"Key": "stickiness.lb_cookie.duration_seconds", "Value": "86400"},
-                    {"Key": "deregistration_delay.timeout_seconds", "Value": "300"},
+                    {"Key": "deregistration_delay.timeout_seconds", "Value": "15"},
                 ],
             )
         except Exception as e:
@@ -587,14 +587,36 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
         if "InvalidParameterException" in str(
             e
         ) and "Creation of service was not idempotent" in str(e):
-            ecs.update_service(
-                cluster=infra["cluster_name"],
-                service=service_name,
-                desiredCount=1,
-                taskDefinition=task_def_arn,
-            )
+            try:
+                ecs.update_service(
+                    cluster=infra["cluster_name"],
+                    service=service_name,
+                    desiredCount=1,
+                    taskDefinition=task_def_arn,
+                )
+            except Exception as upd_err:
+                print(f"Notice: update_service failed ({upd_err}); force recreating service {service_name}...")
+                try:
+                    ecs.delete_service(
+                        cluster=infra["cluster_name"],
+                        service=service_name,
+                        force=True,
+                    )
+                    for _ in range(12):
+                        time.sleep(2)
+                        st = ecs.describe_services(
+                            cluster=infra["cluster_name"],
+                            services=[service_name],
+                        ).get("services", [])
+                        if not st or st[0].get("status") == "INACTIVE":
+                            break
+                    ecs.create_service(**ecs_params)
+                except Exception as rec_err:
+                    print(f"Error recreating service: {rec_err}")
+                    raise
         else:
             print(f"Warning creating ECS service {service_name}: {e}")
+            raise
 
     clean_id = tenant_id.lower().replace("-", "_")
     db_name = f"nc_{clean_id}"
