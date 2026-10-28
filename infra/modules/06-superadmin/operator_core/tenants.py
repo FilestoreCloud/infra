@@ -374,14 +374,6 @@ def sync_nextcloud_account(tenant_id, domain, username, password, email=None, ro
                 secretsmanager.create_secret(Name=sec_id, SecretString=sec_val)
             except Exception:
                 pass
-        if username == admin_user:
-            try:
-                secretsmanager.put_secret_value(
-                    SecretId=f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials",
-                    SecretString=json.dumps({"username": admin_user, "password": password}),
-                )
-            except Exception as se:
-                print(f"Notice: Failed to update admin-credentials secret: {se}")
     except Exception as e:
         print(f"Notice: Secrets Manager write on sync: {e}")
 
