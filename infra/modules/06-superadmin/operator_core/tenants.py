@@ -260,8 +260,18 @@ def save_tenant_accounts(tenant_id, accounts):
         print(f"Warning persisting accounts for tenant {tenant_id}: {e}")
 
 
-def get_admin_creds():
-    """Dynamically retrieve cluster admin credentials from Secrets Manager."""
+def get_admin_creds(tenant_id=None):
+    """Dynamically retrieve cluster admin credentials or tenant admin credentials from Secrets Manager."""
+    if tenant_id:
+        try:
+            sec = secretsmanager.get_secret_value(SecretId=f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials")
+            creds = json.loads(sec.get("SecretString", "{}"))
+            pwd = creds.get("password", "")
+            if pwd:
+                return creds.get("username", "admin"), pwd
+        except Exception as e:
+            print(f"Notice: Failed to fetch creds for tenant {tenant_id}: {e}")
+
     try:
         sec = secretsmanager.get_secret_value(SecretId=f"/nextcloud/{ENVIRONMENT_NAME}/secrets/admin-credentials")
         creds = json.loads(sec.get("SecretString", "{}"))
@@ -274,7 +284,7 @@ def get_admin_creds():
 
 def sync_nextcloud_account(tenant_id, domain, username, password, email=None, role="User", quota_gb=None):
     """Synchronize user account with Nextcloud instance via OCS Provisioning API."""
-    admin_user, admin_pwd = get_admin_creds()
+    admin_user, admin_pwd = get_admin_creds(tenant_id)
     if not admin_pwd:
         print("Warning: Admin password unavailable for Nextcloud sync")
         return False
