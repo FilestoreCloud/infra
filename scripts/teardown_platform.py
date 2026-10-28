@@ -216,6 +216,7 @@ def teardown(env: str, region: str):
     # 6. Storage (S3 Data/Vault/Quarantine buckets + EFS)
     print("\n🧹 Purging S3 Buckets in Module 03-Storage...")
     empty_matching_s3_buckets(f"{env}-nextcloud-data-", region)
+    empty_matching_s3_buckets(f"{env}-nextcloud-vault-", region)
     empty_matching_s3_buckets(f"{env}-storix-vault-", region)
     empty_matching_s3_buckets(f"{env}-storix-audit-vault-", region)
     empty_matching_s3_buckets(f"{env}-storix-quarantine-", region)

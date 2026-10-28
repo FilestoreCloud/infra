@@ -684,9 +684,9 @@ jobs:
         env:
           ENV: ${{ inputs.environment }}
           AWS_REGION: ${{ vars.AWS_REGION }}
-          TENANT_ID: ${{ vars.TENANT_ID }}
-          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          TENANT_ID: ${{ vars.TENANT_ID || 'dev-tenant' }}
+          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME || 'admin' }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || '123456789' }}
           SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
         run: |
           cd tests/terratest
@@ -741,9 +741,9 @@ jobs:
           SUPERADMIN_CONSOLE_URL: ${{ needs.deploy-superadmin.outputs.admin_web_url }}
           NEXTCLOUD_USER: ${{ vars.NEXTCLOUD_USER || 'admin' }}
           NEXTCLOUD_PASSWORD: ${{ env.NEXTCLOUD_RESOLVED_PASS }}
-          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
-          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          ADMIN_PASSWORD: ${{ env.NEXTCLOUD_RESOLVED_PASS }}
+          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME || 'admin' }}
+          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || '123456789' }}
+          ADMIN_PASSWORD: ${{ env.NEXTCLOUD_RESOLVED_PASS || '123456789' }}
           TENANT_ID: ${{ vars.TENANT_ID || 'dev-tenant' }}
           SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
         working-directory: tests/nextcloud/e2e
