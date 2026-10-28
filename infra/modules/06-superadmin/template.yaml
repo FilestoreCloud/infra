@@ -859,7 +859,9 @@ Resources:
                                     except:pass
                                 elif isinstance(raw_a,list):acc_list=raw_a
                                 if acc_list and isinstance(acc_list[0],dict):em=acc_list[0].get("email")
-                            it["admin_email"]=em or f"admin@{it.get('domain',f\"{it.get('tenant_id')}.{rdom}\")}"
+                            tid_val=it.get('tenant_id')
+                            dom_val=it.get('domain') or f"{tid_val}.{rdom}"
+                            it["admin_email"]=em or f"admin@{dom_val}"
                     return resp(200,{"status":"OK","tenants":items,"data":items,"items":items,"count":len(items),"total":len(items)})
                 if act in ("DESCRIBE","GET_TENANT_DETAIL"):
                     tid=b.get("tenant_id") or q.get("tenant_id")
@@ -899,7 +901,8 @@ Resources:
                         def_adm=it.get("default_admin")
                         if isinstance(def_adm,dict):em=def_adm.get("email")
                         if not em and accs and isinstance(accs[0],dict):em=accs[0].get("email")
-                        it["admin_email"]=em or f"admin@{it.get('domain',f\"{tid}.{rdom}\")}"
+                        dom_val=it.get('domain') or f"{tid}.{rdom}"
+                        it["admin_email"]=em or f"admin@{dom_val}"
                     m_data=get_metrics_data(tid)
                     return resp(200,{"status":"OK","tenant":it,"item":it,"accounts":accs,"aws_topology":{"ecs_service":f"{tid}-svc"},"metrics":m_data})
                 if act in ("GET_TENANT_ACCOUNTS","LIST_TENANT_ACCOUNTS","ACCOUNTS"):
