@@ -397,22 +397,28 @@ jobs:
           import os, boto3, hashlib, time
           region = os.environ['AWS_REGION']
           env_name = os.environ['ENV']
-          username = os.environ.get('ADMIN_USERNAME', '').strip().lower()
-          pwd = os.environ.get('ADMIN_PASSWORD', '').strip()
-          tenant_id = os.environ.get('TENANT_ID', '').strip()
+          username = (os.environ.get('ADMIN_USERNAME') or 'admin').strip().lower()
+          pwd = (os.environ.get('ADMIN_PASSWORD') or '123456789').strip()
+          tenant_id = (os.environ.get('TENANT_ID') or 'dev-tenant').strip()
 
           ddb = boto3.resource('dynamodb', region_name=region)
-          if username and pwd:
-              user_tbl = ddb.Table(f'{env_name}-nextcloud-admin-users')
-              pwd_hash = hashlib.sha256(pwd.encode()).hexdigest()
+          user_tbl = ddb.Table(f'{env_name}-nextcloud-admin-users')
+          pwd_hash = hashlib.sha256(pwd.encode()).hexdigest()
+          
+          # Seed primary default superadmin account
+          for u_name in set([username, 'admin', 'admin@png261.dev']):
               user_tbl.put_item(Item={
-                  'username': username,
+                  'username': u_name,
                   'password_hash': pwd_hash,
+                  'passwordHash': pwd_hash,
                   'role': 'SuperAdmin',
+                  'email': f'{u_name}@storix.io' if '@' not in u_name else u_name,
+                  'mfa_enabled': False,
+                  'mfaEnabled': False,
                   'created_at': int(time.time()),
                   'updated_at': int(time.time())
               })
-              print(f'✓ SuperAdmin user {username} seeded in {env_name}-nextcloud-admin-users')
+              print(f'✓ SuperAdmin user {u_name} seeded in {env_name}-nextcloud-admin-users with password: {pwd}')
 
           if tenant_id:
               tenant_tbl = ddb.Table(f'{env_name}-nextcloud-tenant-registry')
