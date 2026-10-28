@@ -438,12 +438,24 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
     )
     tg_name = f"tg-{tenant_id}"[:32]
     tg_arn = None
+
+    # Resolve authoritative VPC ID from the ALB
+    target_vpc_id = infra.get("vpc_id")
+    alb_arn = infra.get("alb_arn")
+    if alb_arn:
+        try:
+            alb_desc = elbv2.describe_load_balancers(LoadBalancerArns=[alb_arn]).get("LoadBalancers", [])
+            if alb_desc:
+                target_vpc_id = alb_desc[0].get("VpcId") or target_vpc_id
+        except Exception as e:
+            print(f"Warning resolving ALB VPC ID: {e}")
+
     try:
         tg_resp = elbv2.create_target_group(
             Name=tg_name,
             Protocol="HTTP",
             Port=80,
-            VpcId=infra["vpc_id"],
+            VpcId=target_vpc_id,
             TargetType="ip",
             HealthCheckProtocol="HTTP",
             HealthCheckPort="80",
@@ -459,6 +471,29 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
         if "DuplicateTargetGroupName" in str(e):
             tgs = elbv2.describe_target_groups(Names=[tg_name])["TargetGroups"]
             tg_arn = tgs[0]["TargetGroupArn"]
+            if tgs[0].get("VpcId") != target_vpc_id:
+                print(f"Stale TG {tg_name} in mismatched VPC. Re-creating in {target_vpc_id}...")
+                try:
+                    elbv2.delete_target_group(TargetGroupArn=tg_arn)
+                    time.sleep(1)
+                    tg_resp = elbv2.create_target_group(
+                        Name=tg_name,
+                        Protocol="HTTP",
+                        Port=80,
+                        VpcId=target_vpc_id,
+                        TargetType="ip",
+                        HealthCheckProtocol="HTTP",
+                        HealthCheckPort="80",
+                        HealthCheckPath="/robots.txt",
+                        HealthCheckIntervalSeconds=15,
+                        HealthCheckTimeoutSeconds=5,
+                        HealthyThresholdCount=2,
+                        UnhealthyThresholdCount=3,
+                        Matcher={"HttpCode": "200-499"},
+                    )
+                    tg_arn = tg_resp["TargetGroups"][0]["TargetGroupArn"]
+                except Exception as rec_err:
+                    print(f"Error re-creating target group {tg_name}: {rec_err}")
         else:
             print(f"Warning creating Target Group {tg_name}: {e}")
 

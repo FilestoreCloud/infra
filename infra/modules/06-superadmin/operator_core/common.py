@@ -93,6 +93,7 @@ CORS_HEADERS = {
 }
 
 _CACHED_INFRA: dict[str, Any] = {}
+_LAST_INFRA_FETCH: float = 0.0
 
 
 def emit_emf_metric(Namespace, MetricName, Value, Dimensions=None, Unit="None"):
@@ -167,10 +168,11 @@ def get_aws_account_id() -> str:
         return ""
 
 
-def get_infra_config():
+def get_infra_config(force_refresh: bool = False):
     """Dynamically resolve infrastructure parameters from SSM Parameter Store with caching and fallbacks."""
-    global _CACHED_INFRA
-    if _CACHED_INFRA:
+    global _CACHED_INFRA, _LAST_INFRA_FETCH
+    now = time.time()
+    if not force_refresh and _CACHED_INFRA and (now - _LAST_INFRA_FETCH < 60):
         return _CACHED_INFRA
 
     prefix = f"/nextcloud/{ENVIRONMENT_NAME}"
@@ -291,6 +293,7 @@ def get_infra_config():
         config["private_subnets"] = []
 
     _CACHED_INFRA = config
+    _LAST_INFRA_FETCH = time.time()
     return _CACHED_INFRA
 
 
