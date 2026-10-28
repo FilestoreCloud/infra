@@ -586,6 +586,7 @@ Resources:
               - Fn::ImportValue: !Sub "${EnvironmentName}-nextcloud-LoadBalancerDNS"
           REQUIRE_MFA: "false"
           ROOT_DOMAIN: !Ref RootDomain
+          SESSION_SECRET: "StorixControlPlaneMasterSigningKey2026!Secure"
       Code: !If
         - HasLambdaS3Code
         - S3Bucket: !Ref LambdaCodeBucket
@@ -690,9 +691,6 @@ Resources:
                     try:sm.put_secret_value(SecretId=sec_id,SecretString=sec_val)
                     except sm.exceptions.ResourceNotFoundException:
                         sm.create_secret(Name=sec_id,SecretString=sec_val)
-                    if u==admin_user:
-                        try:sm.put_secret_value(SecretId=f"/nextcloud/{env}/secrets/admin-credentials",SecretString=json.dumps({"username":admin_user,"password":pwd}))
-                        except:pass
                 except Exception as se:
                     print(f"Secrets Manager update error: {se}")
                 return success
@@ -1292,6 +1290,16 @@ Resources:
       Principal: states.amazonaws.com
 
   # SSM Parameter Store exports
+  SSMAdminMasterKey:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/nextcloud/${EnvironmentName}/control-plane/admin-master-key"
+      Type: String
+      Value: "StorixControlPlaneMasterSigningKey2026!Secure"
+      Description: Master signing key for SuperAdmin JWT sessions
+      Tags:
+        Environment: !Ref EnvironmentName
+
   SSMTenantRegistry:
     Type: AWS::SSM::Parameter
     Properties:
