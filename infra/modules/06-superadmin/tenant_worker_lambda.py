@@ -30,6 +30,7 @@ s3 = boto3.client("s3", region_name=REGION)
 secretsmanager = boto3.client("secretsmanager", region_name=REGION)
 
 _CACHED_INFRA = {}
+_LAST_INFRA_FETCH = 0
 
 
 def safe_put_metric_data(Namespace, MetricData):
@@ -61,10 +62,11 @@ def get_aws_account_id() -> str:
         return ""
 
 
-def get_infra_config():
+def get_infra_config(force_refresh=False):
     """Dynamically resolve infrastructure parameters from SSM Parameter Store with caching and fallbacks."""
-    global _CACHED_INFRA
-    if _CACHED_INFRA:
+    global _CACHED_INFRA, _LAST_INFRA_FETCH
+    now = time.time()
+    if not force_refresh and _CACHED_INFRA and (now - _LAST_INFRA_FETCH < 60):
         return _CACHED_INFRA
 
     prefix = f"/nextcloud/{ENVIRONMENT_NAME}"
@@ -189,6 +191,7 @@ def get_infra_config():
         config["private_subnets"] = []
 
     _CACHED_INFRA = config
+    _LAST_INFRA_FETCH = time.time()
     return _CACHED_INFRA
 
 
@@ -467,12 +470,24 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
     )
     tg_name = f"tg-{tenant_id}"[:32]
     tg_arn = None
+
+    # Authoritative VPC ID resolution directly from ALB
+    target_vpc_id = infra.get("vpc_id")
+    alb_arn = infra.get("alb_arn")
+    if alb_arn:
+        try:
+            alb_desc = elbv2.describe_load_balancers(LoadBalancerArns=[alb_arn]).get("LoadBalancers", [])
+            if alb_desc:
+                target_vpc_id = alb_desc[0].get("VpcId") or target_vpc_id
+        except Exception as e:
+            print(f"Warning resolving ALB VPC ID: {e}")
+
     try:
         tg_resp = elbv2.create_target_group(
             Name=tg_name,
             Protocol="HTTP",
             Port=80,
-            VpcId=infra["vpc_id"],
+            VpcId=target_vpc_id,
             TargetType="ip",
             HealthCheckProtocol="HTTP",
             HealthCheckPort="80",
@@ -488,6 +503,29 @@ def _provision_tenant_resources(tenant_id, domain, quota_gb, admin_email, infra)
         if "DuplicateTargetGroupName" in str(e):
             tgs = elbv2.describe_target_groups(Names=[tg_name])["TargetGroups"]
             tg_arn = tgs[0]["TargetGroupArn"]
+            if tgs[0].get("VpcId") != target_vpc_id:
+                print(f"Stale TG {tg_name} in mismatched VPC. Re-creating in {target_vpc_id}...")
+                try:
+                    elbv2.delete_target_group(TargetGroupArn=tg_arn)
+                    time.sleep(1)
+                    tg_resp = elbv2.create_target_group(
+                        Name=tg_name,
+                        Protocol="HTTP",
+                        Port=80,
+                        VpcId=target_vpc_id,
+                        TargetType="ip",
+                        HealthCheckProtocol="HTTP",
+                        HealthCheckPort="80",
+                        HealthCheckPath="/robots.txt",
+                        HealthCheckIntervalSeconds=15,
+                        HealthCheckTimeoutSeconds=5,
+                        HealthyThresholdCount=2,
+                        UnhealthyThresholdCount=3,
+                        Matcher={"HttpCode": "200-499"},
+                    )
+                    tg_arn = tg_resp["TargetGroups"][0]["TargetGroupArn"]
+                except Exception as rec_err:
+                    print(f"Error re-creating target group {tg_name}: {rec_err}")
         else:
             print(f"Warning creating Target Group {tg_name}: {e}")
 
@@ -965,8 +1003,8 @@ def _check_tenant_health(tenant_id, infra, domain=None, attempt=0):
     except Exception as e:
         print(f"Health check HTTP query warning: {e}")
 
-    # 3. Check ECS Fargate task running state (fallback after at least 8 attempts to allow auto-install)
-    if next_attempt >= 8:
+    # 3. Check ECS Fargate task running state (fallback after at least 3 attempts to allow auto-install)
+    if next_attempt >= 3:
         try:
             cluster = infra.get("cluster_name", CLUSTER_NAME)
             resp = ecs.describe_services(cluster=cluster, services=[service_name])
