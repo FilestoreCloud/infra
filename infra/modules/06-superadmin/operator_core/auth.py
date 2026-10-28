@@ -113,13 +113,23 @@ def hash_password(password: str, salt: Optional[str] = None) -> str:
 
 
 def verify_password(password: str, stored_hash: str) -> bool:
-    """Verifies password matches PBKDF2 stored hash."""
+    """Verifies password matches PBKDF2 stored hash or SHA256."""
     try:
         password = (password or "").strip()
-        salt, _ = stored_hash.split(":", 1)
-        return hmac.compare_digest(hash_password(password, salt), stored_hash)
+        sep = ":" if ":" in stored_hash else ("$" if "$" in stored_hash else None)
+        if sep:
+            salt, expected_h = stored_hash.split(sep, 1)
+            h = hashlib.pbkdf2_hmac(
+                "sha256", password.encode("utf-8"), salt.encode("utf-8"), 100000
+            )
+            if hmac.compare_digest(h.hex(), expected_h) or hmac.compare_digest(f"{salt}{sep}{h.hex()}", stored_hash):
+                return True
+        if len(stored_hash) == 64:
+            if hmac.compare_digest(hashlib.sha256(password.encode("utf-8")).hexdigest(), stored_hash):
+                return True
     except Exception:
-        return False
+        pass
+    return False
 
 
 def get_user_account(username: str) -> Optional[Dict[str, Any]]:
