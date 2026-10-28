@@ -580,11 +580,11 @@ jobs:
         env:
           ENV: ${{ inputs.environment }}
           AWS_REGION: ${{ vars.AWS_REGION }}
-          TENANT_ID: ${{ vars.TENANT_ID }}
-          NEXTCLOUD_USER: ${{ vars.NEXTCLOUD_USER }}
-          NEXTCLOUD_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME }}
-          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          TENANT_ID: ${{ vars.TENANT_ID || 'dev-tenant' }}
+          NEXTCLOUD_USER: ${{ vars.NEXTCLOUD_USER || 'admin' }}
+          NEXTCLOUD_PASSWORD: ${{ secrets.ADMIN_PASSWORD || '123456789' }}
+          SUPERADMIN_USERNAME: ${{ secrets.SUPERADMIN_USERNAME || 'admin' }}
+          SUPERADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD || '123456789' }}
           SUPERADMIN_TOTP_SECRET: ${{ secrets.SUPERADMIN_TOTP_SECRET }}
           ALB_DNS: ${{ steps.endpoints.outputs.alb_dns }}
           CONSOLE_URL: ${{ steps.endpoints.outputs.console_url }}
