@@ -147,8 +147,13 @@ Parameters:
 
   TrustedDomains:
     Type: String
-    Default: "*.png261.dev *.appleai.codes"
-    Description: Space-delimited additional trusted domains or wildcard for multi-tenant ingress
+    Default: "dev-tenant.png261.dev dev-tenant.appleai.codes prod-nextcloud.png261.dev png261.dev appleai.codes"
+    Description: Space-delimited trusted domains for dev Nextcloud ingress (strict isolation, no wildcard)
+
+  RootDomain:
+    Type: String
+    Default: png261.dev
+    Description: Root domain for Nextcloud SaaS multi-tenant ingress (e.g. png261.dev)
 
   OpenSearchEndpoint:
     Type: String
@@ -202,6 +207,7 @@ Conditions:
           "arn:aws:acm:REGION:ACCOUNT_ID:certificate/REPLACE-ME",
         ],
       ]
+  IsNotTlsCertificate: !Not [!Condition HasTlsCertificate]
 
 Resources:
   NextcloudECRRepository:
@@ -405,8 +411,11 @@ Resources:
               Protocol: HTTPS
               Port: "443"
               StatusCode: HTTP_301
-        - - Type: forward
-            TargetGroupArn: !Ref ALBTargetGroup
+        - - Type: fixed-response
+            FixedResponseConfig:
+              ContentType: text/html
+              StatusCode: "404"
+              MessageBody: '<!DOCTYPE html><html><head><meta charset="utf-8"><title>404 Not Found</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}.c{text-align:center;padding:2rem;background:#1e293b;border-radius:12px;border:1px solid #334155}h1{font-size:3rem;color:#38bdf8;margin:0 0 .5rem}p{color:#94a3b8;margin-bottom:1.5rem}a{background:#0284c7;color:#fff;padding:.6rem 1.2rem;border-radius:6px;text-decoration:none}</style></head><body><div class="c"><h1>404</h1><h2>Tenant Not Found</h2><p>This tenant does not exist or has been deleted.</p><a href="https://admin.png261.dev">Storix Portal</a></div></body></html>'
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
@@ -416,8 +425,11 @@ Resources:
     Condition: HasTlsCertificate
     Properties:
       DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref ALBTargetGroup
+        - Type: fixed-response
+          FixedResponseConfig:
+            ContentType: text/html
+            StatusCode: "404"
+            MessageBody: '<!DOCTYPE html><html><head><meta charset="utf-8"><title>404 Not Found</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}.c{text-align:center;padding:2rem;background:#1e293b;border-radius:12px;border:1px solid #334155}h1{font-size:3rem;color:#38bdf8;margin:0 0 .5rem}p{color:#94a3b8;margin-bottom:1.5rem}a{background:#0284c7;color:#fff;padding:.6rem 1.2rem;border-radius:6px;text-decoration:none}</style></head><body><div class="c"><h1>404</h1><h2>Tenant Not Found</h2><p>This tenant does not exist or has been deleted.</p><a href="https://admin.png261.dev">Storix Portal</a></div></body></html>'
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 443
       Protocol: HTTPS
@@ -425,15 +437,36 @@ Resources:
       Certificates:
         - CertificateArn: !Ref ACMCertificateArn
 
-  HSTSResponseHeaderPolicy:
+  DevTenantHTTPSRoutingRule:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Condition: HasTlsCertificate
     Properties:
       ListenerArn: !Ref ALBHTTPSListener
-      Priority: 50000
+      Priority: 100
       Conditions:
-        - Field: path-pattern
-          Values: ["/*"]
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "dev-tenant.${RootDomain}"
+              - !Sub "${EnvironmentName}-nextcloud.${RootDomain}"
+              - !Ref RootDomain
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  DevTenantHTTPRoutingRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: IsNotTlsCertificate
+    Properties:
+      ListenerArn: !Ref ALBListener
+      Priority: 100
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values:
+              - !Sub "dev-tenant.${RootDomain}"
+              - !Sub "${EnvironmentName}-nextcloud.${RootDomain}"
+              - !Ref RootDomain
       Actions:
         - Type: forward
           TargetGroupArn: !Ref ALBTargetGroup
