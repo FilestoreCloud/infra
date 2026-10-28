@@ -450,6 +450,7 @@ Resources:
               - !Sub "dev-tenant.${RootDomain}"
               - !Sub "${EnvironmentName}-nextcloud.${RootDomain}"
               - !Ref RootDomain
+              - !GetAtt ApplicationLoadBalancer.DNSName
       Actions:
         - Type: forward
           TargetGroupArn: !Ref ALBTargetGroup
@@ -467,6 +468,7 @@ Resources:
               - !Sub "dev-tenant.${RootDomain}"
               - !Sub "${EnvironmentName}-nextcloud.${RootDomain}"
               - !Ref RootDomain
+              - !GetAtt ApplicationLoadBalancer.DNSName
       Actions:
         - Type: forward
           TargetGroupArn: !Ref ALBTargetGroup
