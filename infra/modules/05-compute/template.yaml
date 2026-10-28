@@ -150,6 +150,11 @@ Parameters:
     Default: "dev-tenant.png261.dev dev-tenant.appleai.codes prod-nextcloud.png261.dev png261.dev appleai.codes"
     Description: Space-delimited trusted domains for dev Nextcloud ingress (strict isolation, no wildcard)
 
+  RootDomain:
+    Type: String
+    Default: png261.dev
+    Description: Root domain for Nextcloud SaaS multi-tenant ingress (e.g. png261.dev)
+
   OpenSearchEndpoint:
     Type: String
     Default: ""
@@ -410,29 +415,7 @@ Resources:
             FixedResponseConfig:
               ContentType: text/html
               StatusCode: "404"
-              MessageBody: |
-                <!DOCTYPE html>
-                <html lang="en">
-                <head>
-                  <meta charset="utf-8">
-                  <title>404 - Tenant Not Found | Storix Cloud</title>
-                  <style>
-                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-                    .container { text-align: center; max-width: 480px; padding: 2rem; background: #1e293b; border-radius: 12px; border: 1px solid #334155; }
-                    h1 { font-size: 3rem; margin: 0 0 1rem; color: #38bdf8; }
-                    p { color: #94a3b8; font-size: 1.1rem; line-height: 1.6; margin-bottom: 1.5rem; }
-                    a { display: inline-block; padding: 0.75rem 1.5rem; background: #0284c7; color: white; text-decoration: none; border-radius: 6px; }
-                  </style>
-                </head>
-                <body>
-                  <div class="container">
-                    <h1>404</h1>
-                    <h2>Tenant Not Found</h2>
-                    <p>The requested tenant environment does not exist, has been decommissioned, or the domain is misconfigured.</p>
-                    <a href="https://admin.png261.dev">Storix Cloud Portal</a>
-                  </div>
-                </body>
-                </html>
+              MessageBody: '<!DOCTYPE html><html><head><meta charset="utf-8"><title>404 Not Found</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}.c{text-align:center;padding:2rem;background:#1e293b;border-radius:12px;border:1px solid #334155}h1{font-size:3rem;color:#38bdf8;margin:0 0 .5rem}p{color:#94a3b8;margin-bottom:1.5rem}a{background:#0284c7;color:#fff;padding:.6rem 1.2rem;border-radius:6px;text-decoration:none}</style></head><body><div class="c"><h1>404</h1><h2>Tenant Not Found</h2><p>This tenant does not exist or has been deleted.</p><a href="https://admin.png261.dev">Storix Portal</a></div></body></html>'
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
@@ -446,29 +429,7 @@ Resources:
           FixedResponseConfig:
             ContentType: text/html
             StatusCode: "404"
-            MessageBody: |
-              <!DOCTYPE html>
-              <html lang="en">
-              <head>
-                <meta charset="utf-8">
-                <title>404 - Tenant Not Found | Storix Cloud</title>
-                <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-                  .container { text-align: center; max-width: 480px; padding: 2rem; background: #1e293b; border-radius: 12px; border: 1px solid #334155; }
-                  h1 { font-size: 3rem; margin: 0 0 1rem; color: #38bdf8; }
-                  p { color: #94a3b8; font-size: 1.1rem; line-height: 1.6; margin-bottom: 1.5rem; }
-                  a { display: inline-block; padding: 0.75rem 1.5rem; background: #0284c7; color: white; text-decoration: none; border-radius: 6px; }
-                </style>
-              </head>
-              <body>
-                <div class="container">
-                  <h1>404</h1>
-                  <h2>Tenant Not Found</h2>
-                  <p>The requested tenant environment does not exist, has been decommissioned, or the domain is misconfigured.</p>
-                  <a href="https://admin.png261.dev">Storix Cloud Portal</a>
-                </div>
-              </body>
-              </html>
+            MessageBody: '<!DOCTYPE html><html><head><meta charset="utf-8"><title>404 Not Found</title><style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#f8fafc;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}.c{text-align:center;padding:2rem;background:#1e293b;border-radius:12px;border:1px solid #334155}h1{font-size:3rem;color:#38bdf8;margin:0 0 .5rem}p{color:#94a3b8;margin-bottom:1.5rem}a{background:#0284c7;color:#fff;padding:.6rem 1.2rem;border-radius:6px;text-decoration:none}</style></head><body><div class="c"><h1>404</h1><h2>Tenant Not Found</h2><p>This tenant does not exist or has been deleted.</p><a href="https://admin.png261.dev">Storix Portal</a></div></body></html>'
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 443
       Protocol: HTTPS
