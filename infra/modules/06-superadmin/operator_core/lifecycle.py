@@ -661,9 +661,17 @@ def _saga_cleanup_tenant(tenant_id, infra):
         tgs = elbv2.describe_target_groups(Names=[tg_name])["TargetGroups"]
         if tgs:
             tg_arn = tgs[0]["TargetGroupArn"]
-            listeners_to_clean = [
-                l for l in [infra.get("https_listener_arn"), infra.get("http_listener_arn")] if l
-            ]
+            listeners_to_clean = []
+            if infra.get("alb_arn"):
+                try:
+                    alb_listeners = elbv2.describe_listeners(LoadBalancerArn=infra["alb_arn"]).get("Listeners", [])
+                    listeners_to_clean = [l["ListenerArn"] for l in alb_listeners]
+                except Exception as l_disc_err:
+                    print(f"Warning discovering ALB listeners for cleanup: {l_disc_err}")
+            if not listeners_to_clean:
+                listeners_to_clean = [
+                    l for l in [infra.get("https_listener_arn"), infra.get("http_listener_arn")] if l
+                ]
             for l_arn in listeners_to_clean:
                 try:
                     rules = elbv2.describe_rules(ListenerArn=l_arn).get("Rules", [])
@@ -838,9 +846,17 @@ def _deprovision_ingress_and_storage(tenant_id, infra):
         tgs = elbv2.describe_target_groups(Names=[tg_name]).get("TargetGroups", [])
         if tgs:
             tg_arn = tgs[0]["TargetGroupArn"]
-            listeners_to_clean = [
-                l for l in [infra.get("https_listener_arn"), infra.get("http_listener_arn")] if l
-            ]
+            listeners_to_clean = []
+            if infra.get("alb_arn"):
+                try:
+                    alb_listeners = elbv2.describe_listeners(LoadBalancerArn=infra["alb_arn"]).get("Listeners", [])
+                    listeners_to_clean = [l["ListenerArn"] for l in alb_listeners]
+                except Exception as l_disc_err:
+                    print(f"Warning discovering ALB listeners for cleanup: {l_disc_err}")
+            if not listeners_to_clean:
+                listeners_to_clean = [
+                    l for l in [infra.get("https_listener_arn"), infra.get("http_listener_arn")] if l
+                ]
             for l_arn in listeners_to_clean:
                 try:
                     rules = elbv2.describe_rules(ListenerArn=l_arn).get("Rules", [])
