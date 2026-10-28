@@ -250,11 +250,7 @@ test.describe("SuperAdmin Web Console E2E", () => {
       await pollTenantActiveState(page, newTenantId, 120000);
 
       // 2. Probe tenant's HTTP health endpoint (/status.php)
-      const rawBaseUrl =
-        process.env.ALB_URL ||
-        process.env.TENANT_URL ||
-        `https://${customDomain}`;
-      const targetBaseUrl = rawBaseUrl.trim().replace(/\/+$/, "");
+      const targetBaseUrl = `https://${customDomain}`;
       const hostHeader = customDomain;
 
       const health = await probeTenantStatusPhp(

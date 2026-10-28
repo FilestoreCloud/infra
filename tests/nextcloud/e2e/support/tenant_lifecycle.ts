@@ -175,20 +175,11 @@ export async function verifyTenantAdminSession(
     process.env.SUPERADMIN_PASSWORD ||
     "Admin1234!";
 
-  // Create clean isolated context without restricted Host headers
+  // Create clean isolated context
   const tenantContext = await browser.newContext({
     ignoreHTTPSErrors: true,
   });
   const tenantPage = await tenantContext.newPage();
-
-  // If hostHeader is provided and differs from tenantUrl hostname, use page.route
-  // rather than extraHTTPHeaders to safely route requests without triggering net::ERR_INVALID_ARGUMENT
-  if (hostHeader && !tenantUrl.includes(hostHeader)) {
-    await tenantPage.route("**/*", async (route) => {
-      const headers = { ...route.request().headers(), host: hostHeader };
-      await route.continue({ headers });
-    }).catch(() => {});
-  }
 
   try {
     const cleanBase = tenantUrl.trim().replace(/\/+$/, "");
