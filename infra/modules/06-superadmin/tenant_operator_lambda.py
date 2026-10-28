@@ -1358,7 +1358,7 @@ def _handle_request(event, context):
     elif action in ["DASHBOARD", "GET_CLOUDWATCH_DASHBOARD"]:
         try:
             dash = cloudwatch.get_dashboard(
-                DashboardName="prod-Nextcloud-SaaS-Control-Plane"
+                DashboardName=f"{ENVIRONMENT_NAME}-Nextcloud-SaaS-Control-Plane"
             )
             return {
                 "statusCode": 200,
@@ -2518,6 +2518,12 @@ def _handle_request(event, context):
 
         elif action in ["GET_TENANT", "GET_TENANT_DETAIL"]:
             detail = get_tenant_detail(tenant_id)
+            if not detail:
+                return {
+                    "statusCode": 404,
+                    "headers": CORS_HEADERS,
+                    "body": json.dumps({"error": f"Tenant '{tenant_id}' not found"}),
+                }
             return {
                 "statusCode": 200,
                 "headers": CORS_HEADERS,

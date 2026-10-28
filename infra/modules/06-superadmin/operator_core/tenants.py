@@ -398,19 +398,10 @@ def get_tenant_detail(tenant_id):
                 tenant_record = t
                 break
 
-    clean_id = tenant_id.lower().replace("-", "_")
     if not tenant_record:
-        tenant_record = {
-            "tenant_id": tenant_id,
-            "domain": f"{tenant_id}.{ROOT_DOMAIN}",
-            "status": "ACTIVE",
-            "admin_email": f"admin@{tenant_id}.com",
-            "quota_gb": 100,
-            "service_name": f"service-{tenant_id}",
-            "database_name": f"nc_{clean_id}",
-            "created_at": "2026-03-01T00:00:00Z",
-            "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
+        return None
+
+    clean_id = tenant_id.lower().replace("-", "_")
 
     for secret_key in [
         "admin_password",

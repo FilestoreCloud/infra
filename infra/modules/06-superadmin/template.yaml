@@ -493,6 +493,8 @@ Resources:
                   - cloudwatch:GetMetricData
                   - cloudwatch:GetMetricWidgetImage
                   - cloudwatch:PutMetricData
+                  - cloudwatch:GetDashboard
+                  - cloudwatch:ListDashboards
                 Resource: "*"
               - Sid: ContainerLogInspection
                 Effect: Allow
