@@ -421,6 +421,67 @@ class TestTenantOperatorLambdaUnit(unittest.TestCase):
             resp = tol.lambda_handler(event, None)
             self.assertEqual(resp["statusCode"], 200)
 
+    def test_deprovision_ingress_cleans_forward_config_rules(self):
+        """Verify deprovisioning cleanly deletes ALB rules matching ForwardConfig.TargetGroups."""
+        from operator_core.lifecycle import _deprovision_ingress_and_storage
+        import operator_core.lifecycle as lc
+
+        fake_infra = {
+            "s3_vault_bucket": "test-vault",
+            "cluster_name": "test-cluster",
+            "https_listener_arn": "arn:aws:elasticloadbalancing:ap-southeast-1:123:listener/https",
+            "http_listener_arn": "arn:aws:elasticloadbalancing:ap-southeast-1:123:listener/http",
+            "efs_id": "fs-12345",
+        }
+        tg_arn = "arn:aws:elasticloadbalancing:ap-southeast-1:123:targetgroup/tg-test/456"
+
+        deleted_rules = []
+        deleted_tgs = []
+
+        def mock_describe_rules(ListenerArn=None):
+            return {
+                "Rules": [
+                    {
+                        "RuleArn": f"{ListenerArn}/rule-forward-config",
+                        "Actions": [
+                            {
+                                "Type": "forward",
+                                "ForwardConfig": {
+                                    "TargetGroups": [{"TargetGroupArn": tg_arn, "Weight": 1}]
+                                },
+                            }
+                        ],
+                    },
+                    {
+                        "RuleArn": f"{ListenerArn}/rule-direct",
+                        "Actions": [
+                            {"Type": "forward", "TargetGroupArn": tg_arn}
+                        ],
+                    },
+                    {
+                        "RuleArn": f"{ListenerArn}/rule-other-tenant",
+                        "Actions": [
+                            {"Type": "forward", "TargetGroupArn": "arn:aws:tg:other"}
+                        ],
+                    },
+                ]
+            }
+
+        with patch.object(lc.s3, "get_paginator"), \
+             patch.object(lc.ecs, "list_task_definitions", return_value={"taskDefinitionArns": []}), \
+             patch.object(lc.elbv2, "describe_target_groups", return_value={"TargetGroups": [{"TargetGroupArn": tg_arn}]}), \
+             patch.object(lc.elbv2, "describe_rules", side_effect=mock_describe_rules), \
+             patch.object(lc.elbv2, "delete_rule", side_effect=lambda RuleArn: deleted_rules.append(RuleArn)), \
+             patch.object(lc.elbv2, "delete_target_group", side_effect=lambda TargetGroupArn: deleted_tgs.append(TargetGroupArn)), \
+             patch.object(lc.efs, "get_paginator"), \
+             patch.object(lc.dynamodb, "update_item"):
+            res = _deprovision_ingress_and_storage("test-tenant", fake_infra)
+            self.assertEqual(res["status"], "STORAGE_DEPROVISIONED")
+            self.assertIn("arn:aws:elasticloadbalancing:ap-southeast-1:123:listener/https/rule-forward-config", deleted_rules)
+            self.assertIn("arn:aws:elasticloadbalancing:ap-southeast-1:123:listener/https/rule-direct", deleted_rules)
+            self.assertNotIn("arn:aws:elasticloadbalancing:ap-southeast-1:123:listener/https/rule-other-tenant", deleted_rules)
+            self.assertIn(tg_arn, deleted_tgs)
+
 
 if __name__ == "__main__":
     unittest.main()

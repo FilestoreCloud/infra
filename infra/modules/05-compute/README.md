@@ -55,7 +55,8 @@ Deploys the core scalable ingress and compute platform for Nextcloud Multi-Tenan
 | `ALBTargetGroup`           | `AWS::ElasticLoadBalancingV2::TargetGroup`    | Target group (port 80, IP target type, stickiness enabled, `/status.php`)    |
 | `ALBListener`              | `AWS::ElasticLoadBalancingV2::Listener`       | Port 80 HTTP listener redirecting 301 to HTTPS 443                           |
 | `ALBHTTPSListener`         | `AWS::ElasticLoadBalancingV2::Listener`       | Port 443 HTTPS listener with TLS 1.3 policy and ACM certificate              |
-| `HSTSResponseHeaderPolicy` | `AWS::ElasticLoadBalancingV2::ListenerRule`   | Listener rule enforcing HTTP Strict Transport Security (HSTS)                |
+| `DevTenantHTTPSRoutingRule` | `AWS::ElasticLoadBalancingV2::ListenerRule`   | Dedicated Host header routing rule forwarding dev-tenant to target group      |
+| `DevTenantHTTPRoutingRule`  | `AWS::ElasticLoadBalancingV2::ListenerRule`   | Fallback HTTP routing rule forwarding dev-tenant when TLS is not enabled     |
 | `ECSCluster`               | `AWS::ECS::Cluster`                           | Amazon ECS cluster with Container Insights enabled                           |
 | `CloudWatchLogGroup`       | `AWS::Logs::LogGroup`                         | Log group `/ecs/${EnvironmentName}-nextcloud` (30-day retention)             |
 | `AdminSecret`              | `AWS::SecretsManager::Secret`                 | Stores Nextcloud super-admin credentials                                     |

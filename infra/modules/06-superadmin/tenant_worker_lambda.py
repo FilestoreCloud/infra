@@ -316,7 +316,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
         {"name": "POSTGRES_DB", "value": f"nc_{clean_id}"},
         {
             "name": "NEXTCLOUD_TRUSTED_DOMAINS",
-            "value": f"{domain} {clean_id}.{root_domain} {tenant_id}.{root_domain} localhost 127.0.0.1 *.{root_domain} {root_domain}",
+            "value": f"{domain} {clean_id}.{root_domain} {tenant_id}.{root_domain} localhost 127.0.0.1",
         },
         {
             "name": "OBJECTSTORE_S3_BUCKET",
@@ -657,13 +657,30 @@ def _saga_cleanup_tenant(tenant_id, infra):
         tgs = elbv2.describe_target_groups(Names=[tg_name])["TargetGroups"]
         if tgs:
             tg_arn = tgs[0]["TargetGroupArn"]
-            listener_arn = infra.get("https_listener_arn")
-            if listener_arn:
-                rules = elbv2.describe_rules(ListenerArn=listener_arn)["Rules"]
-                for r in rules:
-                    for a in r.get("Actions", []):
-                        if a.get("TargetGroupArn") == tg_arn:
-                            elbv2.delete_rule(RuleArn=r["RuleArn"])
+            listeners_to_clean = [
+                l for l in [infra.get("https_listener_arn"), infra.get("http_listener_arn")] if l
+            ]
+            for l_arn in listeners_to_clean:
+                try:
+                    rules = elbv2.describe_rules(ListenerArn=l_arn).get("Rules", [])
+                    for r in rules:
+                        match_rule = False
+                        for a in r.get("Actions", []):
+                            if a.get("TargetGroupArn") == tg_arn:
+                                match_rule = True
+                                break
+                            if a.get("ForwardConfig"):
+                                for tgt in a["ForwardConfig"].get("TargetGroups", []):
+                                    if tgt.get("TargetGroupArn") == tg_arn:
+                                        match_rule = True
+                                        break
+                        if match_rule:
+                            try:
+                                elbv2.delete_rule(RuleArn=r["RuleArn"])
+                            except Exception as rule_err:
+                                print(f"Warning deleting rule {r['RuleArn']}: {rule_err}")
+                except Exception as l_err:
+                    print(f"Warning describing rules for listener {l_arn}: {l_err}")
             elbv2.delete_target_group(TargetGroupArn=tg_arn)
     except Exception as e:
         print(f"Warning cleaning up TG: {e}")
@@ -817,16 +834,30 @@ def _deprovision_ingress_and_storage(tenant_id, infra):
         tgs = elbv2.describe_target_groups(Names=[tg_name]).get("TargetGroups", [])
         if tgs:
             tg_arn = tgs[0]["TargetGroupArn"]
-            listener_arn = infra.get("https_listener_arn")
-            if listener_arn:
-                rules = elbv2.describe_rules(ListenerArn=listener_arn).get("Rules", [])
-                for r in rules:
-                    for a in r.get("Actions", []):
-                        if a.get("TargetGroupArn") == tg_arn:
+            listeners_to_clean = [
+                l for l in [infra.get("https_listener_arn"), infra.get("http_listener_arn")] if l
+            ]
+            for l_arn in listeners_to_clean:
+                try:
+                    rules = elbv2.describe_rules(ListenerArn=l_arn).get("Rules", [])
+                    for r in rules:
+                        match_rule = False
+                        for a in r.get("Actions", []):
+                            if a.get("TargetGroupArn") == tg_arn:
+                                match_rule = True
+                                break
+                            if a.get("ForwardConfig"):
+                                for tgt in a["ForwardConfig"].get("TargetGroups", []):
+                                    if tgt.get("TargetGroupArn") == tg_arn:
+                                        match_rule = True
+                                        break
+                        if match_rule:
                             try:
                                 elbv2.delete_rule(RuleArn=r["RuleArn"])
                             except Exception as rule_err:
                                 print(f"Warning deleting rule {r['RuleArn']}: {rule_err}")
+                except Exception as l_err:
+                    print(f"Warning describing rules for listener {l_arn}: {l_err}")
             elbv2.delete_target_group(TargetGroupArn=tg_arn)
     except Exception as tg_err:
         print(f"Warning cleaning up Target Group {tg_name}: {tg_err}")
