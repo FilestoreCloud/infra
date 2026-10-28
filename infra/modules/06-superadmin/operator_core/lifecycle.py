@@ -1091,23 +1091,29 @@ def _handle_step_function_task(event):
         return _deprovision_ingress_and_storage(tenant_id, infra)
 
     elif action == "SUSPEND":
-        service_name = f"service-{tenant_id}"
-        try:
-            ecs.update_service(
-                cluster=infra["cluster_name"], service=service_name, desiredCount=0
-            )
-        except Exception as e:
-            print(f"Warning suspending ECS service {service_name}: {e}")
+        service_names = [f"service-{tenant_id}"]
+        if tenant_id in ("dev-tenant", "default"):
+            service_names.append(f"{ENVIRONMENT_NAME}-nextcloud-service")
+        for service_name in service_names:
+            try:
+                ecs.update_service(
+                    cluster=infra["cluster_name"], service=service_name, desiredCount=0
+                )
+            except Exception as e:
+                print(f"Warning suspending ECS service {service_name}: {e}")
         return {"status": "SUSPENDED", "tenant_id": tenant_id}
 
     elif action == "RESUME":
-        service_name = f"service-{tenant_id}"
-        try:
-            ecs.update_service(
-                cluster=infra["cluster_name"], service=service_name, desiredCount=1
-            )
-        except Exception as e:
-            print(f"Warning resuming ECS service {service_name}: {e}")
+        service_names = [f"service-{tenant_id}"]
+        if tenant_id in ("dev-tenant", "default"):
+            service_names.append(f"{ENVIRONMENT_NAME}-nextcloud-service")
+        for service_name in service_names:
+            try:
+                ecs.update_service(
+                    cluster=infra["cluster_name"], service=service_name, desiredCount=1
+                )
+            except Exception as e:
+                print(f"Warning resuming ECS service {service_name}: {e}")
         return {"status": "RESUMED", "tenant_id": tenant_id}
 
     return {"status": "UNKNOWN_TASK", "action": action}

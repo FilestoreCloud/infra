@@ -2289,14 +2289,17 @@ def _handle_request(event, context):
                         f"Step Functions start_execution warning: {e}. Falling back to direct suspend."
                     )
 
-            service_name = f"service-{tenant_id}"
+            service_names = [f"service-{tenant_id}"]
+            if tenant_id in ("dev-tenant", "default"):
+                service_names.append(f"{ENVIRONMENT_NAME}-nextcloud-service")
             infra = get_infra_config()
-            try:
-                ecs.update_service(
-                    cluster=infra["cluster_name"], service=service_name, desiredCount=0
-                )
-            except ClientError as e:
-                print(f"Warning updating ECS service {service_name}: {e}")
+            for service_name in service_names:
+                try:
+                    ecs.update_service(
+                        cluster=infra["cluster_name"], service=service_name, desiredCount=0
+                    )
+                except ClientError as e:
+                    print(f"Warning updating ECS service {service_name}: {e}")
 
             dynamodb.update_item(
                 TableName=TABLE_NAME,
@@ -2394,14 +2397,17 @@ def _handle_request(event, context):
                         f"Step Functions start_execution warning: {e}. Falling back to direct resume."
                     )
 
-            service_name = f"service-{tenant_id}"
+            service_names = [f"service-{tenant_id}"]
+            if tenant_id in ("dev-tenant", "default"):
+                service_names.append(f"{ENVIRONMENT_NAME}-nextcloud-service")
             infra = get_infra_config()
-            try:
-                ecs.update_service(
-                    cluster=infra["cluster_name"], service=service_name, desiredCount=1
-                )
-            except ClientError as e:
-                print(f"Warning updating ECS service {service_name}: {e}")
+            for service_name in service_names:
+                try:
+                    ecs.update_service(
+                        cluster=infra["cluster_name"], service=service_name, desiredCount=1
+                    )
+                except ClientError as e:
+                    print(f"Warning updating ECS service {service_name}: {e}")
 
             dynamodb.update_item(
                 TableName=TABLE_NAME,
