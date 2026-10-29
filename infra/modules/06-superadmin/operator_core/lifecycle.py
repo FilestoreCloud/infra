@@ -140,7 +140,7 @@ def register_tenant_task_definition(tenant_id, domain, infra, access_point_id=No
     env_vars = [
         {"name": "HOME", "value": "/var/www"},
         {"name": "PGSSLMODE", "value": "prefer"},
-        {"name": "TRUSTED_PROXIES", "value": "10.0.0.0/16"},
+        {"name": "TRUSTED_PROXIES", "value": "10.0.0.0/16 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.1 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22"},
         {"name": "NC_default_phone_region", "value": "VN"},
         {"name": "NC_maintenance_window_start", "value": "2"},
         {"name": "NEXTCLOUD_ADMIN_USER", "value": "admin"},
