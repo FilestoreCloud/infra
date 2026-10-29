@@ -2846,6 +2846,8 @@ def _handle_request(event, context):
                 "display_name": display_name,
                 "email": email,
                 "role": role,
+                "password": pwd,
+                "temporary_password": pwd,
                 "quota_gb": quota_gb,
                 "storage_used_gb": 0.0,
                 "status": "ACTIVE",
@@ -2985,6 +2987,18 @@ def _handle_request(event, context):
                 else payload.get("domain") or f"{tenant_id}.{ROOT_DOMAIN}"
             )
             sync_nextcloud_account(tenant_id, domain, username, temp_password)
+
+            # Update account password in DynamoDB
+            try:
+                accounts = get_tenant_accounts_data(tenant_id)
+                for acc in accounts:
+                    if acc.get("username") == username:
+                        acc["password"] = temp_password
+                        acc["temporary_password"] = temp_password
+                        break
+                save_tenant_accounts(tenant_id, accounts)
+            except Exception as e:
+                print(f"Notice updating account password in DDB: {e}")
 
             record_audit_event(
                 user_info.get("user"),
