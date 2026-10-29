@@ -62,6 +62,14 @@ def package_lambda(source_path=DEFAULT_SOURCE, output_path=DEFAULT_OUTPUT):
         zinfo.compress_type = zipfile.ZIP_DEFLATED
         zf.writestr(zinfo, content)
 
+        # Also write using original source basename (e.g. tenant_operator_lambda.py) to support default Lambda handlers
+        base_name = os.path.basename(source_path)
+        if base_name != "index.py":
+            zinfo_orig = zipfile.ZipInfo(filename=base_name, date_time=FIXED_ZIP_TIMESTAMP)
+            zinfo_orig.external_attr = FIXED_FILE_PERMISSIONS
+            zinfo_orig.compress_type = zipfile.ZIP_DEFLATED
+            zf.writestr(zinfo_orig, content)
+
         # Include operator_core package modules if present
         source_dir = os.path.dirname(source_path)
         core_dir = os.path.join(source_dir, "operator_core")

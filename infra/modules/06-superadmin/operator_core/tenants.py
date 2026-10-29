@@ -229,6 +229,18 @@ def get_tenant_accounts_data(tenant_id, tenant_item=None):
                 ),
             },
         ]
+
+    # Populate real tenant admin password from Secrets Manager
+    try:
+        _, real_admin_pwd = get_admin_creds(tenant_id)
+        if real_admin_pwd:
+            for acc in accounts_list:
+                if isinstance(acc, dict) and (acc.get("username") == "admin" or acc.get("role") in ("TenantAdmin", "admin")):
+                    if not acc.get("password"):
+                        acc["password"] = real_admin_pwd
+    except Exception as e:
+        print(f"Notice attaching tenant admin password: {e}")
+
     return accounts_list
 
 
@@ -360,22 +372,23 @@ def sync_nextcloud_account(tenant_id, domain, username, password, email=None, ro
             print(f"Sync user {username} error on {base_url}: {e}")
             continue
 
-    try:
-        sec_id = f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
-        sec_val = json.dumps({
-            "username": username,
-            "password": password,
-            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        })
+    if username in ("admin", "Administrator") or role in ("TenantAdmin", "admin"):
         try:
-            secretsmanager.put_secret_value(SecretId=sec_id, SecretString=sec_val)
-        except Exception:
+            sec_id = f"/nextcloud/{ENVIRONMENT_NAME}/tenants/{tenant_id}/credentials"
+            sec_val = json.dumps({
+                "username": username,
+                "password": password,
+                "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            })
             try:
-                secretsmanager.create_secret(Name=sec_id, SecretString=sec_val)
+                secretsmanager.put_secret_value(SecretId=sec_id, SecretString=sec_val)
             except Exception:
-                pass
-    except Exception as e:
-        print(f"Notice: Secrets Manager write on sync: {e}")
+                try:
+                    secretsmanager.create_secret(Name=sec_id, SecretString=sec_val)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Notice: Secrets Manager write on sync: {e}")
 
     return success
 
